@@ -318,6 +318,7 @@ export function ActivityList({
           <thead>
             <tr>
               <th>活动名称</th>
+              <th>规则类型</th>
               <th>活动商品</th>
               <th>参与门店</th>
               <th>活动时间</th>
@@ -327,7 +328,6 @@ export function ActivityList({
               <th className="table-col--optional">创建者</th>
               <th className="table-col--meta">创建时间</th>
               <th className="table-col--meta">更新时间</th>
-              <th>操作日志</th>
               <th>操作</th>
             </tr>
           </thead>
@@ -362,9 +362,6 @@ export function ActivityList({
                       <div className="activity-name-cell">
                         <div className="activity-name-cell__top">
                           <span className="activity-name-cell__name">{a.name || '未命名活动'}</span>
-                          <span className={`rule-tag rule-tag--${a.ruleType}`}>
-                            {getRuleTypeLabel(a.ruleType)}
-                          </span>
                         </div>
                         <button
                           type="button"
@@ -375,6 +372,11 @@ export function ActivityList({
                           {a.id}
                         </button>
                       </div>
+                    </td>
+                    <td>
+                      <span className={`rule-tag rule-tag--${a.ruleType}`}>
+                        {getRuleTypeLabel(a.ruleType)}
+                      </span>
                     </td>
                     <td onClick={stopRowClick}>
                       <SnapshotLink
@@ -413,15 +415,6 @@ export function ActivityList({
                     <td className="table-col--meta table-time">
                       <TimestampCell value={a.updatedAt ?? a.createdAt} />
                     </td>
-                    <td onClick={stopRowClick}>
-                      <button
-                        type="button"
-                        className="activity-log-link"
-                        onClick={() => setLogTarget(a)}
-                      >
-                        查看({a.operationLogs?.length ?? 0})
-                      </button>
-                    </td>
                     <td className="table-actions" onClick={stopRowClick}>
                       <button type="button" className="table-actions__view" onClick={() => onView(a.id)}>
                         <IconView />
@@ -432,6 +425,9 @@ export function ActivityList({
                         onToggle={() => setOpenMenuId((id) => (id === a.id ? null : a.id))}
                         onClose={() => setOpenMenuId(null)}
                       >
+                        <button type="button" onClick={() => { setLogTarget(a); setOpenMenuId(null) }}>
+                          操作日志（{a.operationLogs?.length ?? 0}）
+                        </button>
                         <button type="button" onClick={() => { onViewParticipation(a.id); setOpenMenuId(null) }}>
                           参与记录
                         </button>

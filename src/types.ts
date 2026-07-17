@@ -525,6 +525,184 @@ export interface MultiItemListFilters {
   storeId: string
 }
 
+/* ================= 满减/折 ================= */
+
+export type FullReductionThresholdType = 'order_amount' | 'item_count' | 'diner_count'
+
+export type FullReductionPromoMode = 'tiered' | 'cyclic'
+
+export type FullReductionDiscountType = 'amount_off' | 'percent_off'
+
+export interface FullReductionTier {
+  id: string
+  threshold: number
+  discountType: FullReductionDiscountType
+  discountValue: number
+}
+
+export interface FullReductionActivityForm {
+  id: string
+  name: string
+  title: string
+  tag: string
+  description: string
+  startTime: string
+  endTime: string
+  cycleType: CycleType
+  timeSlotType: TimeSlotType
+  priority: number
+  channels: string[]
+  orderTypes: string[]
+  thresholdType: FullReductionThresholdType
+  promoMode: FullReductionPromoMode
+  tiers: FullReductionTier[]
+  /** 循环满减时使用的单档规则（与 tiers[0] 同步维护亦可） */
+  cyclicThreshold: number
+  cyclicDiscountType: FullReductionDiscountType
+  cyclicDiscountValue: number
+  toppingsDiscount: boolean
+  packagingFeeDiscount: boolean
+  comboSurchargeDiscount: boolean
+  preparationSurchargeDiscount: boolean
+  totalParticipationLimitType: LimitType
+  totalParticipationLimit: number
+  participationFrequencyType: LimitType
+  participationFrequencyPeriod: ParticipationPeriod
+  participationFrequencyLimit: number
+  productScope: ProductScope
+  productIds: string[]
+  productSelectionMode: 'include' | 'exclude'
+  storeScope: StoreScope
+  storeIds: string[]
+  shareMutexRelation: ShareMutexRelation
+  participantUser: ParticipantUser
+  memberTagId: string
+  activityCode: string
+  titleDisplay: DisplayToggle
+  tagDisplay: DisplayToggle
+  status: ActivityStatus
+  creator: string
+  creatorPhone: string
+  creatorOrg: string
+  createdAt: string
+  updatedAt: string
+  operationLogs: ActivityOperationLog[]
+}
+
+export interface FullReductionListFilters {
+  keyword: string
+  productName: string
+  productId: string
+  activityCode: string
+  status: ActivityStatus | 'all'
+  thresholdType: FullReductionThresholdType | 'all'
+  startDate: string
+  endDate: string
+  storeId: string
+}
+
+/* ================= 会员价 ================= */
+
+export type MemberLevelId = 'normal' | 'silver' | 'gold' | 'platinum' | 'diamond'
+
+export type MemberPriceMethod = 'discount' | 'fixed_reduction' | 'special_price'
+
+/** 逐商品会员价配置 */
+export interface MemberPriceProductItem {
+  productId: string
+  /** 折数(如8.5) / 减价金额 / 固定价格，按 priceMethod 解释 */
+  value: number
+}
+
+export interface MemberPriceActivityForm {
+  id: string
+  name: string
+  title: string
+  tag: string
+  description: string
+  startTime: string
+  endTime: string
+  cycleType: CycleType
+  timeSlotType: TimeSlotType
+  priority: number
+  channels: string[]
+  orderTypes: string[]
+  memberLevels: MemberLevelId[]
+  priceMethod: MemberPriceMethod
+  productItems: MemberPriceProductItem[]
+  /** 商品范围为全部商品时的统一优惠值，按 priceMethod 解释 */
+  allProductsValue: number
+  toppingsDiscount: boolean
+  comboSurchargeDiscount: boolean
+  preparationSurchargeDiscount: boolean
+  totalParticipationLimitType: LimitType
+  totalParticipationLimit: number
+  participationFrequencyType: LimitType
+  participationFrequencyPeriod: ParticipationPeriod
+  participationFrequencyLimit: number
+  maxDiscountItemsTotalType: LimitType
+  maxDiscountItemsTotal: number
+  maxDiscountItemsDailyType: LimitType
+  maxDiscountItemsDaily: number
+  maxDiscountItemsPerOrderType: LimitType
+  maxDiscountItemsPerOrder: number
+  productScope: ProductScope
+  productIds: string[]
+  productSelectionMode: 'include' | 'exclude'
+  storeScope: StoreScope
+  storeIds: string[]
+  shareMutexRelation: ShareMutexRelation
+  participantUser: ParticipantUser
+  memberTagId: string
+  activityCode: string
+  titleDisplay: DisplayToggle
+  tagDisplay: DisplayToggle
+  memberPriceTagDisplay: DisplayToggle
+  status: ActivityStatus
+  creator: string
+  creatorPhone: string
+  creatorOrg: string
+  createdAt: string
+  updatedAt: string
+  operationLogs: ActivityOperationLog[]
+}
+
+export interface MemberPriceListFilters {
+  keyword: string
+  productName: string
+  productId: string
+  activityCode: string
+  status: ActivityStatus | 'all'
+  priceMethod: MemberPriceMethod | 'all'
+  memberLevel: MemberLevelId | 'all'
+  startDate: string
+  endDate: string
+  storeId: string
+}
+
+/** 会员价在用户端商品卡片中的通用展示设置 */
+export interface MemberPriceGeneralSettings {
+  customPromotionTagEnabled: boolean
+  tagContentMode: 'default' | 'member_level' | 'custom'
+  customTagText: string
+  styleMode: 'default' | 'custom'
+  backgroundStyle: 'solid' | 'image'
+  /** 图片背景：左侧价格段背景图（建议高30px、宽最大116px） */
+  leftBackgroundImage: string
+  /** 图片背景：右侧文案段背景图（建议高30px、宽最大130px） */
+  rightBackgroundImage: string
+  /** 左侧价格段（活动价）配色 */
+  leftBackgroundColor: string
+  leftTextColor: string
+  /** 右侧文案段（活动名称）配色 */
+  rightBackgroundColor: string
+  rightTextColor: string
+  tagPosition: 'default' | 'inline'
+  showOriginalPrice: boolean
+  /** 划线价开启时，会员价活动生效的活动价展示颜色 */
+  activityPriceColor: string
+}
+
 export type PageView =
   | { type: 'list' }
   | { type: 'wizard'; mode: WizardMode; activityId?: string; step?: number }
@@ -532,5 +710,12 @@ export type PageView =
   | { type: 'multi-item-list' }
   | { type: 'multi-item-wizard'; mode: WizardMode; activityId?: string; step?: number }
   | { type: 'multi-item-participation'; activityId: string }
+  | { type: 'member-price-list' }
+  | { type: 'member-price-settings' }
+  | { type: 'member-price-wizard'; mode: WizardMode; activityId?: string; step?: number }
+  | { type: 'member-price-participation'; activityId: string }
+  | { type: 'full-reduction-list' }
+  | { type: 'full-reduction-wizard'; mode: WizardMode; activityId?: string; step?: number }
+  | { type: 'full-reduction-participation'; activityId: string }
   | { type: 'order-list' }
-  | { type: 'order-detail'; orderId: string; from?: 'order-list' | 'activity-participation' | 'multi-item-participation'; activityId?: string }
+  | { type: 'order-detail'; orderId: string; from?: 'order-list' | 'activity-participation' | 'multi-item-participation' | 'member-price-participation' | 'full-reduction-participation'; activityId?: string }

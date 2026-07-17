@@ -1,22 +1,22 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { ActivityOperationLogModal } from '../components/ActivityOperationLogModal'
-import { MultiItemScopeSnapshotModal, type MultiItemScopeSnapshotType } from '../components/MultiItemScopeSnapshotModal'
+import { FullReductionScopeSnapshotModal, type FullReductionScopeSnapshotType } from '../components/FullReductionScopeSnapshotModal'
 import { CHANNELS, STATUS_LABELS } from '../mockData'
-import type { ActivityStatus, MultiItemActivityForm, MultiItemListFilters, MultiItemRuleType } from '../types'
+import type { ActivityStatus, FullReductionActivityForm, FullReductionListFilters, FullReductionThresholdType } from '../types'
 import {
   countActivitiesByStatus,
   formatCreatorDisplay,
   formatRuleSummary,
   getActivityRemainingLabel,
-  getMultiItemRuleTypeLabel,
   getParticipantUserLabel,
   getProductSummary,
   getStoreSummary,
+  getThresholdTypeLabel,
   matchesFilters,
-} from '../utils/multiItemActivity'
+} from '../utils/fullReductionActivity'
 
-interface MultiItemActivityListProps {
-  activities: MultiItemActivityForm[]
+interface FullReductionActivityListProps {
+  activities: FullReductionActivityForm[]
   onCreate: () => void
   onView: (id: string) => void
   onViewParticipation: (id: string) => void
@@ -31,23 +31,20 @@ interface MultiItemActivityListProps {
 const PRIMARY_STATUS_TABS: (ActivityStatus | 'all')[] = ['all', 'draft', 'pending', 'not_started', 'in_progress', 'ended']
 const MORE_STATUS_TABS: ActivityStatus[] = ['voided']
 
-const RULE_TYPE_OPTIONS: { value: MultiItemRuleType | 'all'; label: string }[] = [
+const THRESHOLD_OPTIONS: { value: FullReductionThresholdType | 'all'; label: string }[] = [
   { value: 'all', label: '全部' },
-  { value: 'nth_item', label: '第N件优惠' },
-  { value: 'every_n_items', label: '每N件优惠' },
-  { value: 'reach_m_discount_n', label: '满M件N件优惠' },
-  { value: 'every_reach_m_discount_n', label: '每满M件N件优惠' },
+  { value: 'order_amount', label: '满订单金额' },
+  { value: 'item_count', label: '满商品件数' },
+  { value: 'diner_count', label: '满点餐人数' },
 ]
 
-const EMPTY_FILTERS: MultiItemListFilters = {
+const EMPTY_FILTERS: FullReductionListFilters = {
   keyword: '',
   productName: '',
   productId: '',
   activityCode: '',
-  participantUser: 'all',
   status: 'all',
-  ruleType: 'all',
-  discountMethod: 'all',
+  thresholdType: 'all',
   startDate: '',
   endDate: '',
   storeId: 'all',
@@ -56,7 +53,7 @@ const EMPTY_FILTERS: MultiItemListFilters = {
 const CHANNEL_MAP = Object.fromEntries(CHANNELS.map((c) => [c.id, c]))
 const PAGE_SIZE = 10
 
-export function MultiItemActivityList({
+export function FullReductionActivityList({
   activities,
   onCreate,
   onView,
@@ -67,16 +64,16 @@ export function MultiItemActivityList({
   onVoid,
   onDelete,
   onToast,
-}: MultiItemActivityListProps) {
-  const [filters, setFilters] = useState<MultiItemListFilters>(EMPTY_FILTERS)
+}: FullReductionActivityListProps) {
+  const [filters, setFilters] = useState<FullReductionListFilters>(EMPTY_FILTERS)
   const [voidTarget, setVoidTarget] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [filterExpanded, setFilterExpanded] = useState(false)
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [statusMoreOpen, setStatusMoreOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
-  const [logTarget, setLogTarget] = useState<MultiItemActivityForm | null>(null)
-  const [snapshotTarget, setSnapshotTarget] = useState<{ activity: MultiItemActivityForm; type: MultiItemScopeSnapshotType } | null>(null)
+  const [logTarget, setLogTarget] = useState<FullReductionActivityForm | null>(null)
+  const [snapshotTarget, setSnapshotTarget] = useState<{ activity: FullReductionActivityForm; type: FullReductionScopeSnapshotType } | null>(null)
   const [page, setPage] = useState(1)
   const [enableRowAnim, setEnableRowAnim] = useState(true)
 
@@ -95,16 +92,15 @@ export function MultiItemActivityList({
   useEffect(() => { setPage(1) }, [filters])
 
   const statusCounts = useMemo(() => countActivitiesByStatus(activities, filters), [activities, filters])
-  const ruleTypeCounts = useMemo(() => {
-    const base = activities.filter((a) => matchesFilters(a, { ...filters, ruleType: 'all' }))
-    const counts: Record<MultiItemRuleType | 'all', number> = {
+  const thresholdCounts = useMemo(() => {
+    const base = activities.filter((a) => matchesFilters(a, { ...filters, thresholdType: 'all' }))
+    const counts: Record<FullReductionThresholdType | 'all', number> = {
       all: base.length,
-      nth_item: 0,
-      every_n_items: 0,
-      reach_m_discount_n: 0,
-      every_reach_m_discount_n: 0,
+      order_amount: 0,
+      item_count: 0,
+      diner_count: 0,
     }
-    for (const a of base) counts[a.ruleType] += 1
+    for (const a of base) counts[a.thresholdType] += 1
     return counts
   }, [activities, filters])
 
@@ -139,14 +135,14 @@ export function MultiItemActivityList({
   return (
     <div className="page-card page-card--list">
       <div className="list-info-banner">
-        通过对单品进行多件搭配打折、特惠价，提升销量及客单价，如第2件半价促销。
+        满减可将多商品凑单提升客单价，如满20减2、满30减5；支持满金额、满件数、满点餐人数（拼单）。
         <button type="button" className="link-btn">了解更多</button>
       </div>
 
       <header className="list-page-header list-page-header--compact">
         <div className="list-page-header__main">
           <div className="list-page-header__title-row">
-            <h1 className="list-page-header__title">第N件优惠</h1>
+            <h1 className="list-page-header__title">满减/折</h1>
             <PageHelpButton open={helpOpen} onToggle={() => setHelpOpen((v) => !v)} onClose={() => setHelpOpen(false)} />
           </div>
         </div>
@@ -190,26 +186,17 @@ export function MultiItemActivityList({
               <input className="input input--filter" value={filters.keyword} onChange={(e) => setFilters((f) => ({ ...f, keyword: e.target.value }))} placeholder="请输入活动名称或 ID" />
             </div>
             <div className="filter-item">
-              <label>规则类型</label>
+              <label>门槛类型</label>
               <select
                 className="input input--filter"
-                value={filters.ruleType}
-                onChange={(e) => setFilters((f) => ({ ...f, ruleType: e.target.value as MultiItemListFilters['ruleType'] }))}
+                value={filters.thresholdType}
+                onChange={(e) => setFilters((f) => ({ ...f, thresholdType: e.target.value as FullReductionListFilters['thresholdType'] }))}
               >
-                {RULE_TYPE_OPTIONS.map((opt) => (
+                {THRESHOLD_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
-                    {opt.label}{opt.value !== 'all' ? ` (${ruleTypeCounts[opt.value]})` : ` (${ruleTypeCounts.all})`}
+                    {opt.label}{opt.value !== 'all' ? ` (${thresholdCounts[opt.value]})` : ` (${thresholdCounts.all})`}
                   </option>
                 ))}
-              </select>
-            </div>
-            <div className="filter-item">
-              <label>优惠方式</label>
-              <select className="input input--filter" value={filters.discountMethod} onChange={(e) => setFilters((f) => ({ ...f, discountMethod: e.target.value as MultiItemListFilters['discountMethod'] }))}>
-                <option value="all">全部</option>
-                <option value="discount">折扣</option>
-                <option value="fixed_reduction">立减</option>
-                <option value="special_price">特价</option>
               </select>
             </div>
             <div className="filter-item">
@@ -253,12 +240,7 @@ export function MultiItemActivityList({
               </div>
               <div className="filter-item">
                 <label>活动编码</label>
-                <input
-                  className="input input--filter"
-                  value={filters.activityCode}
-                  onChange={(e) => setFilters((f) => ({ ...f, activityCode: e.target.value }))}
-                  placeholder="请输入活动编码"
-                />
+                <input className="input input--filter" value={filters.activityCode} onChange={(e) => setFilters((f) => ({ ...f, activityCode: e.target.value }))} placeholder="请输入活动编码" />
               </div>
             </div>
           </div>
@@ -270,7 +252,7 @@ export function MultiItemActivityList({
           <thead>
             <tr>
               <th>活动名称</th>
-              <th>规则类型</th>
+              <th>门槛类型</th>
               <th>活动商品</th>
               <th>参与门店</th>
               <th>活动时间</th>
@@ -289,7 +271,7 @@ export function MultiItemActivityList({
                 <td colSpan={12}>
                   <div className="table-empty-state">
                     <p className="table-empty-state__title">暂无活动</p>
-                    <p className="table-empty-state__desc">调整筛选条件，或新建一个多件优惠活动</p>
+                    <p className="table-empty-state__desc">调整筛选条件，或新建一个满减/折活动</p>
                     <button type="button" className="btn btn--primary btn--icon" onClick={onCreate}><IconPlus />新建活动</button>
                   </div>
                 </td>
@@ -308,7 +290,7 @@ export function MultiItemActivityList({
                     </div>
                   </td>
                   <td>
-                    <span className={`rule-tag rule-tag--${a.ruleType}`}>{getMultiItemRuleTypeLabel(a.ruleType)}</span>
+                    <span className={`rule-tag rule-tag--fr-${a.thresholdType}`}>{getThresholdTypeLabel(a.thresholdType)}</span>
                   </td>
                   <td onClick={stopRowClick}><SnapshotLink label={getProductSummary(a)} onClick={() => setSnapshotTarget({ activity: a, type: 'products' })} /></td>
                   <td onClick={stopRowClick}><SnapshotLink label={getStoreSummary(a)} onClick={() => setSnapshotTarget({ activity: a, type: 'stores' })} /></td>
@@ -384,7 +366,7 @@ export function MultiItemActivityList({
       )}
 
       {logTarget && <ActivityOperationLogModal activity={logTarget as never} onClose={() => setLogTarget(null)} />}
-      {snapshotTarget && <MultiItemScopeSnapshotModal activity={snapshotTarget.activity} type={snapshotTarget.type} onClose={() => setSnapshotTarget(null)} />}
+      {snapshotTarget && <FullReductionScopeSnapshotModal activity={snapshotTarget.activity} type={snapshotTarget.type} onClose={() => setSnapshotTarget(null)} />}
     </div>
   )
 }
@@ -393,7 +375,7 @@ function SnapshotLink({ label, onClick }: { label: string; onClick: () => void }
   return <button type="button" className="snapshot-link cell-ellipsis" title={`点击查看快照：${label}`} onClick={onClick}>{label}</button>
 }
 
-function CreatorCell({ activity }: { activity: MultiItemActivityForm }) {
+function CreatorCell({ activity }: { activity: FullReductionActivityForm }) {
   const { maskedPhone, org } = formatCreatorDisplay(activity)
   return <div className="creator-cell" title={`${maskedPhone} · ${org}`}><div className="creator-cell__phone">{maskedPhone}</div><div className="creator-cell__org">{org}</div></div>
 }
@@ -416,8 +398,8 @@ function PageHelpButton({ open, onToggle, onClose }: { open: boolean; onToggle: 
       <button type="button" className={`list-page-header__help ${open ? 'is-active' : ''}`} aria-label="功能说明" onClick={onToggle}><IconHelp /></button>
       {open && (
         <div className="page-help__popover" role="tooltip">
-          <p className="page-help__title">第N件优惠说明</p>
-          <p className="page-help__text">支持第N件优惠、每N件优惠、满M件N件优惠、每满M件N件优惠四种规则，可配置同一活动商品或任意活动商品门槛。</p>
+          <p className="page-help__title">满减/折说明</p>
+          <p className="page-help__text">支持满订单金额、满商品件数、满点餐人数三种门槛；满点餐人数仅微信拼单可用。优惠方式含阶梯满减与循环满减。</p>
         </div>
       )}
     </div>

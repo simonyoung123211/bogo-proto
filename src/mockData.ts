@@ -25,6 +25,14 @@ export const MEMBER_TAG_OPTIONS = [
   { value: 'tag_active', label: '活跃会员' },
 ]
 
+export const MEMBER_LEVELS = [
+  { id: 'normal' as const, label: '普卡' },
+  { id: 'silver' as const, label: '银卡' },
+  { id: 'gold' as const, label: '金卡' },
+  { id: 'platinum' as const, label: '铂金卡' },
+  { id: 'diamond' as const, label: '钻石卡' },
+]
+
 export const STATUS_LABELS: Record<string, string> = {
   all: '所有活动',
   draft: '草稿',
@@ -65,6 +73,30 @@ export const products: Product[] = [
   { id: 'p6', skuId: 'p6-sku-001', name: '薯条', categoryId: 'c3', categoryName: '小食', spec: '大份', code: 'SP009', barcode: '690006', specCode: 'SKU-006', identifier: 'TAG-006', price: 12 },
   { id: 'p7', skuId: 'p7-sku-001', name: '蛋挞', categoryId: 'c3', categoryName: '小食', spec: '2个装', code: 'SP010', barcode: '690007', specCode: 'SKU-007', identifier: 'TAG-007', price: 10 },
   { id: 'p8', skuId: 'p8-sku-001', name: '测试商品1', categoryId: 'c1', categoryName: '饮品', spec: '1份', code: 'SP011', barcode: '690008', specCode: 'SKU-008', identifier: 'TAG-008', price: 200 },
+  ...Array.from({ length: 210 }, (_, i) => {
+    const n = i + 1
+    const cats = [
+      { id: 'c1', name: '饮品' },
+      { id: 'c2', name: '主食' },
+      { id: 'c3', name: '小食' },
+    ] as const
+    const cat = cats[i % 3]
+    const specs = ['标准', '大杯', '中杯', '单人份', '套餐', '2个装']
+    const baseNames = ['鲜果茶', '拿铁', '美式', '轻食沙拉', '三明治', '鸡米花', '可乐', '雪顶咖啡', '芋泥波波', '牛肉饭']
+    return {
+      id: `gen-${String(n).padStart(3, '0')}`,
+      skuId: `gen-${String(n).padStart(3, '0')}-sku`,
+      name: `${baseNames[i % baseNames.length]}-${n}`,
+      categoryId: cat.id,
+      categoryName: cat.name,
+      spec: specs[i % specs.length],
+      code: `SP${String(n + 11).padStart(3, '0')}`,
+      barcode: `69${String(1000 + n).padStart(4, '0')}`,
+      specCode: `SKU-${String(n + 8).padStart(3, '0')}`,
+      identifier: `TAG-${String(n + 8).padStart(3, '0')}`,
+      price: Number(((i % 40) + 8 + (i % 7) * 0.5).toFixed(2)),
+    } satisfies Product
+  }),
 ]
 
 export const categories = [
