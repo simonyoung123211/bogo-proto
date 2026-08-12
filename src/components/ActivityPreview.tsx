@@ -110,6 +110,9 @@ export function ActivityPreview({
           onEdit={onEditSection}
         >
           <PreviewItem label="规则类型" value={activity.ruleType === 'buyA_getA' ? '买A送A' : '买A送B'} />
+          {activity.ruleType === 'buyA_getB' && (
+            <PreviewItem label="赠品优惠上限" value={limits.giftCap} />
+          )}
           {activity.ruleType === 'buyA_getA' && (
             <>
               <PreviewItem

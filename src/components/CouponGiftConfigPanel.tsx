@@ -9,6 +9,8 @@ interface CouponGiftConfigPanelProps {
   mode?: 'buyA' | 'buyB'
   /** 买A送B 赠品组序号，从 0 起；仅第 2 组（index=1）支持寄存券展示规则 */
   giftGroupIndex?: number
+  /** 买A送B：是否开启赠品优惠上限（仅赠品组1生效） */
+  giftDiscountCapByMainSku?: boolean
   maxStoragePerOrder?: number
   storageDescription?: string
   readOnly?: boolean
@@ -21,6 +23,7 @@ export function CouponGiftConfigPanel({
   config,
   mode = 'buyB',
   giftGroupIndex = 0,
+  giftDiscountCapByMainSku = false,
   maxStoragePerOrder = 50,
   storageDescription = '',
   readOnly,
@@ -31,6 +34,7 @@ export function CouponGiftConfigPanel({
   const [showPicker, setShowPicker] = useState(false)
   const isBuyA = mode === 'buyA'
   const showStorageDisplayRule = isBuyA ? false : giftGroupIndex === 1
+  const capApplies = !isBuyA && giftGroupIndex === 0 && giftDiscountCapByMainSku
 
   const storageTips = isBuyA
     ? {
@@ -44,8 +48,9 @@ export function CouponGiftConfigPanel({
     : {
         intro:
           '开启赠品转寄存券后，用户可选择当单不要实物赠品，改为领取 1 张【商品券】，下次消费时核销使用。',
-        template:
-          '买A送B 场景下，仅支持选择非「动态适用商品」的【商品券】模版；券模版中配置的商品须包含当前赠品组内的实物赠品。适用门店支持「指定门店」或「动态门店」：动态门店以下单门店为准，指定门店以券模版配置的门店为准。',
+        template: capApplies
+          ? '已开启「优惠不超过顾客所购门槛活动商品售价」：请选择「动态优惠 + 指定商品」的【商品券】模版。发券时会把顾客所购商品售价写入该券的动态优惠金额，下次核销时按此上限抵扣。券模版中的商品须包含本赠品组内的实物赠品。'
+          : '买A送B 场景下，仅支持选择非「动态适用商品」的【商品券】模版；券模版中配置的商品须包含当前赠品组内的实物赠品。适用门店支持「指定门店」或「动态门店」：动态门店以下单门店为准，指定门店以券模版配置的门店为准。',
         member:
           '游客用户不可参与寄存，须授权手机号注册为会员后方可领取，优惠券仅发放给会员。',
       }

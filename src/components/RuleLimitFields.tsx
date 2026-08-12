@@ -22,19 +22,33 @@ export function RuleLimitFields({ activity, readOnly, onChange }: RuleLimitField
   return (
     <>
       <FormRow label="加料商品是否参与优惠" required>
-        <ParticipateRadio
-          disabled={readOnly}
-          value={activity.toppingsDiscount}
-          onChange={(v) => update('toppingsDiscount', v)}
-        />
+        <div>
+          <ParticipateRadio
+            disabled={readOnly}
+            value={activity.toppingsDiscount}
+            onChange={(v) => update('toppingsDiscount', v)}
+          />
+          {activity.ruleType === 'buyA_getB' && activity.giftDiscountCapByMainSku && (
+            <p className="field-hint">
+              开启赠品优惠上限后：选「参与」时，赠品加料也可享受该优惠；选「不参与」时，加料需顾客另付。
+            </p>
+          )}
+        </div>
       </FormRow>
 
       <FormRow label="做法加价金额是否参与优惠" required>
-        <ParticipateRadio
-          disabled={readOnly}
-          value={activity.preparationSurchargeDiscount}
-          onChange={(v) => update('preparationSurchargeDiscount', v)}
-        />
+        <div>
+          <ParticipateRadio
+            disabled={readOnly}
+            value={activity.preparationSurchargeDiscount}
+            onChange={(v) => update('preparationSurchargeDiscount', v)}
+          />
+          {activity.ruleType === 'buyA_getB' && activity.giftDiscountCapByMainSku && (
+            <p className="field-hint">
+              开启赠品优惠上限后：选「参与」时，赠品做法加价也可享受该优惠；选「不参与」时，做法加价需顾客另付。
+            </p>
+          )}
+        </div>
       </FormRow>
 
       <FormRow label="用户参与活动总次数(单数)" required>
@@ -285,5 +299,10 @@ export function formatRuleLimitsSummary(activity: ActivityForm): Record<string, 
       ? '不限'
       : `每单最多优惠${activity.maxDiscountItemsPerOrder}件`,
     hitRule: activity.discountHitRule === 'highest_price' ? '按价格最高' : '按价格最低',
+    giftCap: activity.ruleType !== 'buyA_getB'
+      ? '-'
+      : activity.giftDiscountCapByMainSku
+        ? '优惠不超过所购门槛活动商品售价'
+        : '不限',
   }
 }

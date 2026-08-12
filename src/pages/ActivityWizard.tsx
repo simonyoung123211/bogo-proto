@@ -313,6 +313,8 @@ export function ActivityWizard({
                     <GiftGroupsEditor
                       groups={activity.giftGroups}
                       readOnly={readOnly}
+                      giftDiscountCapByMainSku={!!activity.giftDiscountCapByMainSku}
+                      onGiftDiscountCapChange={(enabled) => update('giftDiscountCapByMainSku', enabled)}
                       onChange={(groups) => onChange(withClampedMaxDiscountItemsPerOrder({ ...activity, giftGroups: groups }))}
                       onPickPhysicalProducts={(index) => {
                         setGiftPickerGroupIndex(index)

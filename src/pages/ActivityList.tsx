@@ -18,6 +18,7 @@ import { loadGeneralSettings, saveGeneralSettings } from '../utils/storage'
 
 interface ActivityListProps {
   activities: ActivityForm[]
+  linkedConsumerActivityId?: string | null
   onCreate: () => void
   onView: (id: string) => void
   onViewParticipation: (id: string) => void
@@ -25,6 +26,8 @@ interface ActivityListProps {
   onCopy: (id: string) => void
   onPublish: (id: string) => void
   onVoid: (id: string) => void
+  onLinkConsumerDemo?: (id: string) => void
+  onUnlinkConsumerDemo?: () => void
   onToast?: (message: string) => void
 }
 
@@ -55,6 +58,7 @@ const PAGE_SIZE = 10
 
 export function ActivityList({
   activities,
+  linkedConsumerActivityId = null,
   onCreate,
   onView,
   onViewParticipation,
@@ -62,6 +66,8 @@ export function ActivityList({
   onCopy,
   onPublish,
   onVoid,
+  onLinkConsumerDemo,
+  onUnlinkConsumerDemo,
   onToast,
 }: ActivityListProps) {
   const [filters, setFilters] = useState<ListFilters>(EMPTY_FILTERS)
@@ -377,6 +383,14 @@ export function ActivityList({
                       <span className={`rule-tag rule-tag--${a.ruleType}`}>
                         {getRuleTypeLabel(a.ruleType)}
                       </span>
+                      {linkedConsumerActivityId === a.id && (
+                        <span
+                          className="rule-tag"
+                          style={{ marginLeft: 6, background: '#e8f5e9', color: '#2e7d32' }}
+                        >
+                          已关联消费者端
+                        </span>
+                      )}
                     </td>
                     <td onClick={stopRowClick}>
                       <SnapshotLink
@@ -439,6 +453,29 @@ export function ActivityList({
                         <button type="button" onClick={() => { onCopy(a.id); setOpenMenuId(null) }}>
                           复制
                         </button>
+                        {a.ruleType === 'buyA_getB' && onLinkConsumerDemo && (
+                          linkedConsumerActivityId === a.id ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onUnlinkConsumerDemo?.()
+                                setOpenMenuId(null)
+                              }}
+                            >
+                              取消关联消费者端 Demo
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onLinkConsumerDemo(a.id)
+                                setOpenMenuId(null)
+                              }}
+                            >
+                              关联消费者端 Demo
+                            </button>
+                          )
+                        )}
                         {canPublish(a.status) && (
                           <button type="button" onClick={() => { onPublish(a.id); setOpenMenuId(null) }}>
                             发布

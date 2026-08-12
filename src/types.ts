@@ -124,6 +124,11 @@ export interface ActivityForm {
   productScope: ProductScope
   productIds: string[]
   giftGroups: GiftGroup[]
+  /**
+   * 买A送B：第1组赠品优惠上限是否不超过参与商品 SKU 售价。
+   * 未配置时视为不限额（整件免费）。
+   */
+  giftDiscountCapByMainSku?: boolean
   /** 买A送A：寄存券配置 */
   buyAStorageGift: CouponGiftConfig
   /** 买A送A：实物赠品小程序展示标题 */

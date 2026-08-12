@@ -169,6 +169,7 @@ export function createEmptyActivity(): ActivityForm {
     channels: ['wechat', 'alipay'],
     orderTypes: ['dine_in', 'takeaway', 'pickup'],
     ruleType: 'buyA_getA',
+    giftDiscountCapByMainSku: false,
     toppingsDiscount: true,
     preparationSurchargeDiscount: true,
     totalParticipationLimitType: 'limited',

@@ -8,14 +8,19 @@ import { GiftProductTable, GIFT_PRODUCT_MAX } from './GiftProductTable'
 interface GiftGroupsEditorProps {
   groups: GiftGroup[]
   readOnly?: boolean
+  /** 第1组赠品优惠上限：不超过参与商品 SKU 售价 */
+  giftDiscountCapByMainSku?: boolean
   onChange: (groups: GiftGroup[]) => void
+  onGiftDiscountCapChange?: (enabled: boolean) => void
   onPickPhysicalProducts: (groupIndex: number) => void
 }
 
 export function GiftGroupsEditor({
   groups,
   readOnly,
+  giftDiscountCapByMainSku = false,
   onChange,
+  onGiftDiscountCapChange,
   onPickPhysicalProducts,
 }: GiftGroupsEditorProps) {
   // 记录每组的折叠状态，默认全展开
@@ -62,10 +67,15 @@ export function GiftGroupsEditor({
           {groups.map((g, i) => {
             const isCollapsed = !!collapsed[g.id]
             const summary = [
+              i === 0
+                ? (giftDiscountCapByMainSku ? '优惠上限：不超过所购门槛活动商品售价' : '优惠上限：不限')
+                : null,
               physicalCount(g) > 0 ? `实物赠品 ${physicalCount(g)} 个SKU` : '实物赠品 未配置',
               couponEnabled(g) ? '寄存券 已开启' : '寄存券 未开启',
               g.image ? '说明图片 已上传' : '说明图片 未配置',
-            ].join('　')
+            ]
+              .filter(Boolean)
+              .join('　')
 
             return (
               <div key={g.id} className="gift-group-card">
@@ -102,6 +112,50 @@ export function GiftGroupsEditor({
 
                 {!isCollapsed && (
                   <div className="gift-group-card__body">
+                    {i === 0 && (
+                      <div className="gift-group-card__section">
+                        <div className="gift-group-card__section-title">
+                          <span className="gift-group-card__section-dot" />
+                          赠品优惠上限
+                          <span className="required" style={{ marginLeft: 4 }}>*</span>
+                        </div>
+                        <div className="form-control" style={{ paddingLeft: 0 }}>
+                          <div className="radio-group">
+                            <label className="radio">
+                              <input
+                                type="radio"
+                                disabled={readOnly}
+                                checked={!giftDiscountCapByMainSku}
+                                onChange={() => onGiftDiscountCapChange?.(false)}
+                              />
+                              不限
+                            </label>
+                            <label className="radio">
+                              <input
+                                type="radio"
+                                disabled={readOnly}
+                                checked={!!giftDiscountCapByMainSku}
+                                onChange={() => onGiftDiscountCapChange?.(true)}
+                              />
+                              优惠不超过顾客所购门槛活动商品售价
+                            </label>
+                          </div>
+                          {giftDiscountCapByMainSku && (
+                            <>
+                              <p className="field-hint">
+                                仅本赠品组生效。例如：顾客点的商品卖 10 元，赠品卖 15 元——当单拿走需再付 5 元；若选寄存券，下次使用最多可优惠 10 元。
+                              </p>
+                              <p className="field-hint">
+                                赠品加料、换做法产生的加价，是否也算进上述优惠，由「加料商品是否参与优惠」「做法加价是否参与优惠」决定。赠品相关费用不能再叠加其他优惠。
+                              </p>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {i === 0 && <div className="gift-group-card__divider" />}
+
                     <div className="gift-group-card__section">
                       <div className="gift-group-card__section-title">
                         <span className="gift-group-card__section-dot" />
@@ -136,6 +190,7 @@ export function GiftGroupsEditor({
                       </div>
                       <CouponGiftConfigPanel
                         giftGroupIndex={i}
+                        giftDiscountCapByMainSku={i === 0 ? giftDiscountCapByMainSku : false}
                         config={g.couponGift}
                         readOnly={readOnly}
                         onChange={(couponGift) => updateGroup(i, { couponGift })}

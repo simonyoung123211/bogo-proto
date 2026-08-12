@@ -47,6 +47,12 @@ import {
   saveMemberPriceActivities,
   saveMultiItemActivities,
 } from './utils/storage'
+import {
+  getDemoBridgeSourceId,
+  pushDemoBogoBridge,
+  setDemoBridgeSourceId,
+  syncLinkedBogoIfNeeded,
+} from './utils/demoBogoBridge'
 import './styles.css'
 
 function App() {
@@ -60,6 +66,7 @@ function App() {
   const [memberPriceDraft, setMemberPriceDraft] = useState<MemberPriceActivityForm | null>(null)
   const [fullReductionDraft, setFullReductionDraft] = useState<FullReductionActivityForm | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [linkedConsumerActivityId, setLinkedConsumerActivityId] = useState<string | null>(() => getDemoBridgeSourceId())
 
   const showToast = useCallback((msg: string) => setToast(msg), [])
   const currentOperator = getCreatorProfile('10086')
@@ -67,6 +74,32 @@ function App() {
   const persist = (next: ActivityForm[]) => {
     setActivities(next)
     saveActivities(next)
+    void syncLinkedBogoIfNeeded(next).catch((err) => {
+      console.warn('[demo-bogo-bridge] sync failed', err)
+    })
+  }
+
+  const handleLinkConsumerDemo = async (id: string) => {
+    const activity = activities.find((a) => a.id === id)
+    if (!activity || activity.ruleType !== 'buyA_getB') {
+      showToast('仅买A送B活动可关联消费者端 Demo')
+      return
+    }
+    try {
+      await pushDemoBogoBridge(activity)
+      setDemoBridgeSourceId(activity.id)
+      setLinkedConsumerActivityId(activity.id)
+      showToast(`已关联消费者端买A送B（${activity.id} → act-bogo-001），保存后实时同步`)
+    } catch (err) {
+      console.warn(err)
+      showToast('同步失败：请确认商家端已启动且桥接 API 可用')
+    }
+  }
+
+  const handleUnlinkConsumerDemo = () => {
+    setDemoBridgeSourceId(null)
+    setLinkedConsumerActivityId(null)
+    showToast('已取消与消费者端 Demo 的关联')
   }
 
   const persistMultiItem = (next: MultiItemActivityForm[]) => {
@@ -602,6 +635,7 @@ function App() {
       ) : view.type === 'list' ? (
         <ActivityList
           activities={activities}
+          linkedConsumerActivityId={linkedConsumerActivityId}
           onCreate={handleCreate}
           onView={handleView}
           onViewParticipation={(id) => setView({ type: 'activity-participation', activityId: id })}
@@ -609,6 +643,8 @@ function App() {
           onCopy={handleCopy}
           onPublish={handlePublishFromList}
           onVoid={handleVoid}
+          onLinkConsumerDemo={handleLinkConsumerDemo}
+          onUnlinkConsumerDemo={handleUnlinkConsumerDemo}
           onToast={showToast}
         />
       ) : view.type === 'multi-item-list' ? (
