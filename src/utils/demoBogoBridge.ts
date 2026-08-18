@@ -70,6 +70,8 @@ export interface ConsumerBogoBridgeActivity {
   }
   memberOnly?: boolean
   giftRule?: 'choose_from_list' | 'same_as_threshold'
+  /** 赠品组1在选赠品页的副标题说明；未填写则不展示 */
+  giftGroup1Subtitle?: string
   giftDiscountCapByMainSku?: boolean
   toppingsDiscount?: boolean
   preparationSurchargeDiscount?: boolean
@@ -252,6 +254,7 @@ export function mapMerchantBogoToConsumer(activity: ActivityForm): ConsumerBogoB
     extraGiftGroup,
     memberOnly: activity.participantUser === 'registered_member',
     giftRule: 'choose_from_list',
+    giftGroup1Subtitle: group1?.displaySubtitle?.trim() || undefined,
     giftDiscountCapByMainSku: !!activity.giftDiscountCapByMainSku,
     toppingsDiscount: activity.toppingsDiscount !== false,
     preparationSurchargeDiscount: activity.preparationSurchargeDiscount !== false,

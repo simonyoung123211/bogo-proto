@@ -174,6 +174,12 @@ export function ActivityPreview({
                   ? '已上传（小程序以图片展示组说明）'
                   : gi === 0 ? '未配置（使用标题文案展示）' : '未配置（使用系统默认文案）'}
               />
+              {gi === 0 && (
+                <PreviewItem
+                  label="赠品组副标题"
+                  value={group.displaySubtitle?.trim() || '未填写（选赠品页不展示）'}
+                />
+              )}
               {group.physicalProductIds.length > 0 && (
                 <>
                   <PreviewItem label="实物赠品" value={`${group.physicalProductIds.length}个SKU`} />

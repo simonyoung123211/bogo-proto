@@ -57,6 +57,8 @@ export interface GiftGroup {
   image?: string
   /** 小程序赠品选择页 - 实物赠品入口展示标题（仅赠品组1） */
   physicalDisplayTitle?: string
+  /** 小程序赠品选择页 - 赠品组1副标题说明；未填写则不展示 */
+  displaySubtitle?: string
 }
 
 export const MAX_GIFT_GROUPS = 2

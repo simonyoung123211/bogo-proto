@@ -132,6 +132,7 @@ export const couponTemplates: CouponTemplate[] = [
 export const DEFAULT_PHYSICAL_GIFT_DISPLAY_TITLE = '当单立享'
 export const DEFAULT_STORAGE_COUPON_DISPLAY_TITLE = '我要寄存，下次用'
 export const GIFT_DISPLAY_TITLE_MAX = 12
+export const GIFT_GROUP_SUBTITLE_MAX = 30
 
 export function createEmptyCouponGift(): CouponGiftConfig {
   return {

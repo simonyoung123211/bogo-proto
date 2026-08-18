@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { createEmptyGiftGroup, DEFAULT_PHYSICAL_GIFT_DISPLAY_TITLE, DEFAULT_STORAGE_COUPON_DISPLAY_TITLE, GIFT_DISPLAY_TITLE_MAX } from '../mockData'
+import { createEmptyGiftGroup, DEFAULT_PHYSICAL_GIFT_DISPLAY_TITLE, DEFAULT_STORAGE_COUPON_DISPLAY_TITLE, GIFT_DISPLAY_TITLE_MAX, GIFT_GROUP_SUBTITLE_MAX } from '../mockData'
 import type { GiftGroup } from '../types'
 import { MAX_GIFT_GROUPS } from '../types'
 import { CouponGiftConfigPanel } from './CouponGiftConfigPanel'
@@ -73,6 +73,7 @@ export function GiftGroupsEditor({
               physicalCount(g) > 0 ? `实物赠品 ${physicalCount(g)} 个SKU` : '实物赠品 未配置',
               couponEnabled(g) ? '寄存券 已开启' : '寄存券 未开启',
               g.image ? '说明图片 已上传' : '说明图片 未配置',
+              i === 0 && g.displaySubtitle?.trim() ? '副标题 已配置' : null,
             ]
               .filter(Boolean)
               .join('　')
@@ -221,10 +222,26 @@ export function GiftGroupsEditor({
                           ? '用于小程序赠品选择页中本组赠品的标题说明区域。上传图片后将以图片形式展示组说明，便于商家个性化运营；未上传时使用上方配置的标题文案。'
                           : '用于小程序「加赠好礼」区域的组说明展示。上传图片后以图片形式个性化展示；未上传时使用系统默认文案。'}
                       </p>
+                      {i === 0 && (
+                        <GiftDisplayTitleField
+                          label="赠品组副标题"
+                          hint="用于小程序赠品选择页「第 2 件商品」区域的简要说明。未填写则不展示；已上传说明图时仍展示在图片下方。"
+                          value={g.displaySubtitle}
+                          defaultValue=""
+                          placeholder="如：赠品优惠最高不超过门槛品售价（不含加料）"
+                          maxLength={GIFT_GROUP_SUBTITLE_MAX}
+                          wide
+                          readOnly={readOnly}
+                          onChange={(displaySubtitle) =>
+                            updateGroup(i, { displaySubtitle: displaySubtitle.trim() ? displaySubtitle : undefined })
+                          }
+                        />
+                      )}
                       <GiftGroupImagePicker
                         groupIndex={i}
                         value={g.image}
                         physicalTitle={g.physicalDisplayTitle}
+                        groupSubtitle={i === 0 ? g.displaySubtitle : undefined}
                         readOnly={readOnly}
                         onChange={(image) => updateGroup(i, { image })}
                       />
@@ -256,6 +273,9 @@ interface GiftDisplayTitleFieldProps {
   hint: string
   value?: string
   defaultValue: string
+  placeholder?: string
+  maxLength?: number
+  wide?: boolean
   readOnly?: boolean
   onChange: (value: string) => void
 }
@@ -265,14 +285,18 @@ export function GiftDisplayTitleField({
   hint,
   value,
   defaultValue,
+  placeholder,
+  maxLength = GIFT_DISPLAY_TITLE_MAX,
+  wide,
   readOnly,
   onChange,
 }: GiftDisplayTitleFieldProps) {
   const display = value ?? defaultValue
+  const shownPlaceholder = placeholder ?? defaultValue
 
   if (readOnly) {
     return (
-      <div className="gift-display-title gift-display-title--readonly">
+      <div className={`gift-display-title gift-display-title--readonly${wide ? ' gift-display-title--wide' : ''}`}>
         <span className="gift-display-title__label">{label}</span>
         <span className="gift-display-title__value">{display || '-'}</span>
       </div>
@@ -280,17 +304,17 @@ export function GiftDisplayTitleField({
   }
 
   return (
-    <div className="gift-display-title">
+    <div className={`gift-display-title${wide ? ' gift-display-title--wide' : ''}`}>
       <label className="gift-display-title__label">{label}</label>
       <div className="char-input-wrap gift-display-title__input-wrap">
         <input
           className="input input--count"
           value={display}
-          maxLength={GIFT_DISPLAY_TITLE_MAX}
-          placeholder={defaultValue}
+          maxLength={maxLength}
+          placeholder={shownPlaceholder}
           onChange={(e) => onChange(e.target.value)}
         />
-        <span className="char-count">{display.length}/{GIFT_DISPLAY_TITLE_MAX}</span>
+        <span className="char-count">{display.length}/{maxLength}</span>
       </div>
       <div className="field-hint field-hint--inline">{hint}</div>
     </div>
@@ -300,6 +324,7 @@ export function GiftDisplayTitleField({
 interface GiftGroupImagePickerProps {
   groupIndex: number
   physicalTitle?: string
+  groupSubtitle?: string
   value?: string
   readOnly?: boolean
   onChange: (url: string | undefined) => void
@@ -310,7 +335,14 @@ const GROUP_IMAGE_HINTS = [
   '展示于小程序「加赠好礼」区域顶部，如：额外赠送说明',
 ]
 
-export function GiftGroupImagePicker({ groupIndex, physicalTitle, value, readOnly, onChange }: GiftGroupImagePickerProps) {
+export function GiftGroupImagePicker({
+  groupIndex,
+  physicalTitle,
+  groupSubtitle,
+  value,
+  readOnly,
+  onChange,
+}: GiftGroupImagePickerProps) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [previewError, setPreviewError] = useState(false)
 
@@ -420,6 +452,9 @@ export function GiftGroupImagePicker({ groupIndex, physicalTitle, value, readOnl
                   )}
                 </div>
               )}
+              {groupSubtitle?.trim() ? (
+                <div className="gg-mock-phone__group-sub">{groupSubtitle.trim()}</div>
+              ) : null}
               <div className="gg-mock-phone__cards">
                 <div className="gg-mock-phone__card" />
                 <div className="gg-mock-phone__card gg-mock-phone__card--dim" />

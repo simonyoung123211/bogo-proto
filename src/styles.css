@@ -1112,6 +1112,7 @@ button, input, select, textarea { font: inherit; }
 }
 .gift-display-title--readonly .gift-display-title__value { color: var(--text-primary); }
 .gift-display-title__input-wrap { max-width: 360px; margin-top: 6px; }
+.gift-display-title--wide .gift-display-title__input-wrap { max-width: 520px; }
 
 /* Gift group image picker */
 .gift-group-image-desc {
@@ -1170,6 +1171,10 @@ button, input, select, textarea { font: inherit; }
 }
 .gg-mock-phone__banner-sub {
   width: 100%; font-size: 9px; color: #8c8c8c; margin-top: 2px;
+}
+.gg-mock-phone__group-sub {
+  width: 100%; margin: -4px 0 8px; padding: 0 2px;
+  font-size: 9px; line-height: 1.45; color: #595959;
 }
 .gg-mock-phone__cards { display: flex; flex-direction: column; gap: 6px; }
 .gg-mock-phone__card {

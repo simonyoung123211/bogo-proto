@@ -394,6 +394,7 @@ export function migrateActivity(raw: Record<string, unknown>): ActivityForm {
       return {
         ...g,
         physicalDisplayTitle: g.physicalDisplayTitle ?? DEFAULT_PHYSICAL_GIFT_DISPLAY_TITLE,
+        displaySubtitle: g.displaySubtitle?.trim() || undefined,
         couponGift: {
           ...createEmptyCouponGift(),
           ...couponGift,
