@@ -39,9 +39,26 @@ export const STATUS_LABELS: Record<string, string> = {
   pending: '待发布',
   not_started: '未开始',
   in_progress: '进行中',
+  paused: '已暂停',
   ended: '已结束',
   voided: '已作废',
 }
+
+/**
+ * 状态页签统一按活动生命周期排序：
+ * 所有活动 → 草稿 → 待发布 → 未开始 → 进行中 → 已暂停 → 已结束 → 已作废。
+ * 五类活动共用同一顺序，商家在模块间切换时页签位置不变。
+ * 已作废是终态且查看频次低，收进「更多状态」。
+ */
+export const PRIMARY_STATUS_TABS: (ActivityStatus | 'all')[] = [
+  'all', 'draft', 'pending', 'not_started', 'in_progress', 'paused', 'ended',
+]
+
+export const MORE_STATUS_TABS: ActivityStatus[] = ['voided']
+
+/** 暂停超时分级阈值（分钟）：绿 → 黄 → 红，全部活动类型共用 */
+export const PAUSE_WARN_MINUTES = 10
+export const PAUSE_OVERDUE_MINUTES = 20
 
 /** 创建者账号信息（演示数据） */
 export const CREATOR_PROFILES: Record<string, { phone: string; org: string }> = {

@@ -5,20 +5,29 @@ import type {
   MemberPriceActivityForm,
   MemberPriceGeneralSettings,
   MultiItemActivityForm,
+  PaidMemberCardTemplate,
+  PaidMemberPriceActivityForm,
 } from '../types'
 import { initialActivities } from '../mockData'
 import { initialFullReductionActivities } from '../mockFullReductionData'
 import { initialMemberPriceActivities } from '../mockMemberPriceData'
 import { initialMultiItemActivities } from '../mockMultiItemData'
+import {
+  initialPaidMemberCards,
+  initialPaidMemberPriceActivities,
+} from '../mockPaidMemberPriceData'
 import { migrateActivity } from './activity'
 import { migrateFullReductionActivity } from './fullReductionActivity'
 import { migrateMemberPriceActivity } from './memberPriceActivity'
 import { migrateMultiItemActivity } from './multiItemActivity'
+import { migratePaidMemberPriceActivity } from './paidMemberPriceActivity'
 
 const STORAGE_KEY = 'bogo-activities-v1'
 const MULTI_ITEM_STORAGE_KEY = 'multi-item-activities-v1'
 const MEMBER_PRICE_STORAGE_KEY = 'member-price-activities-v1'
 const FULL_REDUCTION_STORAGE_KEY = 'full-reduction-activities-v1'
+const PAID_MEMBER_PRICE_STORAGE_KEY = 'paid-member-price-activities-v1'
+const PAID_MEMBER_CARD_STORAGE_KEY = 'paid-member-cards-v1'
 const GENERAL_SETTINGS_KEY = 'bogo-general-settings-v1'
 const MEMBER_PRICE_GENERAL_SETTINGS_KEY = 'member-price-general-settings-v1'
 
@@ -164,4 +173,38 @@ export function loadFullReductionActivities(): FullReductionActivityForm[] {
 
 export function saveFullReductionActivities(activities: FullReductionActivityForm[]): void {
   localStorage.setItem(FULL_REDUCTION_STORAGE_KEY, JSON.stringify(activities))
+}
+
+export function loadPaidMemberPriceActivities(): PaidMemberPriceActivityForm[] {
+  try {
+    const raw = localStorage.getItem(PAID_MEMBER_PRICE_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>[]
+      return parsed.map((a) => migratePaidMemberPriceActivity(a))
+    }
+  } catch {
+    /* ignore */
+  }
+  return [...initialPaidMemberPriceActivities]
+}
+
+export function savePaidMemberPriceActivities(activities: PaidMemberPriceActivityForm[]): void {
+  localStorage.setItem(PAID_MEMBER_PRICE_STORAGE_KEY, JSON.stringify(activities))
+}
+
+export function loadPaidMemberCards(): PaidMemberCardTemplate[] {
+  try {
+    const raw = localStorage.getItem(PAID_MEMBER_CARD_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as PaidMemberCardTemplate[]
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed
+    }
+  } catch {
+    /* ignore */
+  }
+  return [...initialPaidMemberCards]
+}
+
+export function savePaidMemberCards(cards: PaidMemberCardTemplate[]): void {
+  localStorage.setItem(PAID_MEMBER_CARD_STORAGE_KEY, JSON.stringify(cards))
 }

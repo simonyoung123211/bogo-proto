@@ -5,12 +5,12 @@ import { FullReductionBasicInfoFields } from '../components/FullReductionBasicIn
 import { FullReductionRuleFields } from '../components/FullReductionRuleFields'
 import { FullReductionRuleLimitFields } from '../components/FullReductionRuleLimitFields'
 import { ProductPicker } from '../components/ProductPicker'
+import { SelectedProductTable } from '../components/SelectedProductTable'
 import { StorePicker } from '../components/StorePicker'
 import { CHANNELS, ORDER_TYPES, STATUS_LABELS } from '../mockData'
 import type { FullReductionActivityForm, WizardMode } from '../types'
 import {
   FULL_REDUCTION_DINER_ORDER_TYPES,
-  getActivityProducts,
   validateStep,
 } from '../utils/fullReductionActivity'
 
@@ -22,6 +22,7 @@ interface FullReductionActivityWizardProps {
   onSaveDraft: () => void
   onSave: () => void
   onSwitchToEdit?: () => void
+  onToast?: (message: string) => void
 }
 
 const STEPS = ['活动基础规则', '选择参与门店', '选择参与商品', '预览并保存']
@@ -35,6 +36,7 @@ export function FullReductionActivityWizard({
   onSaveDraft,
   onSave,
   onSwitchToEdit,
+  onToast,
 }: FullReductionActivityWizardProps) {
   const isView = mode === 'view'
   const readOnly = isView
@@ -112,8 +114,6 @@ export function FullReductionActivityWizard({
     setError(null)
     setStep((s) => Math.max(s - 1, 0))
   }
-
-  const selectedProducts = getActivityProducts(activity)
 
   return (
     <div className={`wizard ${isView ? 'wizard--view' : ''}`}>
@@ -252,34 +252,29 @@ export function FullReductionActivityWizard({
                   </div>
                 )}
                 {activity.productScope === 'partial' && (
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>商品名称</th>
-                        <th>规格</th>
-                        <th>类目</th>
-                        <th>销售价</th>
-                        {!readOnly && <th>操作</th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedProducts.length === 0 ? (
-                        <tr><td colSpan={readOnly ? 4 : 5} className="table-empty">暂无数据</td></tr>
-                      ) : selectedProducts.map((p) => (
-                        <tr key={p.id}>
-                          <td><div>{p.name}</div><div className="text-secondary mono">{p.id}</div></td>
-                          <td>{p.spec}</td>
-                          <td>{p.categoryName}</td>
-                          <td>¥{p.price}</td>
-                          {!readOnly && (
-                            <td>
-                              <button type="button" className="link-btn" onClick={() => update('productIds', activity.productIds.filter((id) => id !== p.id))}>移除</button>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <SelectedProductTable
+                    productIds={activity.productIds}
+                    readOnly={readOnly}
+                    onChange={(ids) => update('productIds', ids)}
+                    onToast={onToast}
+                    itemLabel={activity.productSelectionMode === 'exclude' ? '不参与商品' : '商品'}
+                    emptyText="暂无数据，请点击「添加商品」选择商品"
+                    columns={[
+                      {
+                        key: 'name',
+                        header: '商品名称',
+                        render: (p) => (
+                          <>
+                            <div>{p.name}</div>
+                            <div className="text-secondary mono">{p.id}</div>
+                          </>
+                        ),
+                      },
+                      { key: 'spec', header: '规格', render: (p) => p.spec },
+                      { key: 'category', header: '类目', render: (p) => p.categoryName },
+                      { key: 'price', header: '销售价', render: (p) => `¥${p.price}` },
+                    ]}
+                  />
                 )}
               </Section>
             </div>

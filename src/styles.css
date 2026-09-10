@@ -1733,6 +1733,19 @@ button, input, select, textarea { font: inherit; }
 .checkbox-group--wrap { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 .member-price-toolbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
 .member-price-batch { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 13px; }
+/* 已选商品列表内检索（五类活动共用） */
+.selected-product-search { margin-bottom: 8px; }
+.selected-product-search__row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.selected-product-search__input { width: 280px; }
+.selected-product-search__count { font-size: 13px; color: var(--text-secondary); }
+.selected-product-search__count strong { color: var(--text-primary); font-weight: 600; }
+.selected-product-search__hint {
+  margin: 6px 0 0; font-size: 12px; color: var(--text-secondary);
+}
+.table-empty .link-btn { margin-left: 8px; }
+
 .member-price-input { display: inline-flex; align-items: center; gap: 6px; }
 .member-price-input .input--num { width: 88px; }
 .order-product__img--sm { width: 36px; height: 36px; flex-shrink: 0; }
@@ -2079,3 +2092,216 @@ button, input, select, textarea { font: inherit; }
     font-weight: 500;
   }
 }
+
+/* ================= 付费会员价 ================= */
+
+/* 已暂停状态（买1送N / 第N件优惠 / 满减折 / 会员价 / 付费会员价共用） */
+.status-badge--paused { background: #fff7e6; color: #ad6800; }
+.status-badge--paused::before { background: #fa8c16; }
+.status-badge--xs { padding: 0 6px; font-size: 11px; }
+.table-row--status-paused { background: #fffdf7; }
+
+/* 暂停时长分级：绿 → 黄 → 红 */
+.pause-timer {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 7px; border-radius: 9px;
+  font-size: 11px; line-height: 18px; white-space: nowrap;
+}
+.pause-timer::before { content: ''; width: 5px; height: 5px; border-radius: 50%; }
+.pause-timer--ok { background: rgba(0,181,120,0.1); color: #0a7f57; }
+.pause-timer--ok::before { background: var(--brand-primary); }
+.pause-timer--warn { background: #fffbe6; color: #ad6800; }
+.pause-timer--warn::before { background: #faad14; }
+.pause-timer--overdue { background: #fff1f0; color: var(--danger); font-weight: 500; }
+.pause-timer--overdue::before { background: var(--danger); }
+
+/* 页面级提醒条 */
+.alert-banner {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 14px; margin-bottom: 12px;
+  border-radius: 4px; font-size: 13px; line-height: 1.6;
+}
+.alert-banner__icon {
+  flex-shrink: 0;
+  width: 16px; height: 16px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: #fff;
+}
+.alert-banner--danger { background: #fff1f0; border: 1px solid #ffccc7; color: #a8071a; }
+.alert-banner--danger .alert-banner__icon { background: var(--danger); }
+.alert-banner--warning { background: #fffbe6; border: 1px solid #ffe58f; color: #874d00; }
+.alert-banner--warning .alert-banner__icon { background: #faad14; }
+.alert-banner--info { background: #e6f7ff; border: 1px solid #bae7ff; color: #0050b3; }
+.alert-banner--info .alert-banner__icon { background: #1890ff; }
+
+/* 卡在售状态 */
+.card-status--on_sale { background: var(--brand-primary-light); color: var(--brand-primary); }
+.card-status--on_sale::before { background: var(--brand-primary); }
+.card-status--off_shelf { background: #f0f0f0; color: #8c8c8c; }
+.card-status--off_shelf::before { background: #bfbfbf; }
+.card-status--stopped { background: #fff1f0; color: var(--danger); }
+.card-status--stopped::before { background: var(--danger); }
+
+.card-status-cell { display: flex; flex-direction: column; gap: 3px; }
+.card-status-cell__hint { font-size: 11px; color: #d48806; line-height: 1.4; }
+
+/* 列表：关联权益卡列 */
+.card-benefit-cell { display: flex; flex-direction: column; gap: 2px; }
+.card-benefit-cell__card { font-size: 13px; color: var(--text-primary); }
+.card-benefit-cell__benefit { font-size: 12px; color: var(--brand-primary); }
+.card-benefit-cell__id { font-size: 11px; color: var(--text-secondary); font-family: ui-monospace, Menlo, Consolas, monospace; }
+
+.status-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.status-cell__hint { font-size: 11px; color: var(--text-secondary); }
+
+/* 行操作菜单：演示分组 */
+.row-action-menu__group {
+  border-top: 1px solid var(--border-light, #f0f0f0);
+  margin-top: 4px; padding-top: 4px;
+}
+.row-action-menu__group-label {
+  display: block; padding: 3px 12px;
+  font-size: 11px; color: var(--text-secondary);
+}
+.row-action-menu__sub { padding-left: 20px !important; font-size: 12px !important; }
+
+/* 付费权益卡页面 */
+.card-grid { display: flex; flex-direction: column; gap: 16px; }
+.benefit-card {
+  border: 1px solid var(--border-light, #f0f0f0);
+  border-radius: 6px; padding: 16px 18px; background: #fff;
+}
+.benefit-card__header { display: flex; flex-direction: column; gap: 6px; }
+.benefit-card__title-row { display: flex; align-items: center; gap: 10px; }
+.benefit-card__name { margin: 0; font-size: 16px; font-weight: 600; }
+.benefit-card__meta {
+  display: flex; flex-wrap: wrap; gap: 16px;
+  font-size: 12px; color: var(--text-secondary);
+}
+.benefit-card__actions { display: flex; gap: 8px; margin: 12px 0; }
+.benefit-empty {
+  padding: 20px; text-align: center; border-radius: 4px;
+  background: #fafafa; color: var(--text-secondary); font-size: 13px;
+}
+
+.benefit-name-cell { display: flex; align-items: flex-start; gap: 8px; }
+.benefit-name-cell__icon {
+  flex-shrink: 0; width: 28px; height: 28px; border-radius: 4px; object-fit: cover;
+}
+.benefit-name-cell__icon--placeholder {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--brand-primary-light); color: var(--brand-primary);
+  font-size: 12px; font-weight: 600;
+}
+.benefit-name-cell__name { font-size: 13px; }
+.benefit-name-cell__desc {
+  max-width: 220px; font-size: 11px; color: var(--text-secondary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.quota-list { display: flex; flex-direction: column; gap: 2px; }
+.quota-list__row { display: flex; gap: 6px; font-size: 12px; }
+.quota-list__spec { min-width: 58px; color: var(--text-secondary); }
+.quota-list__sep { color: #d9d9d9; }
+
+.bound-activity-list { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+
+/* 向导：权益额度只读面板 */
+.quota-panel {
+  border: 1px solid var(--border-light, #f0f0f0);
+  border-radius: 4px; padding: 12px 14px; background: #fafafa;
+  max-width: var(--form-content-max);
+}
+.quota-panel__desc { margin: 0 0 10px; font-size: 12px; color: var(--text-secondary); line-height: 1.7; }
+.quota-panel__foot { margin: 10px 0 0; font-size: 12px; color: var(--text-secondary); }
+.quota-inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.quota-inline__item {
+  padding: 2px 8px; border-radius: 10px;
+  background: var(--brand-primary-light); color: var(--brand-primary); font-size: 12px;
+}
+.quota-inline .field-hint { flex-basis: 100%; }
+
+.field-static { margin: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+.inline-empty { font-size: 13px; color: var(--text-secondary); }
+.text-warning { color: #d48806; }
+.text-mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+.link-btn--danger { color: var(--danger); }
+.tag--muted {
+  margin-left: 6px; padding: 0 6px; border-radius: 8px;
+  background: #f0f0f0; color: #8c8c8c; font-size: 11px;
+}
+.table-wrap--inline { max-width: var(--form-content-max); }
+.table--benefit { min-width: 860px; }
+
+/* 权益弹窗 */
+.modal--benefit { width: 760px; max-width: 92vw; }
+.modal__body--scroll { max-height: 68vh; overflow-y: auto; }
+.benefit-intro {
+  border-left: 3px solid var(--brand-primary);
+  padding: 8px 12px; margin-bottom: 14px;
+  background: var(--brand-primary-light); border-radius: 0 4px 4px 0;
+}
+.benefit-intro__title { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--brand-primary); }
+.benefit-intro__text { margin: 0; font-size: 12px; color: #0a7f57; line-height: 1.7; }
+
+.icon-upload {
+  width: 72px; height: 72px; border-radius: 4px;
+  border: 1px dashed #d9d9d9; background: #fafafa;
+  cursor: pointer; color: var(--text-secondary); font-size: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  vertical-align: middle;
+}
+.icon-upload:hover { border-color: var(--brand-primary); color: var(--brand-primary); }
+.icon-upload.has-image { border-style: solid; padding: 0; overflow: hidden; }
+.icon-upload img { width: 100%; height: 100%; object-fit: cover; }
+
+/* 跨活动参与记录查询 */
+.scope-picker-btn {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-width: 240px; height: 32px; padding: 0 10px;
+  border: 1px solid #d9d9d9; border-radius: 4px; background: #fff;
+  font-size: 13px; color: var(--text-primary); cursor: pointer;
+}
+.scope-picker-btn:hover { border-color: var(--brand-primary); }
+.scope-picker-btn__text {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px;
+}
+.scope-picker-btn__action { color: var(--brand-primary); flex-shrink: 0; }
+
+.participation-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.participation-view-switch {
+  display: inline-flex; border: 1px solid #d9d9d9; border-radius: 4px; overflow: hidden;
+}
+.participation-view-switch__item {
+  border: none; background: #fff; cursor: pointer;
+  padding: 5px 14px; font-size: 13px; color: var(--text-secondary);
+}
+.participation-view-switch__item + .participation-view-switch__item { border-left: 1px solid #d9d9d9; }
+.participation-view-switch__item.is-active { background: var(--brand-primary); color: #fff; }
+
+.participation-stats {
+  display: flex; align-items: center; gap: 28px; flex-wrap: wrap;
+  padding: 10px 16px; margin-bottom: 12px;
+  background: #f7f9fc; border: 1px solid var(--border); border-radius: 4px;
+  font-size: 13px; color: var(--text-secondary);
+}
+.participation-stats__label { margin-right: 6px; }
+.participation-stats strong { color: var(--text-primary); font-size: 15px; font-weight: 600; }
+
+.pagination__size { display: inline-flex; align-items: center; gap: 6px; }
+
+.activity-picker__toolbar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 20px; border-bottom: 1px solid var(--border);
+}
+.activity-picker__list { max-height: 420px; overflow: auto; }
+.modal__footer--split { justify-content: space-between; align-items: center; }
+.activity-picker__summary {
+  display: inline-flex; align-items: center; gap: 10px;
+  font-size: 13px; color: var(--text-secondary);
+}
+.activity-picker__summary strong { color: var(--text-primary); }
+.activity-picker__actions { display: flex; gap: 8px; }

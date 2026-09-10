@@ -5,6 +5,8 @@ import type {
   MemberPriceActivityForm,
   MemberPriceListFilters,
   MemberPriceMethod,
+  MemberPriceProductCoreFields,
+  StoreScope,
 } from '../types'
 import {
   MEMBER_LEVEL_LABELS,
@@ -22,12 +24,17 @@ export function formatPriceMethodValue(method: MemberPriceMethod, value: number)
   return `特价${value}元`
 }
 
+/**
+ * 以下商品 / 优惠 / 门店相关的函数只依赖会员价与付费会员价的共有字段，
+ * 因此按 MemberPriceProductCoreFields 约束，两类活动共用同一份实现。
+ */
+
 /** 是否使用统一优惠值：全部商品，或反选模式下的剩余参与商品 */
-export function isUniformPricing(activity: MemberPriceActivityForm): boolean {
+export function isUniformPricing(activity: MemberPriceProductCoreFields): boolean {
   return activity.productScope === 'all' || activity.productSelectionMode === 'exclude'
 }
 
-export function formatRuleSummary(activity: MemberPriceActivityForm): string {
+export function formatRuleSummary(activity: MemberPriceProductCoreFields): string {
   const methodLabel = MEMBER_PRICE_METHOD_LABELS[activity.priceMethod]
   const uniformValue = formatPriceMethodValue(activity.priceMethod, activity.allProductsValue)
   let count: string
@@ -56,7 +63,7 @@ export function computePublishStatus(activity: MemberPriceActivityForm): Activit
   return 'in_progress'
 }
 
-export function getProductSummary(activity: MemberPriceActivityForm): string {
+export function getProductSummary(activity: MemberPriceProductCoreFields): string {
   if (activity.productScope === 'all') return '全部商品'
   const count = activity.productIds.length
   if (count === 0) return '未选择'
@@ -64,7 +71,7 @@ export function getProductSummary(activity: MemberPriceActivityForm): string {
   return `${count}个商品`
 }
 
-export function getProductCount(activity: MemberPriceActivityForm): number {
+export function getProductCount(activity: MemberPriceProductCoreFields): number {
   if (activity.productScope === 'all') return products.length
   if (activity.productSelectionMode === 'exclude') {
     return Math.max(products.length - activity.productIds.length, 0)
@@ -72,7 +79,7 @@ export function getProductCount(activity: MemberPriceActivityForm): number {
   return activity.productIds.length
 }
 
-export function getStoreSummary(activity: MemberPriceActivityForm): string {
+export function getStoreSummary(activity: { storeScope: StoreScope; storeIds: string[] }): string {
   if (activity.storeScope === 'all') return '全部门店'
   const count = activity.storeIds.length
   if (count === 0) return '未选择门店'
@@ -80,13 +87,13 @@ export function getStoreSummary(activity: MemberPriceActivityForm): string {
   return `${count}个门店参与`
 }
 
-export function getStoreScopeLabel(activity: MemberPriceActivityForm): string {
+export function getStoreScopeLabel(activity: { storeScope: StoreScope; storeIds: string[] }): string {
   if (activity.storeScope === 'all') return '全部门店'
   if (activity.storeScope === 'partial_exclude') return `指定门店不参与（${activity.storeIds.length}家）`
   return `指定门店参与（${activity.storeIds.length}家）`
 }
 
-export function getProductScopeLabel(activity: MemberPriceActivityForm): string {
+export function getProductScopeLabel(activity: MemberPriceProductCoreFields): string {
   if (activity.productScope === 'all') return '全部商品'
   if (activity.productSelectionMode === 'exclude') {
     return `指定商品不参与（${activity.productIds.length}个）`
@@ -94,7 +101,7 @@ export function getProductScopeLabel(activity: MemberPriceActivityForm): string 
   return `指定商品参与（${activity.productIds.length}个）`
 }
 
-export function getChannelSummary(activity: MemberPriceActivityForm): string {
+export function getChannelSummary(activity: { channels: string[] }): string {
   const map: Record<string, string> = {
     wechat: '微信',
     alipay: '支付宝',
@@ -105,7 +112,7 @@ export function getChannelSummary(activity: MemberPriceActivityForm): string {
 }
 
 /** 实际参与活动的商品：反选模式下为所选商品之外的其余商品 */
-export function getActivityProducts(activity: MemberPriceActivityForm) {
+export function getActivityProducts(activity: MemberPriceProductCoreFields) {
   if (activity.productScope === 'all') return products
   if (activity.productSelectionMode === 'exclude') {
     return products.filter((p) => !activity.productIds.includes(p.id))
@@ -113,11 +120,11 @@ export function getActivityProducts(activity: MemberPriceActivityForm) {
   return products.filter((p) => activity.productIds.includes(p.id))
 }
 
-export function getActivityStores(activity: MemberPriceActivityForm) {
+export function getActivityStores(activity: { storeIds: string[] }) {
   return stores.filter((s) => activity.storeIds.includes(s.id))
 }
 
-export function formatCreatorDisplay(activity: MemberPriceActivityForm) {
+export function formatCreatorDisplay(activity: { creator: string; creatorPhone: string; creatorOrg: string }) {
   const phone = activity.creatorPhone || getCreatorProfile(activity.creator).phone
   const org = activity.creatorOrg || getCreatorProfile(activity.creator).org
   return { maskedPhone: maskPhone(phone), org }
@@ -133,12 +140,14 @@ export function getActivityRemainingLabel(activity: MemberPriceActivityForm): st
   return `剩余 ${days} 天`
 }
 
-export function appendActivityLog(
-  activity: MemberPriceActivityForm,
+export function appendActivityLog<
+  T extends { creatorPhone: string; creatorOrg: string; operationLogs: ActivityOperationLog[] },
+>(
+  activity: T,
   action: string,
   detail?: string,
   operator?: { phone: string; org: string },
-): MemberPriceActivityForm {
+): T {
   const op = operator ?? { phone: activity.creatorPhone, org: activity.creatorOrg }
   const now = formatActivityDateTime()
   const log = createOperationLog(action, op, detail, now)
@@ -171,11 +180,11 @@ export function defaultValueForMethod(method: MemberPriceMethod): number {
   return 9.9
 }
 
-export function syncProductItems(
-  activity: MemberPriceActivityForm,
+export function syncProductItems<T extends MemberPriceProductCoreFields>(
+  activity: T,
   productIds: string[],
   resetValues = false,
-): MemberPriceActivityForm {
+): T {
   const valueMap = new Map(activity.productItems.map((i) => [i.productId, i.value]))
   const defaultVal = defaultValueForMethod(activity.priceMethod)
   const productItems = productIds.map((productId) => ({
@@ -185,7 +194,7 @@ export function syncProductItems(
   return { ...activity, productIds, productItems }
 }
 
-function validateProductItemValue(
+export function validateProductItemValue(
   method: MemberPriceMethod,
   value: number,
   originalPrice?: number,
@@ -318,6 +327,7 @@ export function countActivitiesByStatus(
     pending: 0,
     not_started: 0,
     in_progress: 0,
+    paused: 0,
     ended: 0,
     voided: 0,
   } satisfies Record<ActivityStatus | 'all', number>

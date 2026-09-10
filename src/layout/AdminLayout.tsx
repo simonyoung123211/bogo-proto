@@ -30,7 +30,14 @@ const sidebarMenus: MenuItem[] = [
       { id: 'half-item', label: '第N件优惠', navKey: 'half_item' },
       { id: 'full-reduction', label: '满减/折', navKey: 'full_reduction' },
       { id: 'member-price', label: '会员价', navKey: 'member_price' },
+      { id: 'paid-member-price', label: '付费会员价', navKey: 'paid_member_price' },
     ],
+  },
+  {
+    id: 'member',
+    label: '会员管理',
+    icon: 'member',
+    children: [{ id: 'paid-member-card', label: '付费权益卡', navKey: 'paid_member_card' }],
   },
   {
     id: 'orders',
@@ -48,6 +55,7 @@ const sidebarMenus: MenuItem[] = [
 export function AdminLayout({ children, breadcrumbs = ['营销管理', '买一送一'], activeKey = 'bogo', onNavigate }: AdminLayoutProps) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     activities: true,
+    member: true,
     orders: true,
     promo: false,
   })
@@ -176,6 +184,12 @@ function MenuIcon({ name }: { name: string }) {
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
         <rect x="2" y="3" width="12" height="10" rx="1.5" />
         <path d="M5 7h6M5 10h4" />
+      </svg>
+    ),
+    member: (
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+        <circle cx="8" cy="6" r="2.4" />
+        <path d="M3.5 13c0-2.2 2-3.6 4.5-3.6s4.5 1.4 4.5 3.6" />
       </svg>
     ),
     share: (

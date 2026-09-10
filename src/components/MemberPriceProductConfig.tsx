@@ -1,44 +1,63 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MEMBER_LEVELS, products } from '../mockData'
 import { MEMBER_PRICE_METHOD_LABELS } from '../mockMemberPriceData'
-import type { MemberLevelId, MemberPriceActivityForm, MemberPriceMethod } from '../types'
+import type { MemberLevelId, MemberPriceMethod, MemberPriceProductCoreFields } from '../types'
 import { defaultValueForMethod, syncProductItems } from '../utils/memberPriceActivity'
+import { filterProductsByKeyword } from '../utils/productSearch'
 import { ProductPicker } from './ProductPicker'
+import {
+  BatchRemoveConfirmModal,
+  SelectedProductPager,
+  SelectedProductSearchBar,
+} from './SelectedProductTools'
 import { TableSelectHeader } from './TableSelectHeader'
 
 const PAGE_SIZE = 20
 
-interface MemberPriceProductConfigProps {
-  activity: MemberPriceActivityForm
+interface MemberPriceProductConfigProps<T extends MemberPriceProductCoreFields> {
+  activity: T
   readOnly?: boolean
-  onChange: (activity: MemberPriceActivityForm) => void
+  onChange: (activity: T) => void
   onToast?: (message: string) => void
+  /**
+   * 是否展示会员等级选择。付费会员价的资格来自权益卡，
+   * 不需要选择等级，传 false 隐藏该区块。
+   */
+  showMemberLevels?: boolean
 }
 
-export function MemberPriceProductConfig({ activity, readOnly, onChange, onToast }: MemberPriceProductConfigProps) {
+export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>({
+  activity,
+  readOnly,
+  onChange,
+  onToast,
+  showMemberLevels = true,
+}: MemberPriceProductConfigProps<T>) {
   const [showProductPicker, setShowProductPicker] = useState(false)
   const [batchValue, setBatchValue] = useState('')
   const [page, setPage] = useState(1)
   const [checkedIds, setCheckedIds] = useState<string[]>([])
-  const [selectAllProducts, setSelectAllProducts] = useState(false)
+  /** 勾选了当前筛选结果的全部条目（含未展示的其他页） */
+  const [selectAllVisible, setSelectAllVisible] = useState(false)
+  const [keyword, setKeyword] = useState('')
+  const [showBatchRemove, setShowBatchRemove] = useState(false)
 
-  const update = <K extends keyof MemberPriceActivityForm>(key: K, value: MemberPriceActivityForm[K]) => {
+  const update = <K extends keyof T>(key: K, value: T[K]) => {
     onChange({ ...activity, [key]: value })
   }
 
+  const memberLevels = activity.memberLevels ?? []
+
   const toggleLevel = (id: MemberLevelId) => {
-    const next = activity.memberLevels.includes(id)
-      ? activity.memberLevels.filter((x) => x !== id)
-      : [...activity.memberLevels, id]
-    update('memberLevels', next)
+    const next = memberLevels.includes(id)
+      ? memberLevels.filter((x) => x !== id)
+      : [...memberLevels, id]
+    onChange({ ...activity, memberLevels: next })
   }
 
   const toggleAllLevels = () => {
-    if (activity.memberLevels.length === MEMBER_LEVELS.length) {
-      update('memberLevels', [])
-    } else {
-      update('memberLevels', MEMBER_LEVELS.map((l) => l.id))
-    }
+    const next = memberLevels.length === MEMBER_LEVELS.length ? [] : MEMBER_LEVELS.map((l) => l.id)
+    onChange({ ...activity, memberLevels: next })
   }
 
   const changePriceMethod = (method: MemberPriceMethod) => {
@@ -50,11 +69,9 @@ export function MemberPriceProductConfig({ activity, readOnly, onChange, onToast
     onChange(next)
   }
 
-  const changeSelectionMode = (mode: MemberPriceActivityForm['productSelectionMode']) => {
+  const changeSelectionMode = (mode: MemberPriceProductCoreFields['productSelectionMode']) => {
     if (mode === activity.productSelectionMode) return
-    setPage(1)
-    setCheckedIds([])
-    setSelectAllProducts(false)
+    resetListState()
     onChange({
       ...activity,
       productSelectionMode: mode,
@@ -64,10 +81,8 @@ export function MemberPriceProductConfig({ activity, readOnly, onChange, onToast
     })
   }
 
-  const changeProductScope = (scope: MemberPriceActivityForm['productScope']) => {
-    setPage(1)
-    setCheckedIds([])
-    setSelectAllProducts(false)
+  const changeProductScope = (scope: MemberPriceProductCoreFields['productScope']) => {
+    resetListState()
     if (scope === 'all') {
       onChange({ ...activity, productScope: 'all', productIds: [], productItems: [] })
     } else {
@@ -75,15 +90,34 @@ export function MemberPriceProductConfig({ activity, readOnly, onChange, onToast
     }
   }
 
-  const setProductIds = (ids: string[]) => {
+  /** 清空列表内的检索、分页与勾选状态 */
+  const resetListState = () => {
+    setKeyword('')
     setPage(1)
     setCheckedIds([])
-    setSelectAllProducts(false)
+    setSelectAllVisible(false)
+  }
+
+  const applyProductIds = (ids: string[]) => {
     if (isExclude) {
       onChange({ ...activity, productIds: ids, productItems: [] })
     } else {
       onChange(syncProductItems(activity, ids))
     }
+  }
+
+  /** 从「选择商品」弹窗返回：清掉检索条件，否则新加的商品可能被关键词挡住 */
+  const setProductIds = (ids: string[]) => {
+    resetListState()
+    applyProductIds(ids)
+  }
+
+  const changeKeyword = (next: string) => {
+    setKeyword(next)
+    setPage(1)
+    // 筛选范围变了，勾选一并清空，避免批量操作误伤筛选外的商品
+    setCheckedIds([])
+    setSelectAllVisible(false)
   }
 
   const updateItemValue = (productId: string, value: number) => {
@@ -93,12 +127,16 @@ export function MemberPriceProductConfig({ activity, readOnly, onChange, onToast
     )
   }
 
+  /** 单条移除：保留当前检索条件与页码，方便连续处理同一批商品 */
   const removeProduct = (productId: string) => {
-    setProductIds(activity.productIds.filter((id) => id !== productId))
+    setCheckedIds((prev) => prev.filter((id) => id !== productId))
+    setSelectAllVisible(false)
+    applyProductIds(activity.productIds.filter((id) => id !== productId))
   }
 
   const unitLabel = activity.priceMethod === 'discount' ? '折' : '元'
   const isExclude = activity.productSelectionMode === 'exclude'
+  const itemLabel = isExclude ? '不参与商品' : '商品'
   const showUniformValue = activity.productScope === 'all' || (activity.productScope === 'partial' && isExclude)
   const selectedProducts = useMemo(
     () => products.filter((p) => activity.productIds.includes(p.id)),
@@ -106,51 +144,56 @@ export function MemberPriceProductConfig({ activity, readOnly, onChange, onToast
   )
   const valueMap = new Map(activity.productItems.map((i) => [i.productId, i.value]))
 
-  const totalPages = Math.max(1, Math.ceil(selectedProducts.length / PAGE_SIZE))
+  const filtering = keyword.trim().length > 0
+  /** 关键词命中的已选商品，分页、勾选与批量操作都以这一批为作用域 */
+  const visibleProducts = useMemo(
+    () => filterProductsByKeyword(selectedProducts, keyword),
+    [selectedProducts, keyword],
+  )
+
+  const totalPages = Math.max(1, Math.ceil(visibleProducts.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
-  const pageRows = selectedProducts.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const pageRows = visibleProducts.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
   const pageIds = pageRows.map((p) => p.id)
-  const rangeStart = selectedProducts.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
-  const rangeEnd = Math.min(currentPage * PAGE_SIZE, selectedProducts.length)
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages)
   }, [page, totalPages])
 
-  const allPageChecked = pageIds.length > 0 && pageIds.every((id) => checkedIds.includes(id) || selectAllProducts)
-  const somePageChecked = pageIds.some((id) => checkedIds.includes(id) || selectAllProducts)
-  const pageCheckState: 'none' | 'some' | 'all' = selectAllProducts || allPageChecked
+  const allPageChecked = pageIds.length > 0 && pageIds.every((id) => checkedIds.includes(id) || selectAllVisible)
+  const somePageChecked = pageIds.some((id) => checkedIds.includes(id) || selectAllVisible)
+  const pageCheckState: 'none' | 'some' | 'all' = selectAllVisible || allPageChecked
     ? 'all'
     : somePageChecked
       ? 'some'
       : 'none'
-  const hasSelection = selectAllProducts || checkedIds.length > 0
-  const selectedCount = selectAllProducts ? selectedProducts.length : checkedIds.length
-  const hasMultiplePages = selectedProducts.length > PAGE_SIZE
+  const hasSelection = selectAllVisible || checkedIds.length > 0
+  const selectedCount = selectAllVisible ? visibleProducts.length : checkedIds.length
+  const hasMultiplePages = visibleProducts.length > PAGE_SIZE
 
   const selectCurrentPage = () => {
-    setSelectAllProducts(false)
+    setSelectAllVisible(false)
     setCheckedIds((prev) => [...new Set([...prev.filter((id) => !pageIds.includes(id)), ...pageIds])])
   }
 
   const selectAllAcrossPages = () => {
-    setSelectAllProducts(true)
-    setCheckedIds(selectedProducts.map((p) => p.id))
+    setSelectAllVisible(true)
+    setCheckedIds(visibleProducts.map((p) => p.id))
   }
 
   const clearSelection = () => {
-    setSelectAllProducts(false)
+    setSelectAllVisible(false)
     setCheckedIds([])
   }
 
   const keepCurrentPageOnly = () => {
-    setSelectAllProducts(false)
+    setSelectAllVisible(false)
     setCheckedIds([...pageIds])
   }
 
   const togglePageCheck = () => {
-    if (selectAllProducts || allPageChecked) {
-      setSelectAllProducts(false)
+    if (selectAllVisible || allPageChecked) {
+      setSelectAllVisible(false)
       setCheckedIds((prev) => prev.filter((id) => !pageIds.includes(id)))
       return
     }
@@ -158,8 +201,21 @@ export function MemberPriceProductConfig({ activity, readOnly, onChange, onToast
   }
 
   const toggleOneCheck = (id: string) => {
-    setSelectAllProducts(false)
+    setSelectAllVisible(false)
     setCheckedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
+  const checkedTargets = () => (selectAllVisible ? visibleProducts.map((p) => p.id) : checkedIds)
+
+  const removeChecked = () => {
+    const targets = checkedTargets()
+    if (targets.length === 0) return
+    const targetSet = new Set(targets)
+    applyProductIds(activity.productIds.filter((id) => !targetSet.has(id)))
+    setCheckedIds([])
+    setSelectAllVisible(false)
+    setShowBatchRemove(false)
+    onToast?.(`已移除 ${targets.length} 个${itemLabel}`)
   }
 
   const applyBatchValue = () => {
@@ -176,9 +232,7 @@ export function MemberPriceProductConfig({ activity, readOnly, onChange, onToast
       onToast?.('金额不能为负数')
       return
     }
-    const targets = selectAllProducts
-      ? selectedProducts.map((p) => p.id)
-      : checkedIds
+    const targets = checkedTargets()
     if (targets.length === 0) {
       onToast?.('请先勾选要批量设置的商品')
       return
@@ -190,41 +244,44 @@ export function MemberPriceProductConfig({ activity, readOnly, onChange, onToast
     )
     setBatchValue('')
     setCheckedIds([])
-    setSelectAllProducts(false)
+    setSelectAllVisible(false)
     onToast?.(`已为 ${targets.length} 个商品批量设置`)
   }
 
-  const colSpan = (isExclude ? 3 : 4) + (readOnly ? 0 : 1) + (!readOnly && !isExclude ? 1 : 0)
+  // 勾选列 + 商品/规格/价格 + 折扣价（正选）+ 操作
+  const colSpan = (isExclude ? 3 : 4) + (readOnly ? 0 : 2)
 
   return (
     <>
-      <FormRow label="选择会员卡" required>
-        <div className="member-level-group">
-          <label className="checkbox member-level-group__all">
-            <input
-              type="checkbox"
-              disabled={readOnly}
-              checked={activity.memberLevels.length === MEMBER_LEVELS.length}
-              onChange={toggleAllLevels}
-            />
-            全选
-          </label>
-          <div className="checkbox-group checkbox-group--wrap">
-            {MEMBER_LEVELS.map((level) => (
-              <label key={level.id} className="checkbox">
-                <input
-                  type="checkbox"
-                  disabled={readOnly}
-                  checked={activity.memberLevels.includes(level.id)}
-                  onChange={() => toggleLevel(level.id)}
-                />
-                {level.label}
-              </label>
-            ))}
+      {showMemberLevels && (
+        <FormRow label="选择会员卡" required>
+          <div className="member-level-group">
+            <label className="checkbox member-level-group__all">
+              <input
+                type="checkbox"
+                disabled={readOnly}
+                checked={memberLevels.length === MEMBER_LEVELS.length}
+                onChange={toggleAllLevels}
+              />
+              全选
+            </label>
+            <div className="checkbox-group checkbox-group--wrap">
+              {MEMBER_LEVELS.map((level) => (
+                <label key={level.id} className="checkbox">
+                  <input
+                    type="checkbox"
+                    disabled={readOnly}
+                    checked={memberLevels.includes(level.id)}
+                    onChange={() => toggleLevel(level.id)}
+                  />
+                  {level.label}
+                </label>
+              ))}
+            </div>
+            <p className="field-hint">至少选择一个会员等级；选中的等级会员购买参与商品时可享受会员价。</p>
           </div>
-          <p className="field-hint">至少选择一个会员等级；选中的等级会员购买参与商品时可享受会员价。</p>
-        </div>
-      </FormRow>
+        </FormRow>
+      )}
 
       <FormRow label="会员折扣方式" required>
         <div>
@@ -250,7 +307,7 @@ export function MemberPriceProductConfig({ activity, readOnly, onChange, onToast
             { value: 'include', label: '参与商品(正选)' },
             { value: 'exclude', label: '不参与商品(反选)' },
           ]}
-          onChange={(v) => changeSelectionMode(v as MemberPriceActivityForm['productSelectionMode'])}
+          onChange={(v) => changeSelectionMode(v as MemberPriceProductCoreFields['productSelectionMode'])}
         />
       </FormRow>
 
@@ -262,7 +319,7 @@ export function MemberPriceProductConfig({ activity, readOnly, onChange, onToast
             { value: 'all', label: '全部商品' },
             { value: 'partial', label: '部分商品' },
           ]}
-          onChange={(v) => changeProductScope(v as MemberPriceActivityForm['productScope'])}
+          onChange={(v) => changeProductScope(v as MemberPriceProductCoreFields['productScope'])}
         />
       </FormRow>
 
@@ -302,30 +359,56 @@ export function MemberPriceProductConfig({ activity, readOnly, onChange, onToast
             </div>
           )}
 
-          {!readOnly && !isExclude && hasSelection && (
+          {selectedProducts.length > 0 && (
+            <SelectedProductSearchBar
+              keyword={keyword}
+              onChange={changeKeyword}
+              filteredCount={visibleProducts.length}
+              totalCount={selectedProducts.length}
+              itemLabel={itemLabel}
+              scopeHint={
+                readOnly
+                  ? undefined
+                  : isExclude
+                    ? '筛选期间的勾选与移除仅对筛选结果生效。'
+                    : '筛选期间的勾选、批量设置与移除仅对筛选结果生效，不会影响筛选外的商品。'
+              }
+            />
+          )}
+
+          {!readOnly && hasSelection && (
             <div className="table-selection-bar">
               <div className="table-selection-bar__meta">
-                {selectAllProducts ? (
-                  <span>已选全部 <strong>{selectedCount}</strong> 条</span>
+                {selectAllVisible ? (
+                  <span>
+                    已选{filtering ? '筛选结果全部' : '全部'} <strong>{selectedCount}</strong> 条
+                  </span>
                 ) : (
                   <span>
                     已选 <strong>{selectedCount}</strong> 条
                     {allPageChecked && checkedIds.length === pageIds.length ? '（当前页）' : ''}
                   </span>
                 )}
-                {hasMultiplePages && !selectAllProducts && (
+                {hasMultiplePages && !selectAllVisible && (
                   <button type="button" className="link-btn" onClick={selectAllAcrossPages}>
-                    全选全部 {selectedProducts.length} 条
+                    {filtering ? '全选筛选结果' : '全选全部'} {visibleProducts.length} 条
                   </button>
                 )}
-                {selectAllProducts && (
+                {selectAllVisible && (
                   <button type="button" className="link-btn" onClick={keepCurrentPageOnly}>
                     仅保留当前页
                   </button>
                 )}
                 <button type="button" className="link-btn" onClick={clearSelection}>清空</button>
+                <button
+                  type="button"
+                  className="link-btn link-btn--danger"
+                  onClick={() => setShowBatchRemove(true)}
+                >
+                  批量移除
+                </button>
               </div>
-              {activity.productItems.length > 0 && (
+              {!isExclude && activity.productItems.length > 0 && (
                 <div className="member-price-batch">
                   <span>批量设置</span>
                   <input
@@ -350,17 +433,18 @@ export function MemberPriceProductConfig({ activity, readOnly, onChange, onToast
           <table className="table member-price-table">
             <thead>
               <tr>
-                {!readOnly && !isExclude && (
+                {!readOnly && (
                   <th style={{ width: 88 }}>
                     <TableSelectHeader
                       checkState={pageCheckState}
                       disabled={pageIds.length === 0}
                       pageCount={pageIds.length}
-                      totalCount={selectedProducts.length}
+                      totalCount={visibleProducts.length}
                       hasMultiplePages={hasMultiplePages}
                       onTogglePage={togglePageCheck}
                       onSelectPage={selectCurrentPage}
                       onSelectAll={selectAllAcrossPages}
+                      allOptionLabel={filtering ? '全选筛选结果' : '全选全部'}
                     />
                   </th>
                 )}
@@ -372,22 +456,31 @@ export function MemberPriceProductConfig({ activity, readOnly, onChange, onToast
               </tr>
             </thead>
             <tbody>
-              {selectedProducts.length === 0 ? (
+              {visibleProducts.length === 0 ? (
                 <tr>
                   <td colSpan={colSpan} className="table-empty">
-                    {isExclude
-                      ? '暂无不参与商品，请点击「选择不参与商品」添加'
-                      : '暂无商品，请点击「选择商品」添加'}
+                    {filtering ? (
+                      <>
+                        没有匹配「{keyword.trim()}」的已选{itemLabel}
+                        <button type="button" className="link-btn" onClick={() => changeKeyword('')}>
+                          清除筛选
+                        </button>
+                      </>
+                    ) : isExclude ? (
+                      '暂无不参与商品，请点击「选择不参与商品」添加'
+                    ) : (
+                      '暂无商品，请点击「选择商品」添加'
+                    )}
                   </td>
                 </tr>
               ) : (
                 pageRows.map((p) => (
                   <tr key={p.id}>
-                    {!readOnly && !isExclude && (
+                    {!readOnly && (
                       <td>
                         <input
                           type="checkbox"
-                          checked={selectAllProducts || checkedIds.includes(p.id)}
+                          checked={selectAllVisible || checkedIds.includes(p.id)}
                           onChange={() => toggleOneCheck(p.id)}
                         />
                       </td>
@@ -437,19 +530,28 @@ export function MemberPriceProductConfig({ activity, readOnly, onChange, onToast
             </tbody>
           </table>
 
-          {selectedProducts.length > 0 && (
-            <div className="pagination pagination--full">
-              <span>共 {selectedProducts.length} 条，当前第 {rangeStart}–{rangeEnd} 条</span>
-              {selectedProducts.length > PAGE_SIZE && (
-                <div className="pagination__pages">
-                  <button type="button" className="page-btn" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>上一页</button>
-                  <span className="page-indicator">{currentPage} / {totalPages}</span>
-                  <button type="button" className="page-btn" disabled={currentPage >= totalPages} onClick={() => setPage(currentPage + 1)}>下一页</button>
-                </div>
-              )}
-            </div>
+          {visibleProducts.length > 0 && (
+            <SelectedProductPager
+              total={visibleProducts.length}
+              pageSize={PAGE_SIZE}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              filtering={filtering}
+              onChange={setPage}
+            />
           )}
         </>
+      )}
+
+      {showBatchRemove && (
+        <BatchRemoveConfirmModal
+          count={selectedCount}
+          filtering={filtering}
+          itemLabel={itemLabel}
+          extraNote={isExclude ? undefined : '已填写的会员价优惠值会一并清除。'}
+          onCancel={() => setShowBatchRemove(false)}
+          onConfirm={removeChecked}
+        />
       )}
 
       {showProductPicker && (

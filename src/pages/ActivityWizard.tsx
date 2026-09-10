@@ -8,10 +8,11 @@ import { MaxStorageCouponsField } from '../components/MaxStorageCouponsField'
 import { StorageCouponDescriptionField } from '../components/StorageCouponDescriptionField'
 import { ProductPicker } from '../components/ProductPicker'
 import { RuleLimitFields } from '../components/RuleLimitFields'
+import { SelectedProductTable } from '../components/SelectedProductTable'
 import { StorePicker } from '../components/StorePicker'
 import { CHANNELS, ORDER_TYPES, STATUS_LABELS, createEmptyCouponGift, createEmptyGiftGroup, DEFAULT_PHYSICAL_GIFT_DISPLAY_TITLE, DEFAULT_STORAGE_COUPON_DISPLAY_TITLE } from '../mockData'
 import type { ActivityForm, WizardMode } from '../types'
-import { getActivityProducts, validateStep, withClampedMaxDiscountItemsPerOrder } from '../utils/activity'
+import { validateStep, withClampedMaxDiscountItemsPerOrder } from '../utils/activity'
 
 interface ActivityWizardProps {
   activity: ActivityForm
@@ -21,6 +22,7 @@ interface ActivityWizardProps {
   onSaveDraft: () => void
   onSave: () => void
   onSwitchToEdit?: () => void
+  onToast?: (message: string) => void
 }
 
 const STEPS = ['活动基础规则', '选择参与门店', '选择参与商品', '预览并保存']
@@ -34,6 +36,7 @@ export function ActivityWizard({
   onSaveDraft,
   onSave,
   onSwitchToEdit,
+  onToast,
 }: ActivityWizardProps) {
   const isView = mode === 'view'
   const readOnly = isView
@@ -109,8 +112,6 @@ export function ActivityWizard({
     setError(null)
     setStep(targetStep)
   }
-
-  const selectedProducts = getActivityProducts(activity)
 
   const handleRuleTypeChange = (v: ActivityForm['ruleType']) => {
     if (v === 'buyA_getA') {
@@ -388,49 +389,30 @@ export function ActivityWizard({
                   </div>
                 )}
                 {activity.productScope === 'partial' && (
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>商品名称</th>
-                        <th>规格</th>
-                        <th>类目</th>
-                        <th>编码</th>
-                        <th>条码</th>
-                        <th>销售价</th>
-                        {!readOnly && <th>操作</th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedProducts.length === 0 ? (
-                        <tr><td colSpan={readOnly ? 6 : 7} className="table-empty">暂无数据</td></tr>
-                      ) : (
-                        selectedProducts.map((p) => (
-                          <tr key={p.id}>
-                            <td>
-                              <div>{p.name}</div>
-                              <div className="text-secondary mono">{p.id}</div>
-                            </td>
-                            <td>{p.spec}</td>
-                            <td>{p.categoryName}</td>
-                            <td>{p.code}</td>
-                            <td>{p.barcode}</td>
-                            <td>¥{p.price}</td>
-                            {!readOnly && (
-                              <td>
-                                <button
-                                  type="button"
-                                  className="link-btn"
-                                  onClick={() => update('productIds', activity.productIds.filter((id) => id !== p.id))}
-                                >
-                                  移除
-                                </button>
-                              </td>
-                            )}
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+                  <SelectedProductTable
+                    productIds={activity.productIds}
+                    readOnly={readOnly}
+                    onChange={(ids) => update('productIds', ids)}
+                    onToast={onToast}
+                    emptyText="暂无数据，请点击「添加商品」选择参与商品"
+                    columns={[
+                      {
+                        key: 'name',
+                        header: '商品名称',
+                        render: (p) => (
+                          <>
+                            <div>{p.name}</div>
+                            <div className="text-secondary mono">{p.id}</div>
+                          </>
+                        ),
+                      },
+                      { key: 'spec', header: '规格', render: (p) => p.spec },
+                      { key: 'category', header: '类目', render: (p) => p.categoryName },
+                      { key: 'code', header: '编码', render: (p) => p.code },
+                      { key: 'barcode', header: '条码', render: (p) => p.barcode },
+                      { key: 'price', header: '销售价', render: (p) => `¥${p.price}` },
+                    ]}
+                  />
                 )}
               </Section>
             </div>

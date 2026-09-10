@@ -1,8 +1,9 @@
-import type { MemberPriceActivityForm } from '../types'
+import type { MemberPriceProductCoreFields } from '../types'
 import { formatRuleSummary } from '../utils/memberPriceActivity'
 
 interface MemberPriceParticipationRecordsProps {
-  activity: MemberPriceActivityForm
+  /** 会员价与付费会员价共用：只需要活动名与优惠配置即可渲染 */
+  activity: MemberPriceProductCoreFields & { name: string }
   onBack: () => void
   onExport?: () => void
 }

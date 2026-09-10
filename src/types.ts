@@ -1,8 +1,13 @@
+/**
+ * 活动状态。「已暂停」用于进行中的活动临时下线改规则，改完恢复；
+ * 暂停不顺延活动时间，暂停期间到达结束时间的活动直接转「已结束」。
+ */
 export type ActivityStatus =
   | 'draft'
   | 'pending'
   | 'not_started'
   | 'in_progress'
+  | 'paused'
   | 'ended'
   | 'voided'
 
@@ -146,6 +151,8 @@ export interface ActivityForm {
   titleDisplay: DisplayToggle
   tagDisplay: DisplayToggle
   status: ActivityStatus
+  /** 进入「已暂停」的时刻，用于计算暂停时长与超时分级 */
+  pausedAt?: string
   /** 创建者账号 ID */
   creator: string
   /** 创建者手机号 */
@@ -431,8 +438,13 @@ export interface ActivityParticipationRecord {
   status: ParticipationStatus
 }
 
-/** 参与记录筛选条件（活动上下文固定，不含 activityId） */
+/** 参与记录筛选条件 */
 export interface ParticipationFilters {
+  /**
+   * 查询的活动范围，空数组表示全部活动。
+   * 从活动列表行进入时只含该活动，运营可改成多个活动一起查。
+   */
+  activityIds: string[]
   /** 订单号/手机号/取餐号 */
   keyword: string
   storeId: string
@@ -510,6 +522,8 @@ export interface MultiItemActivityForm {
   titleDisplay: DisplayToggle
   tagDisplay: DisplayToggle
   status: ActivityStatus
+  /** 进入「已暂停」的时刻，用于计算暂停时长与超时分级 */
+  pausedAt?: string
   creator: string
   creatorPhone: string
   creatorOrg: string
@@ -588,6 +602,8 @@ export interface FullReductionActivityForm {
   titleDisplay: DisplayToggle
   tagDisplay: DisplayToggle
   status: ActivityStatus
+  /** 进入「已暂停」的时刻，用于计算暂停时长与超时分级 */
+  pausedAt?: string
   creator: string
   creatorPhone: string
   creatorOrg: string
@@ -619,6 +635,22 @@ export interface MemberPriceProductItem {
   productId: string
   /** 折数(如8.5) / 减价金额 / 固定价格，按 priceMethod 解释 */
   value: number
+}
+
+/**
+ * 会员价与付费会员价共用的「参与商品及优惠」字段。
+ * 两类活动的优惠形式、商品正反选、逐商品优惠力度完全一致，
+ * 商品配置组件按此接口约束，避免重复实现。
+ */
+export interface MemberPriceProductCoreFields {
+  priceMethod: MemberPriceMethod
+  productItems: MemberPriceProductItem[]
+  allProductsValue: number
+  productScope: ProductScope
+  productIds: string[]
+  productSelectionMode: 'include' | 'exclude'
+  /** 仅普通会员价使用；付费会员价的资格来自权益卡，无此字段 */
+  memberLevels?: MemberLevelId[]
 }
 
 export interface MemberPriceActivityForm {
@@ -666,6 +698,8 @@ export interface MemberPriceActivityForm {
   tagDisplay: DisplayToggle
   memberPriceTagDisplay: DisplayToggle
   status: ActivityStatus
+  /** 进入「已暂停」的时刻，用于计算暂停时长与超时分级 */
+  pausedAt?: string
   creator: string
   creatorPhone: string
   creatorOrg: string
@@ -710,10 +744,132 @@ export interface MemberPriceGeneralSettings {
   activityPriceColor: string
 }
 
+/* ================= 付费会员价 ================= */
+
+/**
+ * 付费会员价活动状态机（五态）。
+ * 与普通活动的差异：无「未开始 / 已结束」，新增「已暂停」；
+ * 待发布 → 进行中由关联付费会员卡的上架动作驱动；
+ * 草稿用于在旧活动仍生效时准备替换配置，不因卡上架自动生效。
+ */
+export type PaidMemberPriceStatus = 'draft' | 'pending' | 'in_progress' | 'paused' | 'voided'
+
+/** 付费会员卡模版的售卖状态 */
+export type PaidMemberCardStatus = 'on_sale' | 'off_shelf' | 'stopped'
+
+/** 付费会员卡的售卖规格（如 7 天 / 15 天 / 30 天） */
+export interface PaidMemberCardSpec {
+  id: string
+  label: string
+  /** 有效天数 */
+  days: number
+  /** 是否为体验卡规格 */
+  isExperience?: boolean
+}
+
+/** 按规格设置的权益额度 */
+export interface PaidMemberBenefitSpecLimit {
+  specId: string
+  /** 优惠权益次数（次） */
+  count: number
+  /** 优惠商品件数（件） */
+  items: number
+}
+
+/** 权益卡中的一条付费会员价权益：只定义额度，不定义商品与价格 */
+export interface PaidMemberPriceBenefit {
+  id: string
+  name: string
+  description: string
+  icon: string
+  /** 有效期内每人优惠总次数 */
+  totalCountLimitType: LimitType
+  /** 有效期内每人优惠总件数 */
+  totalItemsLimitType: LimitType
+  /** 限制时按规格填写的额度 */
+  specLimits: PaidMemberBenefitSpecLimit[]
+  /** 体验卡是否享受本权益 */
+  experienceCardEnabled: boolean
+  createdAt: string
+}
+
+/** 付费会员卡模版 */
+export interface PaidMemberCardTemplate {
+  id: string
+  name: string
+  status: PaidMemberCardStatus
+  specs: PaidMemberCardSpec[]
+  benefits: PaidMemberPriceBenefit[]
+  /** 有效期内持卡人数，用于作废/暂停弹窗提示影响范围 */
+  holderCount: number
+  updatedAt: string
+}
+
+export interface PaidMemberPriceActivityForm extends MemberPriceProductCoreFields {
+  id: string
+  name: string
+  title: string
+  tag: string
+  description: string
+  /** 关联的付费会员卡模版，创建后不可更换 */
+  cardTemplateId: string
+  /** 关联的付费会员价权益 ID，创建后不可更换 */
+  benefitId: string
+  cycleType: CycleType
+  timeSlotType: TimeSlotType
+  priority: number
+  channels: string[]
+  orderTypes: string[]
+  priceMethod: MemberPriceMethod
+  productItems: MemberPriceProductItem[]
+  allProductsValue: number
+  toppingsDiscount: boolean
+  comboSurchargeDiscount: boolean
+  preparationSurchargeDiscount: boolean
+  /** 保留：每天优惠件数（单日交易维度风控） */
+  maxDiscountItemsDailyType: LimitType
+  maxDiscountItemsDaily: number
+  /** 保留：每单优惠件数（单笔交易维度风控） */
+  maxDiscountItemsPerOrderType: LimitType
+  maxDiscountItemsPerOrder: number
+  productScope: ProductScope
+  productIds: string[]
+  productSelectionMode: 'include' | 'exclude'
+  storeScope: StoreScope
+  storeIds: string[]
+  shareMutexRelation: ShareMutexRelation
+  activityCode: string
+  titleDisplay: DisplayToggle
+  tagDisplay: DisplayToggle
+  memberPriceTagDisplay: DisplayToggle
+  status: PaidMemberPriceStatus
+  /** 进入「已暂停」的时刻，用于计算暂停时长与超时分级 */
+  pausedAt?: string
+  creator: string
+  creatorPhone: string
+  creatorOrg: string
+  createdAt: string
+  updatedAt: string
+  operationLogs: ActivityOperationLog[]
+}
+
+export interface PaidMemberPriceListFilters {
+  keyword: string
+  productName: string
+  productId: string
+  activityCode: string
+  status: PaidMemberPriceStatus | 'all'
+  priceMethod: MemberPriceMethod | 'all'
+  cardTemplateId: string
+  cardStatus: PaidMemberCardStatus | 'all'
+  storeId: string
+}
+
 export type PageView =
   | { type: 'list' }
   | { type: 'wizard'; mode: WizardMode; activityId?: string; step?: number }
-  | { type: 'activity-participation'; activityId: string }
+  /** 不传 activityId 表示进入全量活动的参与记录查询 */
+  | { type: 'activity-participation'; activityId?: string }
   | { type: 'multi-item-list' }
   | { type: 'multi-item-wizard'; mode: WizardMode; activityId?: string; step?: number }
   | { type: 'multi-item-participation'; activityId: string }
@@ -724,5 +880,9 @@ export type PageView =
   | { type: 'full-reduction-list' }
   | { type: 'full-reduction-wizard'; mode: WizardMode; activityId?: string; step?: number }
   | { type: 'full-reduction-participation'; activityId: string }
+  | { type: 'paid-member-price-list' }
+  | { type: 'paid-member-price-wizard'; mode: WizardMode; activityId?: string; step?: number; from?: 'card-list' }
+  | { type: 'paid-member-price-participation'; activityId: string }
+  | { type: 'paid-member-card-list' }
   | { type: 'order-list' }
-  | { type: 'order-detail'; orderId: string; from?: 'order-list' | 'activity-participation' | 'multi-item-participation' | 'member-price-participation' | 'full-reduction-participation'; activityId?: string }
+  | { type: 'order-detail'; orderId: string; from?: 'order-list' | 'activity-participation' | 'multi-item-participation' | 'member-price-participation' | 'full-reduction-participation' | 'paid-member-price-participation'; activityId?: string }

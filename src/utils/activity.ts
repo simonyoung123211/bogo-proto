@@ -185,7 +185,7 @@ export function buildDefaultOperationLogs(activity: ActivityForm): ActivityOpera
     createOperationLog('创建活动', operator, `创建活动「${name}」`, activity.createdAt),
   ]
 
-  if (['pending', 'not_started', 'in_progress', 'ended', 'voided'].includes(activity.status)) {
+  if (['pending', 'not_started', 'in_progress', 'paused', 'ended', 'voided'].includes(activity.status)) {
     logs.unshift(createOperationLog('发布活动', operator, `发布活动「${name}」`, activity.updatedAt ?? activity.createdAt))
   }
   if (activity.status === 'voided') {
@@ -347,6 +347,7 @@ export function countActivitiesByStatus(
     pending: 0,
     not_started: 0,
     in_progress: 0,
+    paused: 0,
     ended: 0,
     voided: 0,
   } satisfies Record<ActivityStatus | 'all', number>

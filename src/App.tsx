@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Toast } from './components/Toast'
 import { AdminLayout } from './layout/AdminLayout'
 import { ActivityList } from './pages/ActivityList'
@@ -14,14 +14,32 @@ import { MemberPriceParticipationRecords } from './pages/MemberPriceParticipatio
 import { MultiItemActivityList } from './pages/MultiItemActivityList'
 import { MultiItemActivityWizard } from './pages/MultiItemActivityWizard'
 import { MultiItemParticipationRecords } from './pages/MultiItemParticipationRecords'
+import { PaidMemberCardList } from './pages/PaidMemberCardList'
+import { PaidMemberPriceActivityList } from './pages/PaidMemberPriceActivityList'
+import { PaidMemberPriceActivityWizard } from './pages/PaidMemberPriceActivityWizard'
 import { OrderList } from './pages/OrderList'
 import { OrderDetail } from './pages/OrderDetail'
 import { createEmptyActivity, getCreatorProfile } from './mockData'
 import { createEmptyFullReductionActivity } from './mockFullReductionData'
 import { createEmptyMemberPriceActivity } from './mockMemberPriceData'
 import { createEmptyMultiItemActivity } from './mockMultiItemData'
-import type { ActivityForm, FullReductionActivityForm, MemberPriceActivityForm, MultiItemActivityForm, PageView } from './types'
-import { appendActivityLog, cloneActivity, computePublishStatus } from './utils/activity'
+import { createEmptyPaidMemberPriceActivity } from './mockPaidMemberPriceData'
+import type {
+  ActivityForm,
+  FullReductionActivityForm,
+  MemberPriceActivityForm,
+  MultiItemActivityForm,
+  PageView,
+  PaidMemberCardTemplate,
+  PaidMemberPriceActivityForm,
+  PaidMemberPriceBenefit,
+} from './types'
+import { appendActivityLog, cloneActivity, computePublishStatus, formatActivityDateTime } from './utils/activity'
+import {
+  isPausedExpired,
+  resolveResumeStatus,
+  type PausableActivity,
+} from './utils/activityPause'
 import {
   appendActivityLog as appendFullReductionLog,
   cloneActivity as cloneFullReductionActivity,
@@ -38,14 +56,27 @@ import {
   computePublishStatus as computeMultiItemPublishStatus,
 } from './utils/multiItemActivity'
 import {
+  cloneActivity as clonePaidMemberPriceActivity,
+  findPriceDisadvantages,
+  formatDuration as formatPauseDuration,
+  getPauseInfo,
+  resolvePublishStatus,
+  validateBeforeSave as validatePaidMemberPriceBeforeSave,
+  validateDraftSave as validatePaidMemberPriceDraftSave,
+} from './utils/paidMemberPriceActivity'
+import {
   loadActivities,
   loadFullReductionActivities,
   loadMemberPriceActivities,
   loadMultiItemActivities,
+  loadPaidMemberCards,
+  loadPaidMemberPriceActivities,
   saveActivities,
   saveFullReductionActivities,
   saveMemberPriceActivities,
   saveMultiItemActivities,
+  savePaidMemberCards,
+  savePaidMemberPriceActivities,
 } from './utils/storage'
 import {
   getDemoBridgeSourceId,
@@ -60,11 +91,16 @@ function App() {
   const [multiItemActivities, setMultiItemActivities] = useState<MultiItemActivityForm[]>(loadMultiItemActivities)
   const [memberPriceActivities, setMemberPriceActivities] = useState<MemberPriceActivityForm[]>(loadMemberPriceActivities)
   const [fullReductionActivities, setFullReductionActivities] = useState<FullReductionActivityForm[]>(loadFullReductionActivities)
+  const [paidMemberPriceActivities, setPaidMemberPriceActivities] = useState<PaidMemberPriceActivityForm[]>(loadPaidMemberPriceActivities)
+  const [paidMemberCards, setPaidMemberCards] = useState<PaidMemberCardTemplate[]>(loadPaidMemberCards)
   const [view, setView] = useState<PageView>({ type: 'list' })
+  /** 买1送N 参与记录的活动范围，空数组表示全部活动；提到这里是为了从订单详情返回时不丢失所选活动 */
+  const [participationScope, setParticipationScope] = useState<string[]>([])
   const [draft, setDraft] = useState<ActivityForm | null>(null)
   const [multiItemDraft, setMultiItemDraft] = useState<MultiItemActivityForm | null>(null)
   const [memberPriceDraft, setMemberPriceDraft] = useState<MemberPriceActivityForm | null>(null)
   const [fullReductionDraft, setFullReductionDraft] = useState<FullReductionActivityForm | null>(null)
+  const [paidMemberPriceDraft, setPaidMemberPriceDraft] = useState<PaidMemberPriceActivityForm | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [linkedConsumerActivityId, setLinkedConsumerActivityId] = useState<string | null>(() => getDemoBridgeSourceId())
 
@@ -117,6 +153,16 @@ function App() {
     saveFullReductionActivities(next)
   }
 
+  const persistPaidMemberPrice = (next: PaidMemberPriceActivityForm[]) => {
+    setPaidMemberPriceActivities(next)
+    savePaidMemberPriceActivities(next)
+  }
+
+  const persistPaidMemberCards = (next: PaidMemberCardTemplate[]) => {
+    setPaidMemberCards(next)
+    savePaidMemberCards(next)
+  }
+
   const upsert = (activity: ActivityForm) => {
     const exists = activities.some((a) => a.id === activity.id)
     const next = exists
@@ -139,6 +185,14 @@ function App() {
       ? memberPriceActivities.map((a) => (a.id === activity.id ? activity : a))
       : [activity, ...memberPriceActivities]
     persistMemberPrice(next)
+  }
+
+  const upsertPaidMemberPrice = (activity: PaidMemberPriceActivityForm) => {
+    const exists = paidMemberPriceActivities.some((a) => a.id === activity.id)
+    const next = exists
+      ? paidMemberPriceActivities.map((a) => (a.id === activity.id ? activity : a))
+      : [activity, ...paidMemberPriceActivities]
+    persistPaidMemberPrice(next)
   }
 
   const upsertFullReduction = (activity: FullReductionActivityForm) => {
@@ -349,7 +403,7 @@ function App() {
   const handleMemberPriceVoid = (id: string) => {
     const activity = memberPriceActivities.find((a) => a.id === id)
     if (!activity) return
-    upsertMemberPrice(appendMemberPriceLog({ ...activity, status: 'voided' }, '作废活动', `作废活动「${activity.name}」`, currentOperator))
+    upsertMemberPrice(appendMemberPriceLog({ ...activity, status: 'voided' as const }, '作废活动', `作废活动「${activity.name}」`, currentOperator))
     showToast('活动已作废')
   }
 
@@ -359,6 +413,201 @@ function App() {
     upsertFullReduction(appendFullReductionLog({ ...activity, status: 'voided' }, '作废活动', `作废活动「${activity.name}」`, currentOperator))
     showToast('活动已作废')
   }
+
+  /* ============ 暂停 / 恢复（四个活动类型同一套口径） ============ */
+
+  /** 演示用：把暂停起始时间往前拨，便于现场查看超时分级的三档颜色 */
+  const shiftedPausedAt = (minutes: number) =>
+    formatActivityDateTime(new Date(Date.now() - minutes * 60_000))
+
+  /**
+   * 恢复时按当前时刻重新落状态：暂停不顺延活动时间，
+   * 暂停期间已到期的活动直接结束（保留 pausedAt 供列表标注「暂停中到期结束」）。
+   */
+  const buildResumePlan = (activity: PausableActivity, effect: string) => {
+    // 本次暂停持续多久要写进日志，便于事后追溯运营是否长时间挂着不恢复
+    const pauseInfo = getPauseInfo(activity)
+    const lasted = pauseInfo ? `，本次暂停持续 ${formatPauseDuration(pauseInfo.minutes)}` : ''
+    const next = resolveResumeStatus(activity)
+    if (next === 'ended') {
+      return {
+        status: 'ended' as const,
+        keepPausedAt: true,
+        action: '暂停中到期结束',
+        detail: `在暂停期间到达结束时间，恢复时直接结束${lasted}`,
+        toast: '该活动已过结束时间，已直接标记为已结束',
+      }
+    }
+    return {
+      status: next,
+      keepPausedAt: false,
+      action: '恢复活动',
+      detail: `恢复活动${lasted}`,
+      toast: next === 'not_started' ? '活动已恢复，将在开始时间到达后生效' : `活动已恢复，${effect}`,
+    }
+  }
+
+  const BOGO_PAUSE_IMPACT = '顾客暂时无法参与本活动'
+
+  const handlePause = (id: string) => {
+    const activity = activities.find((a) => a.id === id)
+    if (!activity) return
+    upsert(appendActivityLog(
+      { ...activity, status: 'paused', pausedAt: formatActivityDateTime() },
+      '暂停活动',
+      `暂停活动「${activity.name}」，${BOGO_PAUSE_IMPACT}`,
+      currentOperator,
+    ))
+    showToast(`活动已暂停，${BOGO_PAUSE_IMPACT}`)
+  }
+
+  const handleResume = (id: string) => {
+    const activity = activities.find((a) => a.id === id)
+    if (!activity) return
+    const plan = buildResumePlan(activity, '顾客可立即重新参与')
+    upsert(appendActivityLog(
+      { ...activity, status: plan.status, pausedAt: plan.keepPausedAt ? activity.pausedAt : undefined },
+      plan.action,
+      `活动「${activity.name}」${plan.detail}`,
+      currentOperator,
+    ))
+    showToast(plan.toast)
+  }
+
+  const handleDemoSetPausedMinutes = (id: string, minutes: number) => {
+    const activity = activities.find((a) => a.id === id)
+    if (!activity || activity.status !== 'paused') return
+    upsert({ ...activity, pausedAt: shiftedPausedAt(minutes) })
+    showToast(minutes === 0 ? '已重置为「刚暂停」' : `已模拟暂停 ${minutes} 分钟`)
+  }
+
+  const handleMultiItemPause = (id: string) => {
+    const activity = multiItemActivities.find((a) => a.id === id)
+    if (!activity) return
+    upsertMultiItem(appendMultiItemLog(
+      { ...activity, status: 'paused', pausedAt: formatActivityDateTime() },
+      '暂停活动',
+      `暂停活动「${activity.name}」，${BOGO_PAUSE_IMPACT}`,
+      currentOperator,
+    ))
+    showToast(`活动已暂停，${BOGO_PAUSE_IMPACT}`)
+  }
+
+  const handleMultiItemResume = (id: string) => {
+    const activity = multiItemActivities.find((a) => a.id === id)
+    if (!activity) return
+    const plan = buildResumePlan(activity, '顾客可立即重新参与')
+    upsertMultiItem(appendMultiItemLog(
+      { ...activity, status: plan.status, pausedAt: plan.keepPausedAt ? activity.pausedAt : undefined },
+      plan.action,
+      `活动「${activity.name}」${plan.detail}`,
+      currentOperator,
+    ))
+    showToast(plan.toast)
+  }
+
+  const handleMultiItemDemoSetPausedMinutes = (id: string, minutes: number) => {
+    const activity = multiItemActivities.find((a) => a.id === id)
+    if (!activity || activity.status !== 'paused') return
+    upsertMultiItem({ ...activity, pausedAt: shiftedPausedAt(minutes) })
+    showToast(minutes === 0 ? '已重置为「刚暂停」' : `已模拟暂停 ${minutes} 分钟`)
+  }
+
+  const handleMemberPricePause = (id: string) => {
+    const activity = memberPriceActivities.find((a) => a.id === id)
+    if (!activity) return
+    upsertMemberPrice(appendMemberPriceLog(
+      { ...activity, status: 'paused' as const, pausedAt: formatActivityDateTime() },
+      '暂停活动',
+      `暂停活动「${activity.name}」，会员暂时无法享受专享价`,
+      currentOperator,
+    ))
+    showToast('活动已暂停，会员暂时无法享受专享价')
+  }
+
+  const handleMemberPriceResume = (id: string) => {
+    const activity = memberPriceActivities.find((a) => a.id === id)
+    if (!activity) return
+    const plan = buildResumePlan(activity, '会员专享价立即重新生效')
+    upsertMemberPrice(appendMemberPriceLog(
+      { ...activity, status: plan.status, pausedAt: plan.keepPausedAt ? activity.pausedAt : undefined },
+      plan.action,
+      `活动「${activity.name}」${plan.detail}`,
+      currentOperator,
+    ))
+    showToast(plan.toast)
+  }
+
+  const handleMemberPriceDemoSetPausedMinutes = (id: string, minutes: number) => {
+    const activity = memberPriceActivities.find((a) => a.id === id)
+    if (!activity || activity.status !== 'paused') return
+    upsertMemberPrice({ ...activity, pausedAt: shiftedPausedAt(minutes) })
+    showToast(minutes === 0 ? '已重置为「刚暂停」' : `已模拟暂停 ${minutes} 分钟`)
+  }
+
+  const handleFullReductionPause = (id: string) => {
+    const activity = fullReductionActivities.find((a) => a.id === id)
+    if (!activity) return
+    upsertFullReduction(appendFullReductionLog(
+      { ...activity, status: 'paused', pausedAt: formatActivityDateTime() },
+      '暂停活动',
+      `暂停活动「${activity.name}」，顾客暂时无法享受满减优惠`,
+      currentOperator,
+    ))
+    showToast('活动已暂停，顾客暂时无法享受满减优惠')
+  }
+
+  const handleFullReductionResume = (id: string) => {
+    const activity = fullReductionActivities.find((a) => a.id === id)
+    if (!activity) return
+    const plan = buildResumePlan(activity, '满减优惠立即重新生效')
+    upsertFullReduction(appendFullReductionLog(
+      { ...activity, status: plan.status, pausedAt: plan.keepPausedAt ? activity.pausedAt : undefined },
+      plan.action,
+      `活动「${activity.name}」${plan.detail}`,
+      currentOperator,
+    ))
+    showToast(plan.toast)
+  }
+
+  const handleFullReductionDemoSetPausedMinutes = (id: string, minutes: number) => {
+    const activity = fullReductionActivities.find((a) => a.id === id)
+    if (!activity || activity.status !== 'paused') return
+    upsertFullReduction({ ...activity, pausedAt: shiftedPausedAt(minutes) })
+    showToast(minutes === 0 ? '已重置为「刚暂停」' : `已模拟暂停 ${minutes} 分钟`)
+  }
+
+  // 暂停不顺延活动时间：暂停期间到达结束时间的活动自动转「已结束」，保留暂停时刻用于列表标注
+  useEffect(() => {
+    const sweep = () => {
+      const now = Date.now()
+      const expiredDetail = (name: string) => `活动「${name}」在暂停期间到达结束时间，自动结束`
+      if (activities.some((a) => isPausedExpired(a, now))) {
+        persist(activities.map((a) => (isPausedExpired(a, now)
+          ? appendActivityLog({ ...a, status: 'ended' }, '暂停中到期结束', expiredDetail(a.name), currentOperator)
+          : a)))
+      }
+      if (multiItemActivities.some((a) => isPausedExpired(a, now))) {
+        persistMultiItem(multiItemActivities.map((a) => (isPausedExpired(a, now)
+          ? appendMultiItemLog({ ...a, status: 'ended' }, '暂停中到期结束', expiredDetail(a.name), currentOperator)
+          : a)))
+      }
+      if (memberPriceActivities.some((a) => isPausedExpired(a, now))) {
+        persistMemberPrice(memberPriceActivities.map((a) => (isPausedExpired(a, now)
+          ? appendMemberPriceLog({ ...a, status: 'ended' as const }, '暂停中到期结束', expiredDetail(a.name), currentOperator)
+          : a)))
+      }
+      if (fullReductionActivities.some((a) => isPausedExpired(a, now))) {
+        persistFullReduction(fullReductionActivities.map((a) => (isPausedExpired(a, now)
+          ? appendFullReductionLog({ ...a, status: 'ended' }, '暂停中到期结束', expiredDetail(a.name), currentOperator)
+          : a)))
+      }
+    }
+    sweep()
+    const timer = window.setInterval(sweep, 30_000)
+    return () => window.clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activities, multiItemActivities, memberPriceActivities, fullReductionActivities])
 
   const handleMultiItemDelete = (id: string) => {
     persistMultiItem(multiItemActivities.filter((a) => a.id !== id))
@@ -403,7 +652,7 @@ function App() {
     if (!memberPriceDraft) return
     const exists = memberPriceActivities.some((a) => a.id === memberPriceDraft.id)
     const saved = exists
-      ? appendMemberPriceLog({ ...memberPriceDraft, status: 'draft' }, '编辑活动', `保存草稿「${memberPriceDraft.name}」`, currentOperator)
+      ? appendMemberPriceLog({ ...memberPriceDraft, status: 'draft' as const }, '编辑活动', `保存草稿「${memberPriceDraft.name}」`, currentOperator)
       : { ...memberPriceDraft, status: 'draft' as const }
     upsertMemberPrice(saved)
     showToast('草稿保存成功')
@@ -423,36 +672,355 @@ function App() {
     setFullReductionDraft(null)
   }
 
+  /**
+   * 保存已存在活动时保持原状态，只有新建与草稿才落「待发布」。
+   * 否则「暂停 → 改规则 → 恢复」会在保存那一步被打回待发布，暂停流程走不通。
+   */
+  const resolveSavedStatus = <T extends { id: string; status: ActivityForm['status'] }>(
+    list: T[],
+    draftActivity: { id: string },
+  ) => {
+    const existing = list.find((a) => a.id === draftActivity.id)
+    const keep = existing && existing.status !== 'draft'
+    return {
+      status: keep ? existing.status : ('pending' as const),
+      keep: Boolean(keep),
+    }
+  }
+
   const handleSave = () => {
     if (!draft) return
-    upsert(appendActivityLog({ ...draft, status: 'pending' }, '保存活动', `保存活动「${draft.name}」`, currentOperator))
-    showToast('活动保存成功，请前往活动列表发布')
+    const { status, keep } = resolveSavedStatus(activities, draft)
+    upsert(appendActivityLog({ ...draft, status }, keep ? '编辑活动' : '保存活动', `保存活动「${draft.name}」`, currentOperator))
+    showToast(keep ? '活动已保存' : '活动保存成功，请前往活动列表发布')
     setView({ type: 'list' })
     setDraft(null)
   }
 
   const handleMultiItemSave = () => {
     if (!multiItemDraft) return
-    upsertMultiItem(appendMultiItemLog({ ...multiItemDraft, status: 'pending' }, '保存活动', `保存活动「${multiItemDraft.name}」`, currentOperator))
-    showToast('活动保存成功，请前往活动列表发布')
+    const { status, keep } = resolveSavedStatus(multiItemActivities, multiItemDraft)
+    upsertMultiItem(appendMultiItemLog({ ...multiItemDraft, status }, keep ? '编辑活动' : '保存活动', `保存活动「${multiItemDraft.name}」`, currentOperator))
+    showToast(keep ? '活动已保存' : '活动保存成功，请前往活动列表发布')
     setView({ type: 'multi-item-list' })
     setMultiItemDraft(null)
   }
 
   const handleMemberPriceSave = () => {
     if (!memberPriceDraft) return
-    upsertMemberPrice(appendMemberPriceLog({ ...memberPriceDraft, status: 'pending' }, '保存活动', `保存活动「${memberPriceDraft.name}」`, currentOperator))
-    showToast('活动保存成功，请前往活动列表发布')
+    const { status, keep } = resolveSavedStatus(memberPriceActivities, memberPriceDraft)
+    upsertMemberPrice(appendMemberPriceLog({ ...memberPriceDraft, status }, keep ? '编辑活动' : '保存活动', `保存活动「${memberPriceDraft.name}」`, currentOperator))
+    showToast(keep ? '活动已保存' : '活动保存成功，请前往活动列表发布')
     setView({ type: 'member-price-list' })
     setMemberPriceDraft(null)
   }
 
   const handleFullReductionSave = () => {
     if (!fullReductionDraft) return
-    upsertFullReduction(appendFullReductionLog({ ...fullReductionDraft, status: 'pending' }, '保存活动', `保存活动「${fullReductionDraft.name}」`, currentOperator))
-    showToast('活动保存成功，请前往活动列表发布')
+    const { status, keep } = resolveSavedStatus(fullReductionActivities, fullReductionDraft)
+    upsertFullReduction(appendFullReductionLog({ ...fullReductionDraft, status }, keep ? '编辑活动' : '保存活动', `保存活动「${fullReductionDraft.name}」`, currentOperator))
+    showToast(keep ? '活动已保存' : '活动保存成功，请前往活动列表发布')
     setView({ type: 'full-reduction-list' })
     setFullReductionDraft(null)
+  }
+
+  /* ============ 付费会员价 ============ */
+
+  const handlePaidMemberPriceCreate = () => {
+    setPaidMemberPriceDraft(createEmptyPaidMemberPriceActivity())
+    setView({ type: 'paid-member-price-wizard', mode: 'create' })
+  }
+
+  /** 从付费权益卡的某条权益快捷建活动：绑定已预填，直接从第 2 步开始配规则 */
+  const handlePaidMemberPriceCreateFromBenefit = (cardId: string, benefitId: string) => {
+    const card = paidMemberCards.find((c) => c.id === cardId)
+    const benefit = card?.benefits.find((b) => b.id === benefitId)
+    if (!card || !benefit) return
+    setPaidMemberPriceDraft({
+      ...createEmptyPaidMemberPriceActivity(),
+      name: `${card.name}${benefit.name}`,
+      cardTemplateId: card.id,
+      benefitId: benefit.id,
+    })
+    setView({ type: 'paid-member-price-wizard', mode: 'create', step: 1, from: 'card-list' })
+    showToast(`已关联「${card.name} · ${benefit.name}」，继续配置活动规则即可`)
+  }
+
+  /** 关闭向导：从权益卡进来的回权益卡，其余回活动列表 */
+  const closePaidMemberPriceWizard = () => {
+    setView(
+      view.type === 'paid-member-price-wizard' && view.from === 'card-list'
+        ? { type: 'paid-member-card-list' }
+        : { type: 'paid-member-price-list' },
+    )
+    setPaidMemberPriceDraft(null)
+  }
+
+  const handlePaidMemberPriceView = (id: string, from?: 'card-list') => {
+    const activity = paidMemberPriceActivities.find((a) => a.id === id)
+    if (!activity) return
+    setPaidMemberPriceDraft({ ...activity })
+    setView({ type: 'paid-member-price-wizard', mode: 'view', from })
+  }
+
+  const handlePaidMemberPriceEdit = (id: string) => {
+    const activity = paidMemberPriceActivities.find((a) => a.id === id)
+    if (!activity) return
+    setPaidMemberPriceDraft({ ...activity })
+    setView({ type: 'paid-member-price-wizard', mode: 'edit' })
+  }
+
+  const handlePaidMemberPriceCopy = (id: string) => {
+    const activity = paidMemberPriceActivities.find((a) => a.id === id)
+    if (!activity) return
+    const copy = clonePaidMemberPriceActivity(activity)
+    setPaidMemberPriceDraft(copy)
+    setView({ type: 'paid-member-price-wizard', mode: 'copy' })
+    showToast('已创建草稿副本，请重新关联付费会员卡与权益')
+  }
+
+  const handlePaidMemberPricePause = (id: string) => {
+    const activity = paidMemberPriceActivities.find((a) => a.id === id)
+    if (!activity) return
+    upsertPaidMemberPrice(appendMemberPriceLog(
+      { ...activity, status: 'paused' as const, pausedAt: formatActivityDateTime() },
+      '暂停活动',
+      `暂停活动「${activity.name}」，付费会员价立即失效`,
+      currentOperator,
+    ))
+    showToast('活动已暂停，持卡顾客暂时无法享受专属价')
+  }
+
+  const handlePaidMemberPriceResume = (id: string) => {
+    const activity = paidMemberPriceActivities.find((a) => a.id === id)
+    if (!activity) return
+    // 本次暂停持续多久要写进日志，便于事后追溯运营是否长时间挂着不恢复
+    const pauseInfo = getPauseInfo(activity)
+    const lasted = pauseInfo ? `，本次暂停持续 ${formatPauseDuration(pauseInfo.minutes)}` : ''
+    upsertPaidMemberPrice(appendMemberPriceLog(
+      { ...activity, status: 'in_progress' as const, pausedAt: undefined },
+      '恢复活动',
+      `恢复活动「${activity.name}」，付费会员价立即生效${lasted}`,
+      currentOperator,
+    ))
+    showToast('活动已恢复，付费会员价立即生效')
+  }
+
+  const handlePaidMemberPriceVoid = (id: string) => {
+    const activity = paidMemberPriceActivities.find((a) => a.id === id)
+    if (!activity) return
+    upsertPaidMemberPrice(appendMemberPriceLog(
+      { ...activity, status: 'voided' as const, pausedAt: undefined },
+      '作废活动',
+      `作废活动「${activity.name}」`,
+      currentOperator,
+    ))
+    showToast('活动已作废')
+  }
+
+  const handlePaidMemberPriceDelete = (id: string) => {
+    const activity = paidMemberPriceActivities.find((a) => a.id === id)
+    if (!activity || activity.status !== 'draft') return
+    persistPaidMemberPrice(paidMemberPriceActivities.filter((a) => a.id !== id))
+    showToast('草稿已删除')
+  }
+
+  /** 演示用：把暂停起始时间往前拨，便于现场查看超时分级的三档颜色 */
+  const handlePaidMemberPriceDemoSetPausedMinutes = (id: string, minutes: number) => {
+    const activity = paidMemberPriceActivities.find((a) => a.id === id)
+    if (!activity || activity.status !== 'paused') return
+    const pausedAt = formatActivityDateTime(new Date(Date.now() - minutes * 60_000))
+    upsertPaidMemberPrice({ ...activity, pausedAt })
+    showToast(minutes === 0 ? '已重置为「刚暂停」' : `已模拟暂停 ${minutes} 分钟`)
+  }
+
+  const handlePaidMemberPriceSaveDraft = () => {
+    if (!paidMemberPriceDraft) return
+    const err = validatePaidMemberPriceDraftSave(paidMemberPriceDraft)
+    if (err) {
+      showToast(err)
+      return
+    }
+    const exists = paidMemberPriceActivities.some((a) => a.id === paidMemberPriceDraft.id)
+    upsertPaidMemberPrice(appendMemberPriceLog(
+      { ...paidMemberPriceDraft, status: 'draft' as const, pausedAt: undefined },
+      exists ? '保存草稿' : '创建草稿',
+      `保存草稿「${paidMemberPriceDraft.name}」`,
+      currentOperator,
+    ))
+    showToast('草稿已保存')
+    closePaidMemberPriceWizard()
+  }
+
+  /** 发布草稿，或保存已发布活动的编辑 */
+  const handlePaidMemberPriceSave = () => {
+    if (!paidMemberPriceDraft) return
+    const exists = paidMemberPriceActivities.some((a) => a.id === paidMemberPriceDraft.id)
+    const isDraftOrCreate = !exists || paidMemberPriceDraft.status === 'draft'
+
+    if (isDraftOrCreate) {
+      const err = validatePaidMemberPriceBeforeSave(
+        paidMemberPriceDraft,
+        paidMemberCards,
+        paidMemberPriceActivities,
+      )
+      if (err) {
+        showToast(err)
+        return
+      }
+      const status = resolvePublishStatus(paidMemberPriceDraft, paidMemberCards)
+      const card = paidMemberCards.find((c) => c.id === paidMemberPriceDraft.cardTemplateId)
+      upsertPaidMemberPrice(appendMemberPriceLog(
+        { ...paidMemberPriceDraft, status, pausedAt: undefined },
+        '发布活动',
+        `发布活动「${paidMemberPriceDraft.name}」，关联卡${card?.status === 'on_sale' ? '在售，活动直接生效' : '未上架，等待卡上架后生效'}`,
+        currentOperator,
+      ))
+      const disadvantages = findPriceDisadvantages(paidMemberPriceDraft, memberPriceActivities)
+      const baseMsg = card?.status === 'on_sale'
+        ? '活动已发布并生效'
+        : '活动已发布，关联卡上架后将自动生效'
+      showToast(
+        disadvantages.length > 0
+          ? `${baseMsg}；注意有 ${disadvantages.length} 个商品的付费会员价高于普通会员价，建议核对优惠力度`
+          : baseMsg,
+      )
+    } else {
+      const err = validatePaidMemberPriceBeforeSave(
+        paidMemberPriceDraft,
+        paidMemberCards,
+        paidMemberPriceActivities,
+      )
+      if (err) {
+        showToast(err)
+        return
+      }
+      upsertPaidMemberPrice(appendMemberPriceLog(
+        { ...paidMemberPriceDraft },
+        '编辑活动',
+        `编辑活动「${paidMemberPriceDraft.name}」`,
+        currentOperator,
+      ))
+      const disadvantages = findPriceDisadvantages(paidMemberPriceDraft, memberPriceActivities)
+      showToast(
+        disadvantages.length > 0
+          ? `活动已保存；注意有 ${disadvantages.length} 个商品的付费会员价高于普通会员价，建议核对优惠力度`
+          : '活动已保存',
+      )
+    }
+    closePaidMemberPriceWizard()
+  }
+
+  const handlePaidMemberPricePublishFromList = (id: string) => {
+    const activity = paidMemberPriceActivities.find((a) => a.id === id)
+    if (!activity || activity.status !== 'draft') return
+    const err = validatePaidMemberPriceBeforeSave(activity, paidMemberCards, paidMemberPriceActivities)
+    if (err) {
+      showToast(err)
+      return
+    }
+    const status = resolvePublishStatus(activity, paidMemberCards)
+    const card = paidMemberCards.find((c) => c.id === activity.cardTemplateId)
+    upsertPaidMemberPrice(appendMemberPriceLog(
+      { ...activity, status, pausedAt: undefined },
+      '发布活动',
+      `发布活动「${activity.name}」，关联卡${card?.status === 'on_sale' ? '在售，活动直接生效' : '未上架，等待卡上架后生效'}`,
+      currentOperator,
+    ))
+    showToast(
+      card?.status === 'on_sale'
+        ? '活动已发布并生效'
+        : '活动已发布，关联卡上架后将自动生效',
+    )
+  }
+
+  /** 卡上架 / 下架，并联动关联活动的状态 */
+  const handleToggleCardStatus = (cardId: string, next: 'on_sale' | 'off_shelf') => {
+    const card = paidMemberCards.find((c) => c.id === cardId)
+    if (!card) return
+    persistPaidMemberCards(
+      paidMemberCards.map((c) =>
+        c.id === cardId ? { ...c, status: next, updatedAt: formatActivityDateTime() } : c,
+      ),
+    )
+
+    if (next === 'on_sale') {
+      // 卡上架：该卡下「待发布」的活动自动生效
+      const affected = paidMemberPriceActivities.filter(
+        (a) => a.cardTemplateId === cardId && a.status === 'pending',
+      )
+      if (affected.length > 0) {
+        const affectedIds = new Set(affected.map((a) => a.id))
+        persistPaidMemberPrice(
+          paidMemberPriceActivities.map((a) =>
+            affectedIds.has(a.id)
+              ? appendMemberPriceLog(
+                  { ...a, status: 'in_progress' as const },
+                  '卡上架生效',
+                  `关联付费会员卡「${card.name}」上架，活动自动生效`,
+                  currentOperator,
+                )
+              : a,
+          ),
+        )
+        showToast(`「${card.name}」已上架，${affected.length} 个关联活动已自动生效`)
+      } else {
+        showToast(`「${card.name}」已上架`)
+      }
+      return
+    }
+
+    // 卡下架：仅停止新售，活动状态不变，已购卡用户在有效期内继续享用
+    const running = paidMemberPriceActivities.filter(
+      (a) => a.cardTemplateId === cardId && (a.status === 'in_progress' || a.status === 'paused'),
+    )
+    showToast(
+      running.length > 0
+        ? `「${card.name}」已下架，停止新售；${running.length} 个关联活动保持原状态，已购卡用户在有效期内继续享用`
+        : `「${card.name}」已下架，停止新售`,
+    )
+  }
+
+  const handleSaveBenefit = (cardId: string, benefit: PaidMemberPriceBenefit) => {
+    const card = paidMemberCards.find((c) => c.id === cardId)
+    if (!card) return
+    const isNew = !benefit.id
+    const saved: PaidMemberPriceBenefit = isNew
+      ? { ...benefit, id: `BF${Date.now()}`, createdAt: formatActivityDateTime() }
+      : benefit
+    persistPaidMemberCards(
+      paidMemberCards.map((c) =>
+        c.id !== cardId
+          ? c
+          : {
+              ...c,
+              updatedAt: formatActivityDateTime(),
+              benefits: isNew
+                ? [...c.benefits, saved]
+                : c.benefits.map((b) => (b.id === saved.id ? saved : b)),
+            },
+      ),
+    )
+    showToast(
+      isNew
+        ? `已新增权益「${saved.name}」，请到付费会员价活动中配置门店、商品与优惠力度`
+        : `已保存权益「${saved.name}」`,
+    )
+  }
+
+  const handleDeleteBenefit = (cardId: string, benefitId: string) => {
+    persistPaidMemberCards(
+      paidMemberCards.map((c) =>
+        c.id !== cardId
+          ? c
+          : {
+              ...c,
+              updatedAt: formatActivityDateTime(),
+              benefits: c.benefits.filter((b) => b.id !== benefitId),
+            },
+      ),
+    )
+    showToast('权益已删除')
   }
 
   const handleNavigate = (key: string) => {
@@ -460,6 +1028,7 @@ function App() {
     setMultiItemDraft(null)
     setMemberPriceDraft(null)
     setFullReductionDraft(null)
+    setPaidMemberPriceDraft(null)
     if (key === 'orders') {
       setView({ type: 'order-list' })
     } else if (key === 'bogo') {
@@ -470,6 +1039,10 @@ function App() {
       setView({ type: 'full-reduction-list' })
     } else if (key === 'member_price') {
       setView({ type: 'member-price-list' })
+    } else if (key === 'paid_member_price') {
+      setView({ type: 'paid-member-price-list' })
+    } else if (key === 'paid_member_card') {
+      setView({ type: 'paid-member-card-list' })
     }
   }
 
@@ -487,6 +1060,11 @@ function App() {
     || view.type === 'full-reduction-wizard'
     || view.type === 'full-reduction-participation'
     || (view.type === 'order-detail' && view.from === 'full-reduction-participation')
+  const isPaidMemberPriceModule = view.type === 'paid-member-price-list'
+    || view.type === 'paid-member-price-wizard'
+    || view.type === 'paid-member-price-participation'
+    || (view.type === 'order-detail' && view.from === 'paid-member-price-participation')
+  const isPaidMemberCardModule = view.type === 'paid-member-card-list'
 
   const isBogoParticipation = view.type === 'activity-participation'
     || (view.type === 'order-detail' && view.from === 'activity-participation')
@@ -499,11 +1077,11 @@ function App() {
         ? 'full_reduction'
         : isMemberPriceModule
           ? 'member_price'
-          : 'bogo'
-
-  const participationActivity = view.type === 'activity-participation'
-    ? activities.find((a) => a.id === view.activityId)
-    : undefined
+          : isPaidMemberPriceModule
+            ? 'paid_member_price'
+            : isPaidMemberCardModule
+              ? 'paid_member_card'
+              : 'bogo'
 
   const multiItemParticipationActivity = view.type === 'multi-item-participation'
     ? multiItemActivities.find((a) => a.id === view.activityId)
@@ -517,6 +1095,12 @@ function App() {
       ? memberPriceActivities.find((a) => a.id === view.activityId)
       : undefined
 
+  const paidMemberPriceParticipationActivity = view.type === 'paid-member-price-participation'
+    ? paidMemberPriceActivities.find((a) => a.id === view.activityId)
+    : view.type === 'order-detail' && view.from === 'paid-member-price-participation' && view.activityId
+      ? paidMemberPriceActivities.find((a) => a.id === view.activityId)
+      : undefined
+
   const fullReductionParticipationActivity = view.type === 'full-reduction-participation'
     ? fullReductionActivities.find((a) => a.id === view.activityId)
     : view.type === 'order-detail' && view.from === 'full-reduction-participation' && view.activityId
@@ -527,6 +1111,16 @@ function App() {
     ? view.type === 'order-list'
       ? ['营销管理', '订单管理', '订单查询']
       : ['营销管理', '订单管理', '订单查询', '订单详情']
+    : isPaidMemberCardModule
+      ? ['会员管理', '运营体系', '付费权益卡']
+    : isPaidMemberPriceModule
+      ? view.type === 'paid-member-price-list'
+        ? ['营销管理', '促销活动', '付费会员价']
+        : view.type === 'paid-member-price-participation' && paidMemberPriceParticipationActivity
+          ? ['营销管理', '促销活动', '付费会员价', '参与记录']
+          : view.type === 'paid-member-price-wizard'
+            ? ['营销管理', '促销活动', '付费会员价', view.mode === 'create' ? '新建活动' : view.mode === 'view' ? '查看活动' : '编辑活动']
+            : ['营销管理', '促销活动', '付费会员价']
     : isMemberPriceModule
       ? view.type === 'member-price-list'
         ? ['营销管理', '促销活动', '会员价']
@@ -553,7 +1147,7 @@ function App() {
             : view.type === 'multi-item-wizard'
               ? ['营销管理', '促销活动', '第N件优惠', view.mode === 'create' ? '新建活动' : view.mode === 'view' ? '查看活动' : '编辑活动']
               : ['营销管理', '促销活动', '第N件优惠']
-        : isBogoParticipation && participationActivity
+        : isBogoParticipation
           ? ['营销管理', '促销活动', '买1送N', '参与记录']
           : view.type === 'list'
             ? ['营销管理', '促销活动', '买1送N']
@@ -575,8 +1169,9 @@ function App() {
           orderId={view.orderId}
           backLabel={view.from === 'activity-participation' || view.from === 'multi-item-participation' ? '← 返回参与记录' : '← 返回订单列表'}
           onBack={() => {
-            if (view.from === 'activity-participation' && view.activityId) {
-              setView({ type: 'activity-participation', activityId: view.activityId })
+            if (view.from === 'activity-participation') {
+              // 活动范围保存在 participationScope 里，返回后仍是原来的查询结果
+              setView({ type: 'activity-participation' })
               return
             }
             if (view.from === 'multi-item-participation' && view.activityId) {
@@ -587,18 +1182,17 @@ function App() {
           }}
           onViewActivity={handleView}
         />
-      ) : view.type === 'activity-participation' && participationActivity ? (
-        <ActivityParticipationRecords
-          activity={participationActivity}
-          onBack={() => setView({ type: 'list' })}
-          onViewOriginalOrder={(orderId) => setView({ type: 'order-detail', orderId, from: 'activity-participation', activityId: participationActivity.id })}
-          onExport={() => showToast('导出任务已创建，请稍后在下载中心查看')}
-        />
       ) : view.type === 'activity-participation' ? (
-        <div className="page-card">
-          <div className="table-empty">未找到活动</div>
-          <button type="button" className="btn btn--default" onClick={() => setView({ type: 'list' })}>返回列表</button>
-        </div>
+        <ActivityParticipationRecords
+          activities={activities}
+          activityIds={participationScope}
+          onScopeChange={setParticipationScope}
+          onBack={() => setView({ type: 'list' })}
+          onViewOriginalOrder={(orderId) => setView({ type: 'order-detail', orderId, from: 'activity-participation' })}
+          onExport={(records, count) => showToast(
+            `导出任务已创建（${count} 个活动 / ${records} 条记录），请稍后在下载中心查看`,
+          )}
+        />
       ) : view.type === 'multi-item-participation' && multiItemParticipationActivity ? (
         <MultiItemParticipationRecords
           activity={multiItemParticipationActivity}
@@ -621,6 +1215,62 @@ function App() {
           <div className="table-empty">未找到活动</div>
           <button type="button" className="btn btn--default" onClick={() => setView({ type: 'member-price-list' })}>返回列表</button>
         </div>
+      ) : view.type === 'paid-member-price-participation' && paidMemberPriceParticipationActivity ? (
+        <MemberPriceParticipationRecords
+          activity={paidMemberPriceParticipationActivity}
+          onBack={() => setView({ type: 'paid-member-price-list' })}
+          onExport={() => showToast('导出任务已创建，请稍后在下载中心查看')}
+        />
+      ) : view.type === 'paid-member-price-participation' ? (
+        <div className="page-card">
+          <div className="table-empty">未找到活动</div>
+          <button type="button" className="btn btn--default" onClick={() => setView({ type: 'paid-member-price-list' })}>返回列表</button>
+        </div>
+      ) : view.type === 'paid-member-card-list' ? (
+        <PaidMemberCardList
+          cards={paidMemberCards}
+          activities={paidMemberPriceActivities}
+          onToggleCardStatus={handleToggleCardStatus}
+          onSaveBenefit={handleSaveBenefit}
+          onDeleteBenefit={handleDeleteBenefit}
+          onViewActivity={(id) => handlePaidMemberPriceView(id, 'card-list')}
+          onCreateActivityFromBenefit={handlePaidMemberPriceCreateFromBenefit}
+          onGoToActivities={() => setView({ type: 'paid-member-price-list' })}
+          onToast={showToast}
+        />
+      ) : view.type === 'paid-member-price-list' ? (
+        <PaidMemberPriceActivityList
+          activities={paidMemberPriceActivities}
+          cards={paidMemberCards}
+          onCreate={handlePaidMemberPriceCreate}
+          onView={handlePaidMemberPriceView}
+          onViewParticipation={(id) => setView({ type: 'paid-member-price-participation', activityId: id })}
+          onEdit={handlePaidMemberPriceEdit}
+          onCopy={handlePaidMemberPriceCopy}
+          onPublish={handlePaidMemberPricePublishFromList}
+          onPause={handlePaidMemberPricePause}
+          onResume={handlePaidMemberPriceResume}
+          onVoid={handlePaidMemberPriceVoid}
+          onDelete={handlePaidMemberPriceDelete}
+          onDemoSetPausedMinutes={handlePaidMemberPriceDemoSetPausedMinutes}
+          onGoToCards={() => setView({ type: 'paid-member-card-list' })}
+          onToast={showToast}
+        />
+      ) : view.type === 'paid-member-price-wizard' && paidMemberPriceDraft ? (
+        <PaidMemberPriceActivityWizard
+          activity={paidMemberPriceDraft}
+          cards={paidMemberCards}
+          memberPriceActivities={memberPriceActivities}
+          mode={view.mode}
+          initialStep={view.step}
+          onChange={setPaidMemberPriceDraft}
+          onCancel={closePaidMemberPriceWizard}
+          onSaveDraft={handlePaidMemberPriceSaveDraft}
+          onSave={handlePaidMemberPriceSave}
+          onSwitchToEdit={() => setView({ type: 'paid-member-price-wizard', mode: 'edit', from: view.from })}
+          onGoToCards={() => setView({ type: 'paid-member-card-list' })}
+          onToast={showToast}
+        />
       ) : view.type === 'full-reduction-participation' && fullReductionParticipationActivity ? (
         <FullReductionParticipationRecords
           activity={fullReductionParticipationActivity}
@@ -638,10 +1288,20 @@ function App() {
           linkedConsumerActivityId={linkedConsumerActivityId}
           onCreate={handleCreate}
           onView={handleView}
-          onViewParticipation={(id) => setView({ type: 'activity-participation', activityId: id })}
+          onViewParticipation={(id) => {
+            setParticipationScope([id])
+            setView({ type: 'activity-participation', activityId: id })
+          }}
+          onViewAllParticipation={() => {
+            setParticipationScope([])
+            setView({ type: 'activity-participation' })
+          }}
           onEdit={handleEdit}
           onCopy={handleCopy}
           onPublish={handlePublishFromList}
+          onPause={handlePause}
+          onResume={handleResume}
+          onDemoSetPausedMinutes={handleDemoSetPausedMinutes}
           onVoid={handleVoid}
           onLinkConsumerDemo={handleLinkConsumerDemo}
           onUnlinkConsumerDemo={handleUnlinkConsumerDemo}
@@ -656,6 +1316,9 @@ function App() {
           onEdit={handleMultiItemEdit}
           onCopy={handleMultiItemCopy}
           onPublish={handleMultiItemPublishFromList}
+          onPause={handleMultiItemPause}
+          onResume={handleMultiItemResume}
+          onDemoSetPausedMinutes={handleMultiItemDemoSetPausedMinutes}
           onVoid={handleMultiItemVoid}
           onDelete={handleMultiItemDelete}
           onToast={showToast}
@@ -670,6 +1333,9 @@ function App() {
           onEdit={handleMemberPriceEdit}
           onCopy={handleMemberPriceCopy}
           onPublish={handleMemberPricePublishFromList}
+          onPause={handleMemberPricePause}
+          onResume={handleMemberPriceResume}
+          onDemoSetPausedMinutes={handleMemberPriceDemoSetPausedMinutes}
           onVoid={handleMemberPriceVoid}
           onDelete={handleMemberPriceDelete}
           onToast={showToast}
@@ -688,6 +1354,9 @@ function App() {
           onEdit={handleFullReductionEdit}
           onCopy={handleFullReductionCopy}
           onPublish={handleFullReductionPublishFromList}
+          onPause={handleFullReductionPause}
+          onResume={handleFullReductionResume}
+          onDemoSetPausedMinutes={handleFullReductionDemoSetPausedMinutes}
           onVoid={handleFullReductionVoid}
           onDelete={handleFullReductionDelete}
           onToast={showToast}
@@ -701,6 +1370,7 @@ function App() {
           onSaveDraft={handleSaveDraft}
           onSave={handleSave}
           onSwitchToEdit={view.type === 'wizard' && view.mode === 'view' ? () => setView({ type: 'wizard', mode: 'edit' }) : undefined}
+          onToast={showToast}
         />
       ) : multiItemDraft ? (
         <MultiItemActivityWizard
@@ -711,6 +1381,7 @@ function App() {
           onSaveDraft={handleMultiItemSaveDraft}
           onSave={handleMultiItemSave}
           onSwitchToEdit={view.type === 'multi-item-wizard' && view.mode === 'view' ? () => setView({ type: 'multi-item-wizard', mode: 'edit' }) : undefined}
+          onToast={showToast}
         />
       ) : memberPriceDraft ? (
         <MemberPriceActivityWizard
@@ -732,6 +1403,7 @@ function App() {
           onSaveDraft={handleFullReductionSaveDraft}
           onSave={handleFullReductionSave}
           onSwitchToEdit={view.type === 'full-reduction-wizard' && view.mode === 'view' ? () => setView({ type: 'full-reduction-wizard', mode: 'edit' }) : undefined}
+          onToast={showToast}
         />
       ) : null}
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}

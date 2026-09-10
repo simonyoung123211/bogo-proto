@@ -2,8 +2,18 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 import { ActivityOperationLogModal } from '../components/ActivityOperationLogModal'
 import { ActivityScopeSnapshotModal, type ActivityScopeSnapshotType } from '../components/ActivityScopeSnapshotModal'
 import { GeneralSettingsModal } from '../components/GeneralSettingsModal'
-import { CHANNELS, PARTICIPANT_USER_OPTIONS, STATUS_LABELS, stores } from '../mockData'
+import { PauseConfirmModal, PauseDemoGroup, ResumeConfirmModal } from '../components/ActivityPauseControls'
+import { CHANNELS, MORE_STATUS_TABS, PARTICIPANT_USER_OPTIONS, PAUSE_OVERDUE_MINUTES, PRIMARY_STATUS_TABS, STATUS_LABELS, stores } from '../mockData'
 import type { ActivityForm, ActivityStatus, GeneralSettings, ListFilters } from '../types'
+import {
+  canPause,
+  canResume,
+  countOverduePaused,
+  getPauseInfo,
+  isEndedWhilePaused,
+  isExpired,
+  resolveResumeStatus,
+} from '../utils/activityPause'
 import {
   countActivitiesByStatus,
   formatCreatorDisplay,
@@ -22,22 +32,19 @@ interface ActivityListProps {
   onCreate: () => void
   onView: (id: string) => void
   onViewParticipation: (id: string) => void
+  /** 进入全量活动的参与记录查询 */
+  onViewAllParticipation: () => void
   onEdit: (id: string) => void
   onCopy: (id: string) => void
   onPublish: (id: string) => void
+  onPause: (id: string) => void
+  onResume: (id: string) => void
+  onDemoSetPausedMinutes: (id: string, minutes: number) => void
   onVoid: (id: string) => void
   onLinkConsumerDemo?: (id: string) => void
   onUnlinkConsumerDemo?: () => void
   onToast?: (message: string) => void
 }
-
-const PRIMARY_STATUS_TABS: (ActivityStatus | 'all')[] = [
-  'all', 'in_progress', 'pending', 'draft',
-]
-
-const MORE_STATUS_TABS: ActivityStatus[] = [
-  'not_started', 'ended', 'voided',
-]
 
 const EMPTY_FILTERS: ListFilters = {
   keyword: '',
@@ -62,15 +69,21 @@ export function ActivityList({
   onCreate,
   onView,
   onViewParticipation,
+  onViewAllParticipation,
   onEdit,
   onCopy,
   onPublish,
+  onPause,
+  onResume,
+  onDemoSetPausedMinutes,
   onVoid,
   onLinkConsumerDemo,
   onUnlinkConsumerDemo,
   onToast,
 }: ActivityListProps) {
   const [filters, setFilters] = useState<ListFilters>(EMPTY_FILTERS)
+  const [pauseTarget, setPauseTarget] = useState<ActivityForm | null>(null)
+  const [resumeTarget, setResumeTarget] = useState<ActivityForm | null>(null)
   const [voidTarget, setVoidTarget] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [filterExpanded, setFilterExpanded] = useState(false)
@@ -90,6 +103,16 @@ export function ActivityList({
     const timer = window.setTimeout(() => setEnableRowAnim(false), 500)
     return () => window.clearTimeout(timer)
   }, [])
+
+  // 暂停时长需要实时跳变颜色，仅在存在暂停活动时启动定时器
+  const hasPaused = activities.some((a) => a.status === 'paused')
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!hasPaused) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [hasPaused])
+  const overdueCount = countOverduePaused(activities, now)
 
   const filtered = useMemo(
     () => activities.filter((a) => matchesFilters(a, filters)),
@@ -135,12 +158,41 @@ export function ActivityList({
 
   const stopRowClick = (e: ReactMouseEvent) => e.stopPropagation()
 
-  const canEdit = (s: ActivityStatus) => ['draft', 'pending', 'not_started', 'in_progress'].includes(s)
+  const canEdit = (s: ActivityStatus) => ['draft', 'pending', 'not_started', 'in_progress', 'paused'].includes(s)
   const canPublish = (s: ActivityStatus) => ['draft', 'pending'].includes(s)
-  const canVoid = (s: ActivityStatus) => ['pending', 'not_started', 'in_progress'].includes(s)
+  const canVoid = (s: ActivityStatus) => ['pending', 'not_started', 'in_progress', 'paused'].includes(s)
+
+  // 已过结束时间的活动没有暂停的意义，暂停后会立刻被判定为已结束
+  const requestPause = (activity: ActivityForm) => {
+    if (isExpired(activity, now)) {
+      onToast?.('该活动已过结束时间，无需暂停')
+      return
+    }
+    setPauseTarget(activity)
+  }
+
+  // 暂停期间活动时间照常走，恢复时按当前时刻重新落状态
+  const requestResume = (activity: ActivityForm) => {
+    if (resolveResumeStatus(activity, Date.now()) === 'ended') {
+      onToast?.('该活动已过结束时间，恢复后将直接标记为已结束')
+    }
+    setResumeTarget(activity)
+  }
 
   return (
     <div className="page-card page-card--list">
+      {overdueCount > 0 && (
+        <div className="alert-banner alert-banner--danger">
+          <span className="alert-banner__icon">!</span>
+          <span>
+            有 {overdueCount} 个买1送N活动暂停超过 {PAUSE_OVERDUE_MINUTES} 分钟未恢复，顾客暂时无法参与
+          </span>
+          <button type="button" className="link-btn" onClick={() => setFilters((f) => ({ ...f, status: 'paused' }))}>
+            查看这些活动
+          </button>
+        </div>
+      )}
+
       <header className="list-page-header list-page-header--compact">
         <div className="list-page-header__main">
           <div className="list-page-header__title-row">
@@ -149,6 +201,9 @@ export function ActivityList({
           </div>
         </div>
         <div className="list-page-header__actions">
+          <button type="button" className="btn btn--default" onClick={onViewAllParticipation}>
+            参与记录
+          </button>
           <button type="button" className="btn btn--default btn--icon" onClick={() => setSettingsOpen(true)}>
             <IconSettings />
             通用设置
@@ -357,6 +412,7 @@ export function ActivityList({
             ) : (
               pageRows.map((a, index) => {
                 const remaining = getActivityRemainingLabel(a)
+                const pauseInfo = getPauseInfo(a, now)
                 return (
                   <tr
                     key={a.id}
@@ -416,9 +472,17 @@ export function ActivityList({
                     </td>
                     <td className="table-col--optional">{getParticipantUserLabel(a)}</td>
                     <td>
-                      <span className={`status-badge status-badge--dot status-badge--${a.status}`}>
-                        {STATUS_LABELS[a.status]}
-                      </span>
+                      <div className="status-cell">
+                        <span className={`status-badge status-badge--dot status-badge--${a.status}`}>
+                          {STATUS_LABELS[a.status]}
+                        </span>
+                        {pauseInfo && (
+                          <span className={`pause-timer pause-timer--${pauseInfo.level}`} title={pauseInfo.label}>
+                            {pauseInfo.label}
+                          </span>
+                        )}
+                        {isEndedWhilePaused(a) && <span className="status-cell__hint">暂停中到期结束</span>}
+                      </div>
                     </td>
                     <td className="table-col--optional">
                       <CreatorCell activity={a} />
@@ -481,6 +545,19 @@ export function ActivityList({
                             发布
                           </button>
                         )}
+                        {canPause(a.status) && (
+                          <button type="button" onClick={() => { requestPause(a); setOpenMenuId(null) }}>
+                            暂停活动
+                          </button>
+                        )}
+                        {canResume(a.status) && (
+                          <button type="button" onClick={() => { requestResume(a); setOpenMenuId(null) }}>
+                            恢复活动
+                          </button>
+                        )}
+                        {a.status === 'paused' && (
+                          <PauseDemoGroup onPick={(m) => { onDemoSetPausedMinutes(a.id, m); setOpenMenuId(null) }} />
+                        )}
                         {canVoid(a.status) && (
                           <button
                             type="button"
@@ -527,6 +604,23 @@ export function ActivityList({
           </div>
         )}
       </div>
+
+      {pauseTarget && (
+        <PauseConfirmModal
+          impact="顾客暂时无法参与本活动"
+          onCancel={() => setPauseTarget(null)}
+          onConfirm={() => { onPause(pauseTarget.id); setPauseTarget(null) }}
+        />
+      )}
+
+      {resumeTarget && (
+        <ResumeConfirmModal
+          effect="顾客可立即重新参与本活动"
+          willEnd={resolveResumeStatus(resumeTarget, now) === 'ended'}
+          onCancel={() => setResumeTarget(null)}
+          onConfirm={() => { onResume(resumeTarget.id); setResumeTarget(null) }}
+        />
+      )}
 
       {voidTarget && (
         <div className="modal-overlay" onClick={() => setVoidTarget(null)}>

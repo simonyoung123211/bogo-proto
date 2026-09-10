@@ -12,6 +12,8 @@ interface TableSelectHeaderProps {
   onTogglePage: () => void
   onSelectPage: () => void
   onSelectAll: () => void
+  /** 全选范围的文案。列表处于关键词筛选态时传「全选筛选结果」，避免误以为覆盖全部已选 */
+  allOptionLabel?: string
 }
 
 /** 表头：勾选当前页 + 下拉（全选当前页 / 全选全部） */
@@ -24,6 +26,7 @@ export function TableSelectHeader({
   onTogglePage,
   onSelectPage,
   onSelectAll,
+  allOptionLabel = '全选全部',
 }: TableSelectHeaderProps) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -89,7 +92,7 @@ export function TableSelectHeader({
                   setOpen(false)
                 }}
               >
-                全选全部（{totalCount}）
+                {allOptionLabel}（{totalCount}）
               </button>
             </div>
           )}
