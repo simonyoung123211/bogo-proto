@@ -7,6 +7,8 @@ import type {
   MultiItemActivityForm,
   PaidMemberCardTemplate,
   PaidMemberPriceActivityForm,
+  StoredValuePayActivityForm,
+  StoredValuePayGeneralSettings,
 } from '../types'
 import { initialActivities } from '../mockData'
 import { initialFullReductionActivities } from '../mockFullReductionData'
@@ -16,11 +18,13 @@ import {
   initialPaidMemberCards,
   initialPaidMemberPriceActivities,
 } from '../mockPaidMemberPriceData'
+import { initialStoredValuePayActivities } from '../mockStoredValuePayData'
 import { migrateActivity } from './activity'
 import { migrateFullReductionActivity } from './fullReductionActivity'
 import { migrateMemberPriceActivity } from './memberPriceActivity'
 import { migrateMultiItemActivity } from './multiItemActivity'
 import { migratePaidMemberPriceActivity } from './paidMemberPriceActivity'
+import { migrateStoredValuePayActivity } from './storedValuePayActivity'
 
 const STORAGE_KEY = 'bogo-activities-v1'
 const MULTI_ITEM_STORAGE_KEY = 'multi-item-activities-v1'
@@ -28,8 +32,10 @@ const MEMBER_PRICE_STORAGE_KEY = 'member-price-activities-v1'
 const FULL_REDUCTION_STORAGE_KEY = 'full-reduction-activities-v1'
 const PAID_MEMBER_PRICE_STORAGE_KEY = 'paid-member-price-activities-v1'
 const PAID_MEMBER_CARD_STORAGE_KEY = 'paid-member-cards-v1'
+const STORED_VALUE_PAY_STORAGE_KEY = 'stored-value-pay-activities-v1'
 const GENERAL_SETTINGS_KEY = 'bogo-general-settings-v1'
 const MEMBER_PRICE_GENERAL_SETTINGS_KEY = 'member-price-general-settings-v1'
+const STORED_VALUE_PAY_GENERAL_SETTINGS_KEY = 'stored-value-pay-general-settings-v1'
 
 export const MAX_GIFT_STORAGE_PER_ORDER_LIMIT = 99
 
@@ -207,4 +213,53 @@ export function loadPaidMemberCards(): PaidMemberCardTemplate[] {
 
 export function savePaidMemberCards(cards: PaidMemberCardTemplate[]): void {
   localStorage.setItem(PAID_MEMBER_CARD_STORAGE_KEY, JSON.stringify(cards))
+}
+
+export const DEFAULT_STORED_VALUE_PAY_GENERAL_SETTINGS: StoredValuePayGeneralSettings = {
+  customPromotionTagEnabled: false,
+  tagContentMode: 'default',
+  customTagText: '',
+  styleMode: 'default',
+  backgroundStyle: 'solid',
+  leftBackgroundImage: '',
+  rightBackgroundImage: '',
+  leftBackgroundColor: '#010000',
+  leftTextColor: '#EEEDED',
+  rightBackgroundColor: '#E20303',
+  rightTextColor: '#FFFFFF',
+  fullOrderBalanceThreshold: 'payable_after_activity',
+}
+
+export function loadStoredValuePayActivities(): StoredValuePayActivityForm[] {
+  try {
+    const raw = localStorage.getItem(STORED_VALUE_PAY_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>[]
+      return parsed.map((a) => migrateStoredValuePayActivity(a))
+    }
+  } catch {
+    /* ignore */
+  }
+  return [...initialStoredValuePayActivities]
+}
+
+export function saveStoredValuePayActivities(activities: StoredValuePayActivityForm[]): void {
+  localStorage.setItem(STORED_VALUE_PAY_STORAGE_KEY, JSON.stringify(activities))
+}
+
+export function loadStoredValuePayGeneralSettings(): StoredValuePayGeneralSettings {
+  try {
+    const raw = localStorage.getItem(STORED_VALUE_PAY_GENERAL_SETTINGS_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<StoredValuePayGeneralSettings>
+      return { ...DEFAULT_STORED_VALUE_PAY_GENERAL_SETTINGS, ...parsed }
+    }
+  } catch {
+    /* ignore */
+  }
+  return { ...DEFAULT_STORED_VALUE_PAY_GENERAL_SETTINGS }
+}
+
+export function saveStoredValuePayGeneralSettings(settings: StoredValuePayGeneralSettings): void {
+  localStorage.setItem(STORED_VALUE_PAY_GENERAL_SETTINGS_KEY, JSON.stringify(settings))
 }

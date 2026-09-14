@@ -24,6 +24,12 @@ interface MemberPriceProductConfigProps<T extends MemberPriceProductCoreFields> 
    * 不需要选择等级，传 false 隐藏该区块。
    */
   showMemberLevels?: boolean
+  /** 优惠方式字段标题；储值支付等复用场景可覆盖默认「会员折扣方式」 */
+  priceMethodLabel?: string
+  /** 切换优惠方式时的提示文案 */
+  priceMethodHint?: string
+  /** 批量移除时的附加说明 */
+  batchRemoveExtraNote?: string
 }
 
 export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>({
@@ -32,6 +38,9 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
   onChange,
   onToast,
   showMemberLevels = true,
+  priceMethodLabel = '会员折扣方式',
+  priceMethodHint = '切换优惠方式后，已填写的会员价数值将按默认值重置。',
+  batchRemoveExtraNote,
 }: MemberPriceProductConfigProps<T>) {
   const [showProductPicker, setShowProductPicker] = useState(false)
   const [batchValue, setBatchValue] = useState('')
@@ -283,7 +292,7 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
         </FormRow>
       )}
 
-      <FormRow label="会员折扣方式" required>
+      <FormRow label={priceMethodLabel} required>
         <div>
           <RadioGroup
             disabled={readOnly}
@@ -295,7 +304,7 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
             ]}
             onChange={(v) => changePriceMethod(v as MemberPriceMethod)}
           />
-          <p className="field-hint">切换优惠方式后，已填写的会员价数值将按默认值重置。</p>
+          <p className="field-hint">{priceMethodHint}</p>
         </div>
       </FormRow>
 
@@ -548,7 +557,11 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
           count={selectedCount}
           filtering={filtering}
           itemLabel={itemLabel}
-          extraNote={isExclude ? undefined : '已填写的会员价优惠值会一并清除。'}
+          extraNote={
+            isExclude
+              ? undefined
+              : (batchRemoveExtraNote ?? '已填写的会员价优惠值会一并清除。')
+          }
           onCancel={() => setShowBatchRemove(false)}
           onConfirm={removeChecked}
         />

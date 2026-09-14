@@ -17,6 +17,9 @@ import { MultiItemParticipationRecords } from './pages/MultiItemParticipationRec
 import { PaidMemberCardList } from './pages/PaidMemberCardList'
 import { PaidMemberPriceActivityList } from './pages/PaidMemberPriceActivityList'
 import { PaidMemberPriceActivityWizard } from './pages/PaidMemberPriceActivityWizard'
+import { StoredValuePayActivityList } from './pages/StoredValuePayActivityList'
+import { StoredValuePayActivityWizard } from './pages/StoredValuePayActivityWizard'
+import { StoredValuePayParticipationRecords } from './pages/StoredValuePayParticipationRecords'
 import { OrderList } from './pages/OrderList'
 import { OrderDetail } from './pages/OrderDetail'
 import { createEmptyActivity, getCreatorProfile } from './mockData'
@@ -24,6 +27,7 @@ import { createEmptyFullReductionActivity } from './mockFullReductionData'
 import { createEmptyMemberPriceActivity } from './mockMemberPriceData'
 import { createEmptyMultiItemActivity } from './mockMultiItemData'
 import { createEmptyPaidMemberPriceActivity } from './mockPaidMemberPriceData'
+import { createEmptyStoredValuePayActivity } from './mockStoredValuePayData'
 import type {
   ActivityForm,
   FullReductionActivityForm,
@@ -33,6 +37,7 @@ import type {
   PaidMemberCardTemplate,
   PaidMemberPriceActivityForm,
   PaidMemberPriceBenefit,
+  StoredValuePayActivityForm,
 } from './types'
 import { appendActivityLog, cloneActivity, computePublishStatus, formatActivityDateTime } from './utils/activity'
 import {
@@ -65,18 +70,25 @@ import {
   validateDraftSave as validatePaidMemberPriceDraftSave,
 } from './utils/paidMemberPriceActivity'
 import {
+  appendActivityLog as appendStoredValuePayLog,
+  cloneActivity as cloneStoredValuePayActivity,
+  computePublishStatus as computeStoredValuePayPublishStatus,
+} from './utils/storedValuePayActivity'
+import {
   loadActivities,
   loadFullReductionActivities,
   loadMemberPriceActivities,
   loadMultiItemActivities,
   loadPaidMemberCards,
   loadPaidMemberPriceActivities,
+  loadStoredValuePayActivities,
   saveActivities,
   saveFullReductionActivities,
   saveMemberPriceActivities,
   saveMultiItemActivities,
   savePaidMemberCards,
   savePaidMemberPriceActivities,
+  saveStoredValuePayActivities,
 } from './utils/storage'
 import {
   getDemoBridgeSourceId,
@@ -92,6 +104,7 @@ function App() {
   const [memberPriceActivities, setMemberPriceActivities] = useState<MemberPriceActivityForm[]>(loadMemberPriceActivities)
   const [fullReductionActivities, setFullReductionActivities] = useState<FullReductionActivityForm[]>(loadFullReductionActivities)
   const [paidMemberPriceActivities, setPaidMemberPriceActivities] = useState<PaidMemberPriceActivityForm[]>(loadPaidMemberPriceActivities)
+  const [storedValuePayActivities, setStoredValuePayActivities] = useState<StoredValuePayActivityForm[]>(loadStoredValuePayActivities)
   const [paidMemberCards, setPaidMemberCards] = useState<PaidMemberCardTemplate[]>(loadPaidMemberCards)
   const [view, setView] = useState<PageView>({ type: 'list' })
   /** 买1送N 参与记录的活动范围，空数组表示全部活动；提到这里是为了从订单详情返回时不丢失所选活动 */
@@ -101,6 +114,7 @@ function App() {
   const [memberPriceDraft, setMemberPriceDraft] = useState<MemberPriceActivityForm | null>(null)
   const [fullReductionDraft, setFullReductionDraft] = useState<FullReductionActivityForm | null>(null)
   const [paidMemberPriceDraft, setPaidMemberPriceDraft] = useState<PaidMemberPriceActivityForm | null>(null)
+  const [storedValuePayDraft, setStoredValuePayDraft] = useState<StoredValuePayActivityForm | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [linkedConsumerActivityId, setLinkedConsumerActivityId] = useState<string | null>(() => getDemoBridgeSourceId())
 
@@ -148,6 +162,11 @@ function App() {
     saveMemberPriceActivities(next)
   }
 
+  const persistStoredValuePay = (next: StoredValuePayActivityForm[]) => {
+    setStoredValuePayActivities(next)
+    saveStoredValuePayActivities(next)
+  }
+
   const persistFullReduction = (next: FullReductionActivityForm[]) => {
     setFullReductionActivities(next)
     saveFullReductionActivities(next)
@@ -187,6 +206,14 @@ function App() {
     persistMemberPrice(next)
   }
 
+  const upsertStoredValuePay = (activity: StoredValuePayActivityForm) => {
+    const exists = storedValuePayActivities.some((a) => a.id === activity.id)
+    const next = exists
+      ? storedValuePayActivities.map((a) => (a.id === activity.id ? activity : a))
+      : [activity, ...storedValuePayActivities]
+    persistStoredValuePay(next)
+  }
+
   const upsertPaidMemberPrice = (activity: PaidMemberPriceActivityForm) => {
     const exists = paidMemberPriceActivities.some((a) => a.id === activity.id)
     const next = exists
@@ -218,6 +245,11 @@ function App() {
     setView({ type: 'member-price-wizard', mode: 'create' })
   }
 
+  const handleStoredValuePayCreate = () => {
+    setStoredValuePayDraft(createEmptyStoredValuePayActivity())
+    setView({ type: 'stored-value-pay-wizard', mode: 'create' })
+  }
+
   const handleFullReductionCreate = () => {
     setFullReductionDraft(createEmptyFullReductionActivity())
     setView({ type: 'full-reduction-wizard', mode: 'create' })
@@ -242,6 +274,13 @@ function App() {
     if (!activity) return
     setMemberPriceDraft({ ...activity })
     setView({ type: 'member-price-wizard', mode: 'edit' })
+  }
+
+  const handleStoredValuePayEdit = (id: string) => {
+    const activity = storedValuePayActivities.find((a) => a.id === id)
+    if (!activity) return
+    setStoredValuePayDraft({ ...activity })
+    setView({ type: 'stored-value-pay-wizard', mode: 'edit' })
   }
 
   const handleFullReductionEdit = (id: string) => {
@@ -291,6 +330,13 @@ function App() {
     setView({ type: 'member-price-wizard', mode: 'view' })
   }
 
+  const handleStoredValuePayView = (id: string) => {
+    const activity = storedValuePayActivities.find((a) => a.id === id)
+    if (!activity) return
+    setStoredValuePayDraft({ ...activity })
+    setView({ type: 'stored-value-pay-wizard', mode: 'view' })
+  }
+
   const handleFullReductionView = (id: string) => {
     const activity = fullReductionActivities.find((a) => a.id === id)
     if (!activity) return
@@ -325,6 +371,16 @@ function App() {
     persistMemberPrice([copy, ...memberPriceActivities])
     setMemberPriceDraft(copy)
     setView({ type: 'member-price-wizard', mode: 'copy' })
+    showToast('已复制活动，请编辑后保存')
+  }
+
+  const handleStoredValuePayCopy = (id: string) => {
+    const activity = storedValuePayActivities.find((a) => a.id === id)
+    if (!activity) return
+    const copy = cloneStoredValuePayActivity(activity)
+    persistStoredValuePay([copy, ...storedValuePayActivities])
+    setStoredValuePayDraft(copy)
+    setView({ type: 'stored-value-pay-wizard', mode: 'copy' })
     showToast('已复制活动，请编辑后保存')
   }
 
@@ -374,6 +430,18 @@ function App() {
     showToast('活动发布成功')
   }
 
+  const handleStoredValuePayPublishFromList = (id: string) => {
+    const activity = storedValuePayActivities.find((a) => a.id === id)
+    if (!activity) return
+    upsertStoredValuePay(appendStoredValuePayLog(
+      { ...activity, status: computeStoredValuePayPublishStatus(activity) },
+      '发布活动',
+      `发布活动「${activity.name}」`,
+      currentOperator,
+    ))
+    showToast('活动发布成功')
+  }
+
   const handleFullReductionPublishFromList = (id: string) => {
     const activity = fullReductionActivities.find((a) => a.id === id)
     if (!activity) return
@@ -404,6 +472,13 @@ function App() {
     const activity = memberPriceActivities.find((a) => a.id === id)
     if (!activity) return
     upsertMemberPrice(appendMemberPriceLog({ ...activity, status: 'voided' as const }, '作废活动', `作废活动「${activity.name}」`, currentOperator))
+    showToast('活动已作废')
+  }
+
+  const handleStoredValuePayVoid = (id: string) => {
+    const activity = storedValuePayActivities.find((a) => a.id === id)
+    if (!activity) return
+    upsertStoredValuePay(appendStoredValuePayLog({ ...activity, status: 'voided' as const }, '作废活动', `作废活动「${activity.name}」`, currentOperator))
     showToast('活动已作废')
   }
 
@@ -545,6 +620,38 @@ function App() {
     showToast(minutes === 0 ? '已重置为「刚暂停」' : `已模拟暂停 ${minutes} 分钟`)
   }
 
+  const handleStoredValuePayPause = (id: string) => {
+    const activity = storedValuePayActivities.find((a) => a.id === id)
+    if (!activity) return
+    upsertStoredValuePay(appendStoredValuePayLog(
+      { ...activity, status: 'paused' as const, pausedAt: formatActivityDateTime() },
+      '暂停活动',
+      `暂停活动「${activity.name}」，顾客暂时无法享受储值支付优惠`,
+      currentOperator,
+    ))
+    showToast('活动已暂停，顾客暂时无法享受储值支付优惠')
+  }
+
+  const handleStoredValuePayResume = (id: string) => {
+    const activity = storedValuePayActivities.find((a) => a.id === id)
+    if (!activity) return
+    const plan = buildResumePlan(activity, '储值支付优惠立即重新生效')
+    upsertStoredValuePay(appendStoredValuePayLog(
+      { ...activity, status: plan.status, pausedAt: plan.keepPausedAt ? activity.pausedAt : undefined },
+      plan.action,
+      `活动「${activity.name}」${plan.detail}`,
+      currentOperator,
+    ))
+    showToast(plan.toast)
+  }
+
+  const handleStoredValuePayDemoSetPausedMinutes = (id: string, minutes: number) => {
+    const activity = storedValuePayActivities.find((a) => a.id === id)
+    if (!activity || activity.status !== 'paused') return
+    upsertStoredValuePay({ ...activity, pausedAt: shiftedPausedAt(minutes) })
+    showToast(minutes === 0 ? '已重置为「刚暂停」' : `已模拟暂停 ${minutes} 分钟`)
+  }
+
   const handleFullReductionPause = (id: string) => {
     const activity = fullReductionActivities.find((a) => a.id === id)
     if (!activity) return
@@ -597,6 +704,11 @@ function App() {
           ? appendMemberPriceLog({ ...a, status: 'ended' as const }, '暂停中到期结束', expiredDetail(a.name), currentOperator)
           : a)))
       }
+      if (storedValuePayActivities.some((a) => isPausedExpired(a, now))) {
+        persistStoredValuePay(storedValuePayActivities.map((a) => (isPausedExpired(a, now)
+          ? appendStoredValuePayLog({ ...a, status: 'ended' as const }, '暂停中到期结束', expiredDetail(a.name), currentOperator)
+          : a)))
+      }
       if (fullReductionActivities.some((a) => isPausedExpired(a, now))) {
         persistFullReduction(fullReductionActivities.map((a) => (isPausedExpired(a, now)
           ? appendFullReductionLog({ ...a, status: 'ended' }, '暂停中到期结束', expiredDetail(a.name), currentOperator)
@@ -607,7 +719,7 @@ function App() {
     const timer = window.setInterval(sweep, 30_000)
     return () => window.clearInterval(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activities, multiItemActivities, memberPriceActivities, fullReductionActivities])
+  }, [activities, multiItemActivities, memberPriceActivities, storedValuePayActivities, fullReductionActivities])
 
   const handleMultiItemDelete = (id: string) => {
     persistMultiItem(multiItemActivities.filter((a) => a.id !== id))
@@ -616,6 +728,11 @@ function App() {
 
   const handleMemberPriceDelete = (id: string) => {
     persistMemberPrice(memberPriceActivities.filter((a) => a.id !== id))
+    showToast('活动已删除')
+  }
+
+  const handleStoredValuePayDelete = (id: string) => {
+    persistStoredValuePay(storedValuePayActivities.filter((a) => a.id !== id))
     showToast('活动已删除')
   }
 
@@ -658,6 +775,18 @@ function App() {
     showToast('草稿保存成功')
     setView({ type: 'member-price-list' })
     setMemberPriceDraft(null)
+  }
+
+  const handleStoredValuePaySaveDraft = () => {
+    if (!storedValuePayDraft) return
+    const exists = storedValuePayActivities.some((a) => a.id === storedValuePayDraft.id)
+    const saved = exists
+      ? appendStoredValuePayLog({ ...storedValuePayDraft, status: 'draft' as const }, '编辑活动', `保存草稿「${storedValuePayDraft.name}」`, currentOperator)
+      : { ...storedValuePayDraft, status: 'draft' as const }
+    upsertStoredValuePay(saved)
+    showToast('草稿保存成功')
+    setView({ type: 'stored-value-pay-list' })
+    setStoredValuePayDraft(null)
   }
 
   const handleFullReductionSaveDraft = () => {
@@ -713,6 +842,15 @@ function App() {
     showToast(keep ? '活动已保存' : '活动保存成功，请前往活动列表发布')
     setView({ type: 'member-price-list' })
     setMemberPriceDraft(null)
+  }
+
+  const handleStoredValuePaySave = () => {
+    if (!storedValuePayDraft) return
+    const { status, keep } = resolveSavedStatus(storedValuePayActivities, storedValuePayDraft)
+    upsertStoredValuePay(appendStoredValuePayLog({ ...storedValuePayDraft, status }, keep ? '编辑活动' : '保存活动', `保存活动「${storedValuePayDraft.name}」`, currentOperator))
+    showToast(keep ? '活动已保存' : '活动保存成功，请前往活动列表发布')
+    setView({ type: 'stored-value-pay-list' })
+    setStoredValuePayDraft(null)
   }
 
   const handleFullReductionSave = () => {
@@ -1027,6 +1165,7 @@ function App() {
     setDraft(null)
     setMultiItemDraft(null)
     setMemberPriceDraft(null)
+    setStoredValuePayDraft(null)
     setFullReductionDraft(null)
     setPaidMemberPriceDraft(null)
     if (key === 'orders') {
@@ -1039,6 +1178,8 @@ function App() {
       setView({ type: 'full-reduction-list' })
     } else if (key === 'member_price') {
       setView({ type: 'member-price-list' })
+    } else if (key === 'stored_value_pay') {
+      setView({ type: 'stored-value-pay-list' })
     } else if (key === 'paid_member_price') {
       setView({ type: 'paid-member-price-list' })
     } else if (key === 'paid_member_card') {
@@ -1056,6 +1197,10 @@ function App() {
     || view.type === 'member-price-wizard'
     || view.type === 'member-price-participation'
     || (view.type === 'order-detail' && view.from === 'member-price-participation')
+  const isStoredValuePayModule = view.type === 'stored-value-pay-list'
+    || view.type === 'stored-value-pay-wizard'
+    || view.type === 'stored-value-pay-participation'
+    || (view.type === 'order-detail' && view.from === 'stored-value-pay-participation')
   const isFullReductionModule = view.type === 'full-reduction-list'
     || view.type === 'full-reduction-wizard'
     || view.type === 'full-reduction-participation'
@@ -1077,11 +1222,13 @@ function App() {
         ? 'full_reduction'
         : isMemberPriceModule
           ? 'member_price'
-          : isPaidMemberPriceModule
-            ? 'paid_member_price'
-            : isPaidMemberCardModule
-              ? 'paid_member_card'
-              : 'bogo'
+          : isStoredValuePayModule
+            ? 'stored_value_pay'
+            : isPaidMemberPriceModule
+              ? 'paid_member_price'
+              : isPaidMemberCardModule
+                ? 'paid_member_card'
+                : 'bogo'
 
   const multiItemParticipationActivity = view.type === 'multi-item-participation'
     ? multiItemActivities.find((a) => a.id === view.activityId)
@@ -1093,6 +1240,12 @@ function App() {
     ? memberPriceActivities.find((a) => a.id === view.activityId)
     : view.type === 'order-detail' && view.from === 'member-price-participation' && view.activityId
       ? memberPriceActivities.find((a) => a.id === view.activityId)
+      : undefined
+
+  const storedValuePayParticipationActivity = view.type === 'stored-value-pay-participation'
+    ? storedValuePayActivities.find((a) => a.id === view.activityId)
+    : view.type === 'order-detail' && view.from === 'stored-value-pay-participation' && view.activityId
+      ? storedValuePayActivities.find((a) => a.id === view.activityId)
       : undefined
 
   const paidMemberPriceParticipationActivity = view.type === 'paid-member-price-participation'
@@ -1131,6 +1284,14 @@ function App() {
           : view.type === 'member-price-wizard'
             ? ['营销管理', '促销活动', '会员价', view.mode === 'create' ? '新建活动' : view.mode === 'view' ? '查看活动' : '编辑活动']
             : ['营销管理', '促销活动', '会员价']
+    : isStoredValuePayModule
+      ? view.type === 'stored-value-pay-list'
+        ? ['营销管理', '促销活动', '储值支付优惠']
+        : view.type === 'stored-value-pay-participation' && storedValuePayParticipationActivity
+          ? ['营销管理', '促销活动', '储值支付优惠', '参与记录']
+          : view.type === 'stored-value-pay-wizard'
+            ? ['营销管理', '促销活动', '储值支付优惠', view.mode === 'create' ? '新建活动' : view.mode === 'view' ? '查看活动' : '编辑活动']
+            : ['营销管理', '促销活动', '储值支付优惠']
       : isFullReductionModule
         ? view.type === 'full-reduction-list'
           ? ['营销管理', '促销活动', '满减/折']
@@ -1214,6 +1375,17 @@ function App() {
         <div className="page-card">
           <div className="table-empty">未找到活动</div>
           <button type="button" className="btn btn--default" onClick={() => setView({ type: 'member-price-list' })}>返回列表</button>
+        </div>
+      ) : view.type === 'stored-value-pay-participation' && storedValuePayParticipationActivity ? (
+        <StoredValuePayParticipationRecords
+          activity={storedValuePayParticipationActivity}
+          onBack={() => setView({ type: 'stored-value-pay-list' })}
+          onExport={() => showToast('导出任务已创建，请稍后在下载中心查看')}
+        />
+      ) : view.type === 'stored-value-pay-participation' ? (
+        <div className="page-card">
+          <div className="table-empty">未找到活动</div>
+          <button type="button" className="btn btn--default" onClick={() => setView({ type: 'stored-value-pay-list' })}>返回列表</button>
         </div>
       ) : view.type === 'paid-member-price-participation' && paidMemberPriceParticipationActivity ? (
         <MemberPriceParticipationRecords
@@ -1345,6 +1517,22 @@ function App() {
           onBack={() => setView({ type: 'member-price-list' })}
           onSaved={() => showToast('会员价通用设置已保存')}
         />
+      ) : view.type === 'stored-value-pay-list' ? (
+        <StoredValuePayActivityList
+          activities={storedValuePayActivities}
+          onCreate={handleStoredValuePayCreate}
+          onView={handleStoredValuePayView}
+          onViewParticipation={(id) => setView({ type: 'stored-value-pay-participation', activityId: id })}
+          onEdit={handleStoredValuePayEdit}
+          onCopy={handleStoredValuePayCopy}
+          onPublish={handleStoredValuePayPublishFromList}
+          onPause={handleStoredValuePayPause}
+          onResume={handleStoredValuePayResume}
+          onDemoSetPausedMinutes={handleStoredValuePayDemoSetPausedMinutes}
+          onVoid={handleStoredValuePayVoid}
+          onDelete={handleStoredValuePayDelete}
+          onToast={showToast}
+        />
       ) : view.type === 'full-reduction-list' ? (
         <FullReductionActivityList
           activities={fullReductionActivities}
@@ -1392,6 +1580,17 @@ function App() {
           onSaveDraft={handleMemberPriceSaveDraft}
           onSave={handleMemberPriceSave}
           onSwitchToEdit={view.type === 'member-price-wizard' && view.mode === 'view' ? () => setView({ type: 'member-price-wizard', mode: 'edit' }) : undefined}
+          onToast={showToast}
+        />
+      ) : storedValuePayDraft ? (
+        <StoredValuePayActivityWizard
+          activity={storedValuePayDraft}
+          mode={view.type === 'stored-value-pay-wizard' ? view.mode : 'create'}
+          onChange={setStoredValuePayDraft}
+          onCancel={() => { setView({ type: 'stored-value-pay-list' }); setStoredValuePayDraft(null) }}
+          onSaveDraft={handleStoredValuePaySaveDraft}
+          onSave={handleStoredValuePaySave}
+          onSwitchToEdit={view.type === 'stored-value-pay-wizard' && view.mode === 'view' ? () => setView({ type: 'stored-value-pay-wizard', mode: 'edit' }) : undefined}
           onToast={showToast}
         />
       ) : fullReductionDraft ? (

@@ -914,6 +914,35 @@ button, input, select, textarea { font: inherit; }
 .modal--sm { width: 400px; }
 .modal--md { width: 560px; max-width: 95vw; }
 .modal--xl { width: 900px; max-width: 95vw; }
+.modal--settings {
+  width: 880px;
+  max-width: 96vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+.modal__subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+.modal__body--scroll {
+  flex: 1;
+  overflow-y: auto;
+  max-height: calc(90vh - 128px);
+  padding: 16px 24px 8px;
+}
+.modal-overlay--nested { z-index: 1100; }
+.settings-section--modal {
+  max-width: none;
+  padding: 8px 0 12px;
+}
+.settings-section--modal + .settings-section--modal {
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
 .settings-section__title {
   font-size: 13px; font-weight: 600; color: var(--text-primary);
   margin-bottom: 16px;

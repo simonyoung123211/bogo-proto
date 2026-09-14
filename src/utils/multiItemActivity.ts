@@ -161,9 +161,13 @@ export function getProductScopeLabel(activity: MultiItemActivityForm): string {
 
 export function getChannelSummary(activity: MultiItemActivityForm): string {
   const map: Record<string, string> = {
+    h5: '手机网页',
     wechat: '微信',
     alipay: '支付宝',
+    app: 'App',
+    pos: 'POS',
     douyin: '抖音',
+    third_party: '第三方外卖',
     other: '其他',
   }
   return activity.channels.map((c) => map[c] || c).join('、') || '-'

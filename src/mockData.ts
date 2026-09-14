@@ -1,15 +1,21 @@
 import type { ActivityForm, ActivityOperationLog, ActivityStatus, CouponGiftConfig, CouponTemplate, GiftGroup, Product, Region, RuleType, Store } from './types'
 
 export const CHANNELS = [
+  { id: 'h5', label: '手机网页', icon: 'H' },
   { id: 'wechat', label: '微信小程序', icon: '微' },
   { id: 'alipay', label: '支付宝小程序', icon: '支' },
+  { id: 'app', label: 'App', icon: 'A' },
+  { id: 'pos', label: 'POS', icon: 'P' },
   { id: 'douyin', label: '抖音小程序', icon: '抖' },
+  { id: 'third_party', label: '第三方外卖', icon: '第' },
   { id: 'other', label: '其他', icon: '其' },
 ]
 
 export const ORDER_TYPES = [
   { id: 'dine_in', label: '堂食' },
   { id: 'takeaway', label: '外卖' },
+  { id: 'takeaway_platform', label: '外卖(平台配送)' },
+  { id: 'takeaway_self', label: '外卖(商家自配送)' },
   { id: 'pickup', label: '自提' },
 ]
 

@@ -744,6 +744,108 @@ export interface MemberPriceGeneralSettings {
   activityPriceColor: string
 }
 
+/* ================= 储值支付优惠 ================= */
+
+/** 活动级支付参与规则（单选） */
+export type StoredValuePayRule = 'min_balance_pay' | 'full_order_balance'
+
+/** 整单余额支付活动的余额门槛口径（通用设置） */
+export type StoredValueBalanceThreshold =
+  | 'original_subtotal'
+  | 'payable_subtotal'
+  | 'payable_after_activity'
+
+export interface StoredValuePayActivityForm {
+  id: string
+  name: string
+  title: string
+  tag: string
+  /** 活动备注（对内，不对客） */
+  remark: string
+  description: string
+  startTime: string
+  endTime: string
+  cycleType: CycleType
+  timeSlotType: TimeSlotType
+  priority: number
+  channels: string[]
+  orderTypes: string[]
+  /** 支付参与规则：活动级单选 */
+  payRule: StoredValuePayRule
+  priceMethod: MemberPriceMethod
+  productItems: MemberPriceProductItem[]
+  allProductsValue: number
+  toppingsDiscount: boolean
+  comboSurchargeDiscount: boolean
+  preparationSurchargeDiscount: boolean
+  totalParticipationLimitType: LimitType
+  totalParticipationLimit: number
+  participationFrequencyType: LimitType
+  participationFrequencyPeriod: ParticipationPeriod
+  participationFrequencyLimit: number
+  maxDiscountItemsTotalType: LimitType
+  maxDiscountItemsTotal: number
+  maxDiscountItemsDailyType: LimitType
+  maxDiscountItemsDaily: number
+  maxDiscountItemsPerOrderType: LimitType
+  maxDiscountItemsPerOrder: number
+  productScope: ProductScope
+  productIds: string[]
+  productSelectionMode: 'include' | 'exclude'
+  storeScope: StoreScope
+  storeIds: string[]
+  shareMutexRelation: ShareMutexRelation
+  participantUser: ParticipantUser
+  memberTagId: string
+  activityCode: string
+  titleDisplay: DisplayToggle
+  tagDisplay: DisplayToggle
+  /** 储值支付优惠标签展示（对齐会员价 memberPriceTagDisplay） */
+  memberPriceTagDisplay: DisplayToggle
+  status: ActivityStatus
+  pausedAt?: string
+  creator: string
+  creatorPhone: string
+  creatorOrg: string
+  createdAt: string
+  updatedAt: string
+  operationLogs: ActivityOperationLog[]
+}
+
+export interface StoredValuePayListFilters {
+  keyword: string
+  productName: string
+  productId: string
+  activityCode: string
+  status: ActivityStatus | 'all'
+  priceMethod: MemberPriceMethod | 'all'
+  payRule: StoredValuePayRule | 'all'
+  startDate: string
+  endDate: string
+  storeId: string
+}
+
+export interface StoredValuePayGeneralSettings {
+  /** false=系统默认，true=定制促销标签内容和样式 */
+  customPromotionTagEnabled: boolean
+  tagContentMode: 'default' | 'member_level' | 'custom'
+  customTagText: string
+  styleMode: 'default' | 'custom'
+  backgroundStyle: 'solid' | 'image'
+  /** 图片背景：左侧文案段背景图 */
+  leftBackgroundImage: string
+  /** 图片背景：右侧价格段背景图 */
+  rightBackgroundImage: string
+  /** 左侧文案段配色 */
+  leftBackgroundColor: string
+  leftTextColor: string
+  /** 右侧价格段配色 */
+  rightBackgroundColor: string
+  rightTextColor: string
+  /** 仅「整单仅限储值余额支付」规则活动生效 */
+  fullOrderBalanceThreshold: StoredValueBalanceThreshold
+}
+
 /* ================= 付费会员价 ================= */
 
 /**
@@ -877,6 +979,9 @@ export type PageView =
   | { type: 'member-price-settings' }
   | { type: 'member-price-wizard'; mode: WizardMode; activityId?: string; step?: number }
   | { type: 'member-price-participation'; activityId: string }
+  | { type: 'stored-value-pay-list' }
+  | { type: 'stored-value-pay-wizard'; mode: WizardMode; activityId?: string; step?: number }
+  | { type: 'stored-value-pay-participation'; activityId: string }
   | { type: 'full-reduction-list' }
   | { type: 'full-reduction-wizard'; mode: WizardMode; activityId?: string; step?: number }
   | { type: 'full-reduction-participation'; activityId: string }
@@ -885,4 +990,4 @@ export type PageView =
   | { type: 'paid-member-price-participation'; activityId: string }
   | { type: 'paid-member-card-list' }
   | { type: 'order-list' }
-  | { type: 'order-detail'; orderId: string; from?: 'order-list' | 'activity-participation' | 'multi-item-participation' | 'member-price-participation' | 'full-reduction-participation' | 'paid-member-price-participation'; activityId?: string }
+  | { type: 'order-detail'; orderId: string; from?: 'order-list' | 'activity-participation' | 'multi-item-participation' | 'member-price-participation' | 'stored-value-pay-participation' | 'full-reduction-participation' | 'paid-member-price-participation'; activityId?: string }

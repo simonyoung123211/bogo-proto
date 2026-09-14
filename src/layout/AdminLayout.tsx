@@ -31,6 +31,7 @@ const sidebarMenus: MenuItem[] = [
       { id: 'full-reduction', label: '满减/折', navKey: 'full_reduction' },
       { id: 'member-price', label: '会员价', navKey: 'member_price' },
       { id: 'paid-member-price', label: '付费会员价', navKey: 'paid_member_price' },
+      { id: 'stored-value-pay', label: '储值支付优惠', navKey: 'stored_value_pay' },
     ],
   },
   {
