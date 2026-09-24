@@ -96,6 +96,16 @@ import {
   setDemoBridgeSourceId,
   syncLinkedBogoIfNeeded,
 } from './utils/demoBogoBridge'
+import { applyStoreClosedCleanup } from './utils/storeClosure'
+import {
+  buildClosureInboxMessages,
+  countUnreadInbox,
+  loadInboxMessages,
+  prependInboxMessages,
+  saveInboxMessages,
+  type InboxMessage,
+} from './utils/inbox'
+import { InboxDrawer } from './components/InboxDrawer'
 import './styles.css'
 
 function App() {
@@ -118,8 +128,42 @@ function App() {
   const [toast, setToast] = useState<string | null>(null)
   const [linkedConsumerActivityId, setLinkedConsumerActivityId] = useState<string | null>(() => getDemoBridgeSourceId())
 
+  const [inboxMessages, setInboxMessages] = useState<InboxMessage[]>(() => loadInboxMessages())
+  const [inboxOpen, setInboxOpen] = useState(false)
+
   const showToast = useCallback((msg: string) => setToast(msg), [])
   const currentOperator = getCreatorProfile('10086')
+
+  const inboxUnread = countUnreadInbox(inboxMessages, '10086')
+
+  const persistInbox = (next: InboxMessage[]) => {
+    setInboxMessages(next)
+    saveInboxMessages(next)
+  }
+
+  const handleSimulateStoreClosure = (storeId: string) => {
+    const result = applyStoreClosedCleanup(activities, storeId)
+    if (!result) {
+      showToast('未找到该门店')
+      return
+    }
+    persist(result.activities)
+    const inboxItems = result.newlyFailed
+      .filter((a): a is typeof a & { enteredIssue: 'S1' | 'S2' } => a.enteredIssue === 'S1' || a.enteredIssue === 'S2')
+      .map((a) => ({
+        activityId: a.activityId,
+        activityName: a.activityName,
+        creator: a.creator,
+        issue: a.enteredIssue,
+      }))
+    const msgs = buildClosureInboxMessages(result.store.name, inboxItems)
+    if (msgs.length > 0) persistInbox(prependInboxMessages(inboxMessages, msgs))
+    const failCount = result.newlyFailed.length
+    showToast(
+      `已将「${result.store.name}」标为已停业，清理 ${result.affected.length} 个活动`
+      + (failCount ? `，${failCount} 个进入失效态并已发站内信` : ''),
+    )
+  }
 
   const persist = (next: ActivityForm[]) => {
     setActivities(next)
@@ -1317,7 +1361,31 @@ function App() {
               : ['营销管理', '促销活动', '买1送N']
 
   return (
-    <AdminLayout breadcrumbs={breadcrumbs} activeKey={activeKey} onNavigate={handleNavigate}>
+    <AdminLayout
+      breadcrumbs={breadcrumbs}
+      activeKey={activeKey}
+      onNavigate={handleNavigate}
+      inboxUnread={inboxUnread}
+      onOpenInbox={() => setInboxOpen(true)}
+    >
+      <InboxDrawer
+        open={inboxOpen}
+        messages={inboxMessages}
+        currentCreatorId="10086"
+        onClose={() => setInboxOpen(false)}
+        onOpenActivity={(activityId) => {
+          setInboxOpen(false)
+          handleView(activityId)
+        }}
+        onMarkRead={(id) => {
+          persistInbox(inboxMessages.map((m) => (m.id === id ? { ...m, read: true } : m)))
+        }}
+        onMarkAllRead={() => {
+          persistInbox(inboxMessages.map((m) => (
+            m.recipientCreatorId === '10086' ? { ...m, read: true } : m
+          )))
+        }}
+      />
       {view.type === 'order-list' ? (
         <OrderList
           activities={activities}
@@ -1477,6 +1545,7 @@ function App() {
           onVoid={handleVoid}
           onLinkConsumerDemo={handleLinkConsumerDemo}
           onUnlinkConsumerDemo={handleUnlinkConsumerDemo}
+          onSimulateStoreClosure={handleSimulateStoreClosure}
           onToast={showToast}
         />
       ) : view.type === 'multi-item-list' ? (

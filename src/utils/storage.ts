@@ -65,12 +65,26 @@ export function loadActivities(): ActivityForm[] {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as Record<string, unknown>[]
-      return parsed.map((a) => migrateActivity(a))
+      return ensureStoreClosureDemoActivities(parsed.map((a) => migrateActivity(a)))
     }
   } catch {
     /* ignore */
   }
   return [...initialActivities]
+}
+
+/** 为已有本地缓存补齐「已停业清理」演示活动，避免清缓存才能看到 */
+function ensureStoreClosureDemoActivities(list: ActivityForm[]): ActivityForm[] {
+  const demos = initialActivities.filter(
+    (a) => a.id === 'ACT20240924010' || a.id === 'ACT20240924011',
+  )
+  let next = list
+  for (const demo of demos) {
+    if (!next.some((a) => a.id === demo.id)) {
+      next = [migrateActivity(demo as unknown as Record<string, unknown>), ...next]
+    }
+  }
+  return next
 }
 
 export function saveActivities(activities: ActivityForm[]): void {

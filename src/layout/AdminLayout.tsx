@@ -5,6 +5,8 @@ interface AdminLayoutProps {
   breadcrumbs?: string[]
   activeKey?: string
   onNavigate?: (key: string) => void
+  inboxUnread?: number
+  onOpenInbox?: () => void
 }
 
 type MenuItem = {
@@ -53,7 +55,14 @@ const sidebarMenus: MenuItem[] = [
   { id: 'ad', label: '广告管理', icon: 'ad' },
 ]
 
-export function AdminLayout({ children, breadcrumbs = ['营销管理', '买一送一'], activeKey = 'bogo', onNavigate }: AdminLayoutProps) {
+export function AdminLayout({
+  children,
+  breadcrumbs = ['营销管理', '买一送一'],
+  activeKey = 'bogo',
+  onNavigate,
+  inboxUnread = 0,
+  onOpenInbox,
+}: AdminLayoutProps) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     activities: true,
     member: true,
@@ -94,8 +103,14 @@ export function AdminLayout({ children, breadcrumbs = ['营销管理', '买一�
             <IconFeedback />
             问题反馈
           </button>
-          <button type="button" className="admin-header__icon-btn" aria-label="通知">
+          <button
+            type="button"
+            className="admin-header__icon-btn"
+            aria-label="站内信"
+            onClick={onOpenInbox}
+          >
             <IconBell />
+            {inboxUnread > 0 && <span className="admin-header__badge">{inboxUnread > 99 ? '99+' : inboxUnread}</span>}
           </button>
           <button type="button" className="admin-header__icon-btn" aria-label="下载">
             <IconDownload />
@@ -151,10 +166,11 @@ export function AdminLayout({ children, breadcrumbs = ['营销管理', '买一�
             })}
           </nav>
           <div className="admin-sidebar__footer">
-            <button type="button" className="admin-sidebar__footer-btn" aria-label="消息">
+            <button type="button" className="admin-sidebar__footer-btn" aria-label="消息" onClick={onOpenInbox}>
               <IconMessage />
+              {inboxUnread > 0 && <span className="admin-sidebar__footer-badge">{inboxUnread > 9 ? '9+' : inboxUnread}</span>}
             </button>
-            <button type="button" className="admin-sidebar__footer-btn" aria-label="通知">
+            <button type="button" className="admin-sidebar__footer-btn" aria-label="通知" onClick={onOpenInbox}>
               <IconBell />
             </button>
             <button type="button" className="admin-sidebar__footer-btn" aria-label="设置">

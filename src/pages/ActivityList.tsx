@@ -3,6 +3,8 @@ import { ActivityOperationLogModal } from '../components/ActivityOperationLogMod
 import { ActivityScopeSnapshotModal, type ActivityScopeSnapshotType } from '../components/ActivityScopeSnapshotModal'
 import { GeneralSettingsModal } from '../components/GeneralSettingsModal'
 import { PauseConfirmModal, PauseDemoGroup, ResumeConfirmModal } from '../components/ActivityPauseControls'
+import { SimulateStoreClosureModal } from '../components/SimulateStoreClosureModal'
+import { StoreConfigIssueBadge } from '../components/StoreConfigIssueBadge'
 import { CHANNELS, MORE_STATUS_TABS, PARTICIPANT_USER_OPTIONS, PAUSE_OVERDUE_MINUTES, PRIMARY_STATUS_TABS, STATUS_LABELS, stores } from '../mockData'
 import type { ActivityForm, ActivityStatus, GeneralSettings, ListFilters } from '../types'
 import {
@@ -24,6 +26,7 @@ import {
   getStoreSummary,
   matchesFilters,
 } from '../utils/activity'
+import { resolveStoreConfigIssue } from '../utils/storeClosure'
 import { loadGeneralSettings, saveGeneralSettings } from '../utils/storage'
 
 interface ActivityListProps {
@@ -43,6 +46,7 @@ interface ActivityListProps {
   onVoid: (id: string) => void
   onLinkConsumerDemo?: (id: string) => void
   onUnlinkConsumerDemo?: () => void
+  onSimulateStoreClosure?: (storeId: string) => void
   onToast?: (message: string) => void
 }
 
@@ -79,6 +83,7 @@ export function ActivityList({
   onVoid,
   onLinkConsumerDemo,
   onUnlinkConsumerDemo,
+  onSimulateStoreClosure,
   onToast,
 }: ActivityListProps) {
   const [filters, setFilters] = useState<ListFilters>(EMPTY_FILTERS)
@@ -86,6 +91,7 @@ export function ActivityList({
   const [resumeTarget, setResumeTarget] = useState<ActivityForm | null>(null)
   const [voidTarget, setVoidTarget] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [closureDemoOpen, setClosureDemoOpen] = useState(false)
   const [filterExpanded, setFilterExpanded] = useState(false)
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [statusMoreOpen, setStatusMoreOpen] = useState(false)
@@ -204,6 +210,11 @@ export function ActivityList({
           <button type="button" className="btn btn--default" onClick={onViewAllParticipation}>
             参与记录
           </button>
+          {onSimulateStoreClosure && (
+            <button type="button" className="btn btn--default" onClick={() => setClosureDemoOpen(true)}>
+              模拟门店已停业
+            </button>
+          )}
           <button type="button" className="btn btn--default btn--icon" onClick={() => setSettingsOpen(true)}>
             <IconSettings />
             通用设置
@@ -455,10 +466,16 @@ export function ActivityList({
                       />
                     </td>
                     <td onClick={stopRowClick}>
-                      <SnapshotLink
-                        label={getStoreSummary(a)}
-                        onClick={() => setSnapshotTarget({ activity: a, type: 'stores' })}
-                      />
+                      <div className="store-summary-cell">
+                        <SnapshotLink
+                          label={getStoreSummary(a)}
+                          onClick={() => setSnapshotTarget({ activity: a, type: 'stores' })}
+                        />
+                        {(() => {
+                          const issue = resolveStoreConfigIssue(a)
+                          return issue ? <StoreConfigIssueBadge issue={issue} /> : null
+                        })()}
+                      </div>
                     </td>
                     <td className="table-time">
                       <div><span className="table-time__label">起</span>{a.startTime}</div>
@@ -657,6 +674,17 @@ export function ActivityList({
             saveGeneralSettings(next)
             setSettingsOpen(false)
             onToast?.('通用设置保存成功')
+          }}
+        />
+      )}
+
+      {closureDemoOpen && onSimulateStoreClosure && (
+        <SimulateStoreClosureModal
+          activities={activities}
+          onClose={() => setClosureDemoOpen(false)}
+          onConfirm={(storeId) => {
+            onSimulateStoreClosure(storeId)
+            setClosureDemoOpen(false)
           }}
         />
       )}

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { formatAdvancedOptionsPreview } from './AdvancedOptionsFields'
 import { formatBasicInfoPreview } from './BasicInfoFields'
 import { formatRuleLimitsSummary } from './RuleLimitFields'
+import { StoreConfigIssueBadge } from './StoreConfigIssueBadge'
 import { CHANNELS, ORDER_TYPES, products } from '../mockData'
 import type { ActivityForm } from '../types'
 import {
@@ -12,6 +13,8 @@ import {
   getGiftGroupsSummary,
 } from '../utils/activity'
 import { formatStorageDisplayRule } from '../utils/couponGift'
+import { resolveStoreConfigIssue, STORE_ISSUE_DETAIL } from '../utils/storeClosure'
+import { getResolvedStore } from '../utils/storeRegistry'
 
 const PREVIEW_SECTIONS = [
   { id: 'preview-scope', title: '适用范围', step: 0 },
@@ -37,7 +40,8 @@ export function ActivityPreview({
 }: ActivityPreviewProps) {
   const [activeAnchor, setActiveAnchor] = useState<string>(PREVIEW_SECTIONS[0].id)
   const selectedProducts = getActivityProducts(activity)
-  const selectedStores = getActivityStores(activity)
+  const selectedStores = getActivityStores(activity).map((s) => getResolvedStore(s.id) ?? s)
+  const storeIssue = resolveStoreConfigIssue(activity)
   const summaryTags = buildActivityPreviewTags(activity)
   const basic = formatBasicInfoPreview(activity)
   const adv = formatAdvancedOptionsPreview(activity)
@@ -244,6 +248,12 @@ export function ActivityPreview({
           showEdit={showEditLinks}
           onEdit={onEditSection}
         >
+          {storeIssue && (
+            <div className={`store-issue-banner store-issue-banner--${storeIssue}`}>
+              <StoreConfigIssueBadge issue={storeIssue} />
+              <p>{STORE_ISSUE_DETAIL[storeIssue]}</p>
+            </div>
+          )}
           <PreviewItem
             label="门店范围"
             value={
@@ -255,14 +265,22 @@ export function ActivityPreview({
           {activity.storeScope !== 'all' && selectedStores.length > 0 && (
             <table className="table table--compact">
               <thead>
-                <tr><th>门店名称</th><th>门店ID</th><th>门店编码</th></tr>
+                <tr><th>门店名称</th><th>门店ID</th><th>门店编码</th><th>状态</th></tr>
               </thead>
               <tbody>
                 {selectedStores.map((s) => (
-                  <tr key={s.id}><td>{s.name}</td><td>{s.id}</td><td>{s.code}</td></tr>
+                  <tr key={s.id}>
+                    <td>{s.name}</td>
+                    <td>{s.id}</td>
+                    <td>{s.code}</td>
+                    <td>{s.status === 'open' ? '营业中' : '已停业'}</td>
+                  </tr>
                 ))}
               </tbody>
             </table>
+          )}
+          {activity.storeScope !== 'all' && selectedStores.length === 0 && (
+            <div className="table-empty">暂无门店</div>
           )}
         </PreviewSection>
 
