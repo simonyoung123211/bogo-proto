@@ -17,10 +17,10 @@ export const STORE_ISSUE_LABELS: Record<StoreConfigIssue, string> = {
 }
 
 export const STORE_ISSUE_DETAIL: Record<StoreConfigIssue, string> = {
-  S1: '参与门店已清空（含因门店已停业被系统自动移出）。请重新选择参与门店，或作废本活动。',
-  S1_all_closed: '当前参与名单中的门店均已停业。系统清理后将变为「有效参与门店为 0」。请重新选择参与门店，或作废本活动。',
-  S2: '不参与门店已清空（含因门店已停业被系统自动移出）。当前未排除任何门店，效果接近「全部门店参与」。请确认是否需重新指定不参与门店。',
-  S3: '不参与名单中的门店均已停业，排除配置已失效。清理后不参与名单将清空。',
+  S1: '参与门店已清空（含因门店已停业被系统自动移出），活动已自动暂停。请重新选择参与门店后恢复活动，或作废本活动。',
+  S1_all_closed: '当前参与名单中的门店均已停业。系统清理后将变为「有效参与门店为 0」并自动暂停。请重新选择参与门店后恢复活动，或作废本活动。',
+  S2: '不参与门店已清空（含因门店已停业被系统自动移出），活动已自动暂停。请重新指定不参与门店，或改为「全部门店 / 部分门店参与」后恢复活动。',
+  S3: '不参与名单中的门店均已停业，排除配置已失效。清理后不参与名单将清空并自动暂停。',
 }
 
 export function resolveStoreConfigIssue(
@@ -77,7 +77,8 @@ export interface ApplyStoreClosureResult {
 }
 
 /**
- * 模拟门店已停业：标记门店 + 从非终态活动的指定参与/不参与名单剔除。
+ * 模拟门店已停业：标记门店 + 从非终态活动的指定参与/不参与名单剔除；
+ * 若进入参与已清空 / 不参与已清空，活动自动变为已暂停。
  */
 export function applyStoreClosedCleanup(
   activities: ActivityForm[],
@@ -112,15 +113,27 @@ export function applyStoreClosedCleanup(
     }
 
     const enteredIssue = resolveStoreConfigIssue(patched)
-    if (enteredIssue === 'S1' && previousIssue !== 'S1') {
+    const newlyEmpty =
+      (enteredIssue === 'S1' && previousIssue !== 'S1')
+      || (enteredIssue === 'S2' && previousIssue !== 'S2')
+    if (newlyEmpty) {
+      const alreadyPaused = patched.status === 'paused'
+      if (!alreadyPaused) {
+        patched.status = 'paused'
+        patched.pausedAt = nowStamp()
+      }
+      const emptyInclude = enteredIssue === 'S1'
       patched.operationLogs = [
-        makeLog('门店配置失效', '移除后参与门店名单已为空，活动状态未变更'),
-        ...patched.operationLogs,
-      ]
-    }
-    if (enteredIssue === 'S2' && previousIssue !== 'S2') {
-      patched.operationLogs = [
-        makeLog('门店配置失效', '移除后不参与门店名单已为空，活动状态未变更'),
+        makeLog(
+          alreadyPaused ? '门店配置失效' : '系统自动暂停',
+          emptyInclude
+            ? (alreadyPaused
+              ? '移除后参与门店名单已为空，活动保持已暂停（门店配置失效）'
+              : '移除后参与门店名单已为空，系统自动暂停活动（门店配置失效）')
+            : (alreadyPaused
+              ? '移除后不参与门店名单已为空，活动保持已暂停（门店配置失效）'
+              : '移除后不参与门店名单已为空，系统自动暂停活动（门店配置失效）'),
+        ),
         ...patched.operationLogs,
       ]
     }

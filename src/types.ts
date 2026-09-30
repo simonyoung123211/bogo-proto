@@ -967,6 +967,86 @@ export interface PaidMemberPriceListFilters {
   storeId: string
 }
 
+/* ================= 企业员工折扣 ================= */
+
+export interface EnterpriseCustomer {
+  id: string
+  name: string
+  parentName: string
+}
+
+export interface EnterpriseDiscountItem {
+  enterpriseId: string
+  /** 折扣，如 9.9 表示 9.9 折，范围 0.1–9.9 */
+  discount: number
+  displayTag: string
+}
+
+/** 件数达到上限时，按售价从高到低或从低到高决定哪些商品享受折扣 */
+export type EnterpriseDiscountHitRule = 'high_to_low' | 'low_to_high'
+
+export interface EnterpriseDiscountActivityForm {
+  id: string
+  name: string
+  description: string
+  startTime: string
+  endTime: string
+  cycleType: CycleType
+  timeSlotType: TimeSlotType
+  priority: number
+  channels: string[]
+  orderTypes: string[]
+  /** 活动期间每个用户最多优惠单数 */
+  totalParticipationLimitType: LimitType
+  totalParticipationLimit: number
+  /** 按天/周/月限制每个用户最多优惠单数 */
+  participationFrequencyType: LimitType
+  participationFrequencyPeriod: ParticipationPeriod
+  participationFrequencyLimit: number
+  /** 活动期间每个用户最多优惠件数 */
+  maxDiscountItemsTotalType: LimitType
+  maxDiscountItemsTotal: number
+  /** 按天/周/月限制每个用户最多优惠件数 */
+  maxDiscountItemsPeriodType: LimitType
+  maxDiscountItemsPeriod: ParticipationPeriod
+  maxDiscountItemsPeriodLimit: number
+  /** 每单最多优惠件数 */
+  maxDiscountItemsPerOrderType: LimitType
+  maxDiscountItemsPerOrder: number
+  discountHitRule: EnterpriseDiscountHitRule
+  enterprises: EnterpriseDiscountItem[]
+  toppingsDiscount: boolean
+  packagingFeeDiscount: boolean
+  comboSurchargeDiscount: boolean
+  preparationSurchargeDiscount: boolean
+  productScope: ProductScope
+  productIds: string[]
+  productSelectionMode: 'include' | 'exclude'
+  storeScope: StoreScope
+  storeIds: string[]
+  shareMutexRelation: ShareMutexRelation
+  participantUser: ParticipantUser
+  memberTagId: string
+  activityCode: string
+  titleDisplay: DisplayToggle
+  tagDisplay: DisplayToggle
+  status: ActivityStatus
+  pausedAt?: string
+  creator: string
+  creatorPhone: string
+  creatorOrg: string
+  createdAt: string
+  updatedAt: string
+  operationLogs: ActivityOperationLog[]
+}
+
+export interface EnterpriseDiscountListFilters {
+  keyword: string
+  status: ActivityStatus | 'all'
+  startDate: string
+  endDate: string
+}
+
 export type PageView =
   | { type: 'list' }
   | { type: 'wizard'; mode: WizardMode; activityId?: string; step?: number }
@@ -982,6 +1062,9 @@ export type PageView =
   | { type: 'stored-value-pay-list' }
   | { type: 'stored-value-pay-wizard'; mode: WizardMode; activityId?: string; step?: number }
   | { type: 'stored-value-pay-participation'; activityId: string }
+  | { type: 'enterprise-discount-list' }
+  | { type: 'enterprise-discount-wizard'; mode: WizardMode; activityId?: string; step?: number }
+  | { type: 'enterprise-discount-participation'; activityId: string }
   | { type: 'full-reduction-list' }
   | { type: 'full-reduction-wizard'; mode: WizardMode; activityId?: string; step?: number }
   | { type: 'full-reduction-participation'; activityId: string }
@@ -990,4 +1073,4 @@ export type PageView =
   | { type: 'paid-member-price-participation'; activityId: string }
   | { type: 'paid-member-card-list' }
   | { type: 'order-list' }
-  | { type: 'order-detail'; orderId: string; from?: 'order-list' | 'activity-participation' | 'multi-item-participation' | 'member-price-participation' | 'stored-value-pay-participation' | 'full-reduction-participation' | 'paid-member-price-participation'; activityId?: string }
+  | { type: 'order-detail'; orderId: string; from?: 'order-list' | 'activity-participation' | 'multi-item-participation' | 'member-price-participation' | 'stored-value-pay-participation' | 'full-reduction-participation' | 'paid-member-price-participation' | 'enterprise-discount-participation'; activityId?: string }

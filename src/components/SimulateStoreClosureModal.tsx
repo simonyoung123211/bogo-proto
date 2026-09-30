@@ -37,7 +37,7 @@ export function SimulateStoreClosureModal({ activities, onClose, onConfirm }: Si
         <div className="modal__body">
           <p className="form-hint" style={{ marginTop: 0 }}>
             演示：将门店标为已停业，并从非终态买1送N 活动的「指定参与 / 指定不参与」名单中自动剔除；
-            若进入失效态，会写入操作日志并向活动创建人发送站内信。
+            若参与或未排除名单清空，活动将自动暂停，写入操作日志并向创建人发站内信。
           </p>
           {candidates.length === 0 ? (
             <div className="table-empty">当前没有「营业中且已被活动名单引用」的门店，请先在活动中配置部分门店后再试。</div>

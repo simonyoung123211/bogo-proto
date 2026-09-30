@@ -20,6 +20,9 @@ import { PaidMemberPriceActivityWizard } from './pages/PaidMemberPriceActivityWi
 import { StoredValuePayActivityList } from './pages/StoredValuePayActivityList'
 import { StoredValuePayActivityWizard } from './pages/StoredValuePayActivityWizard'
 import { StoredValuePayParticipationRecords } from './pages/StoredValuePayParticipationRecords'
+import { EnterpriseDiscountActivityList } from './pages/EnterpriseDiscountActivityList'
+import { EnterpriseDiscountActivityWizard } from './pages/EnterpriseDiscountActivityWizard'
+import { EnterpriseDiscountParticipationRecords } from './pages/EnterpriseDiscountParticipationRecords'
 import { OrderList } from './pages/OrderList'
 import { OrderDetail } from './pages/OrderDetail'
 import { createEmptyActivity, getCreatorProfile } from './mockData'
@@ -28,6 +31,7 @@ import { createEmptyMemberPriceActivity } from './mockMemberPriceData'
 import { createEmptyMultiItemActivity } from './mockMultiItemData'
 import { createEmptyPaidMemberPriceActivity } from './mockPaidMemberPriceData'
 import { createEmptyStoredValuePayActivity } from './mockStoredValuePayData'
+import { createEmptyEnterpriseDiscountActivity } from './mockEnterpriseDiscountData'
 import type {
   ActivityForm,
   FullReductionActivityForm,
@@ -37,6 +41,7 @@ import type {
   PaidMemberCardTemplate,
   PaidMemberPriceActivityForm,
   PaidMemberPriceBenefit,
+  EnterpriseDiscountActivityForm,
   StoredValuePayActivityForm,
 } from './types'
 import { appendActivityLog, cloneActivity, computePublishStatus, formatActivityDateTime } from './utils/activity'
@@ -75,12 +80,18 @@ import {
   computePublishStatus as computeStoredValuePayPublishStatus,
 } from './utils/storedValuePayActivity'
 import {
+  appendActivityLog as appendEnterpriseDiscountLog,
+  cloneActivity as cloneEnterpriseDiscountActivity,
+  computePublishStatus as computeEnterpriseDiscountPublishStatus,
+} from './utils/enterpriseDiscountActivity'
+import {
   loadActivities,
   loadFullReductionActivities,
   loadMemberPriceActivities,
   loadMultiItemActivities,
   loadPaidMemberCards,
   loadPaidMemberPriceActivities,
+  loadEnterpriseDiscountActivities,
   loadStoredValuePayActivities,
   saveActivities,
   saveFullReductionActivities,
@@ -88,6 +99,7 @@ import {
   saveMultiItemActivities,
   savePaidMemberCards,
   savePaidMemberPriceActivities,
+  saveEnterpriseDiscountActivities,
   saveStoredValuePayActivities,
 } from './utils/storage'
 import {
@@ -96,7 +108,7 @@ import {
   setDemoBridgeSourceId,
   syncLinkedBogoIfNeeded,
 } from './utils/demoBogoBridge'
-import { applyStoreClosedCleanup } from './utils/storeClosure'
+import { applyStoreClosedCleanup, resolveStoreConfigIssue } from './utils/storeClosure'
 import {
   buildClosureInboxMessages,
   countUnreadInbox,
@@ -115,6 +127,7 @@ function App() {
   const [fullReductionActivities, setFullReductionActivities] = useState<FullReductionActivityForm[]>(loadFullReductionActivities)
   const [paidMemberPriceActivities, setPaidMemberPriceActivities] = useState<PaidMemberPriceActivityForm[]>(loadPaidMemberPriceActivities)
   const [storedValuePayActivities, setStoredValuePayActivities] = useState<StoredValuePayActivityForm[]>(loadStoredValuePayActivities)
+  const [enterpriseDiscountActivities, setEnterpriseDiscountActivities] = useState<EnterpriseDiscountActivityForm[]>(loadEnterpriseDiscountActivities)
   const [paidMemberCards, setPaidMemberCards] = useState<PaidMemberCardTemplate[]>(loadPaidMemberCards)
   const [view, setView] = useState<PageView>({ type: 'list' })
   /** 买1送N 参与记录的活动范围，空数组表示全部活动；提到这里是为了从订单详情返回时不丢失所选活动 */
@@ -125,15 +138,14 @@ function App() {
   const [fullReductionDraft, setFullReductionDraft] = useState<FullReductionActivityForm | null>(null)
   const [paidMemberPriceDraft, setPaidMemberPriceDraft] = useState<PaidMemberPriceActivityForm | null>(null)
   const [storedValuePayDraft, setStoredValuePayDraft] = useState<StoredValuePayActivityForm | null>(null)
+  const [enterpriseDiscountDraft, setEnterpriseDiscountDraft] = useState<EnterpriseDiscountActivityForm | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [linkedConsumerActivityId, setLinkedConsumerActivityId] = useState<string | null>(() => getDemoBridgeSourceId())
-
   const [inboxMessages, setInboxMessages] = useState<InboxMessage[]>(() => loadInboxMessages())
   const [inboxOpen, setInboxOpen] = useState(false)
 
   const showToast = useCallback((msg: string) => setToast(msg), [])
   const currentOperator = getCreatorProfile('10086')
-
   const inboxUnread = countUnreadInbox(inboxMessages, '10086')
 
   const persistInbox = (next: InboxMessage[]) => {
@@ -161,7 +173,7 @@ function App() {
     const failCount = result.newlyFailed.length
     showToast(
       `已将「${result.store.name}」标为已停业，清理 ${result.affected.length} 个活动`
-      + (failCount ? `，${failCount} 个进入失效态并已发站内信` : ''),
+      + (failCount ? `，${failCount} 个已自动暂停并已发站内信` : ''),
     )
   }
 
@@ -211,6 +223,11 @@ function App() {
     saveStoredValuePayActivities(next)
   }
 
+  const persistEnterpriseDiscount = (next: EnterpriseDiscountActivityForm[]) => {
+    setEnterpriseDiscountActivities(next)
+    saveEnterpriseDiscountActivities(next)
+  }
+
   const persistFullReduction = (next: FullReductionActivityForm[]) => {
     setFullReductionActivities(next)
     saveFullReductionActivities(next)
@@ -258,6 +275,14 @@ function App() {
     persistStoredValuePay(next)
   }
 
+  const upsertEnterpriseDiscount = (activity: EnterpriseDiscountActivityForm) => {
+    const exists = enterpriseDiscountActivities.some((a) => a.id === activity.id)
+    const next = exists
+      ? enterpriseDiscountActivities.map((a) => (a.id === activity.id ? activity : a))
+      : [activity, ...enterpriseDiscountActivities]
+    persistEnterpriseDiscount(next)
+  }
+
   const upsertPaidMemberPrice = (activity: PaidMemberPriceActivityForm) => {
     const exists = paidMemberPriceActivities.some((a) => a.id === activity.id)
     const next = exists
@@ -294,6 +319,11 @@ function App() {
     setView({ type: 'stored-value-pay-wizard', mode: 'create' })
   }
 
+  const handleEnterpriseDiscountCreate = () => {
+    setEnterpriseDiscountDraft(createEmptyEnterpriseDiscountActivity())
+    setView({ type: 'enterprise-discount-wizard', mode: 'create' })
+  }
+
   const handleFullReductionCreate = () => {
     setFullReductionDraft(createEmptyFullReductionActivity())
     setView({ type: 'full-reduction-wizard', mode: 'create' })
@@ -325,6 +355,13 @@ function App() {
     if (!activity) return
     setStoredValuePayDraft({ ...activity })
     setView({ type: 'stored-value-pay-wizard', mode: 'edit' })
+  }
+
+  const handleEnterpriseDiscountEdit = (id: string) => {
+    const activity = enterpriseDiscountActivities.find((a) => a.id === id)
+    if (!activity) return
+    setEnterpriseDiscountDraft({ ...activity })
+    setView({ type: 'enterprise-discount-wizard', mode: 'edit' })
   }
 
   const handleFullReductionEdit = (id: string) => {
@@ -381,6 +418,13 @@ function App() {
     setView({ type: 'stored-value-pay-wizard', mode: 'view' })
   }
 
+  const handleEnterpriseDiscountView = (id: string) => {
+    const activity = enterpriseDiscountActivities.find((a) => a.id === id)
+    if (!activity) return
+    setEnterpriseDiscountDraft({ ...activity })
+    setView({ type: 'enterprise-discount-wizard', mode: 'view' })
+  }
+
   const handleFullReductionView = (id: string) => {
     const activity = fullReductionActivities.find((a) => a.id === id)
     if (!activity) return
@@ -425,6 +469,16 @@ function App() {
     persistStoredValuePay([copy, ...storedValuePayActivities])
     setStoredValuePayDraft(copy)
     setView({ type: 'stored-value-pay-wizard', mode: 'copy' })
+    showToast('已复制活动，请编辑后保存')
+  }
+
+  const handleEnterpriseDiscountCopy = (id: string) => {
+    const activity = enterpriseDiscountActivities.find((a) => a.id === id)
+    if (!activity) return
+    const copy = cloneEnterpriseDiscountActivity(activity)
+    persistEnterpriseDiscount([copy, ...enterpriseDiscountActivities])
+    setEnterpriseDiscountDraft(copy)
+    setView({ type: 'enterprise-discount-wizard', mode: 'copy' })
     showToast('已复制活动，请编辑后保存')
   }
 
@@ -486,6 +540,18 @@ function App() {
     showToast('活动发布成功')
   }
 
+  const handleEnterpriseDiscountPublishFromList = (id: string) => {
+    const activity = enterpriseDiscountActivities.find((a) => a.id === id)
+    if (!activity) return
+    upsertEnterpriseDiscount(appendEnterpriseDiscountLog(
+      { ...activity, status: computeEnterpriseDiscountPublishStatus(activity) },
+      '发布活动',
+      `发布活动「${activity.name}」`,
+      currentOperator,
+    ))
+    showToast('活动发布成功')
+  }
+
   const handleFullReductionPublishFromList = (id: string) => {
     const activity = fullReductionActivities.find((a) => a.id === id)
     if (!activity) return
@@ -523,6 +589,13 @@ function App() {
     const activity = storedValuePayActivities.find((a) => a.id === id)
     if (!activity) return
     upsertStoredValuePay(appendStoredValuePayLog({ ...activity, status: 'voided' as const }, '作废活动', `作废活动「${activity.name}」`, currentOperator))
+    showToast('活动已作废')
+  }
+
+  const handleEnterpriseDiscountVoid = (id: string) => {
+    const activity = enterpriseDiscountActivities.find((a) => a.id === id)
+    if (!activity) return
+    upsertEnterpriseDiscount(appendEnterpriseDiscountLog({ ...activity, status: 'voided' as const }, '作废活动', `作废活动「${activity.name}」`, currentOperator))
     showToast('活动已作废')
   }
 
@@ -583,6 +656,15 @@ function App() {
   const handleResume = (id: string) => {
     const activity = activities.find((a) => a.id === id)
     if (!activity) return
+    const storeIssue = resolveStoreConfigIssue(activity)
+    if (storeIssue === 'S1' || storeIssue === 'S1_all_closed') {
+      showToast('请先重新选择参与门店后再恢复活动')
+      return
+    }
+    if (storeIssue === 'S2' || storeIssue === 'S3') {
+      showToast('请先重新配置不参与门店后再恢复活动')
+      return
+    }
     const plan = buildResumePlan(activity, '顾客可立即重新参与')
     upsert(appendActivityLog(
       { ...activity, status: plan.status, pausedAt: plan.keepPausedAt ? activity.pausedAt : undefined },
@@ -696,6 +778,38 @@ function App() {
     showToast(minutes === 0 ? '已重置为「刚暂停」' : `已模拟暂停 ${minutes} 分钟`)
   }
 
+  const handleEnterpriseDiscountPause = (id: string) => {
+    const activity = enterpriseDiscountActivities.find((a) => a.id === id)
+    if (!activity) return
+    upsertEnterpriseDiscount(appendEnterpriseDiscountLog(
+      { ...activity, status: 'paused' as const, pausedAt: formatActivityDateTime() },
+      '暂停活动',
+      `暂停活动「${activity.name}」，企业员工暂时无法享受折扣`,
+      currentOperator,
+    ))
+    showToast('活动已暂停，企业员工暂时无法享受折扣')
+  }
+
+  const handleEnterpriseDiscountResume = (id: string) => {
+    const activity = enterpriseDiscountActivities.find((a) => a.id === id)
+    if (!activity) return
+    const plan = buildResumePlan(activity, '企业员工折扣立即重新生效')
+    upsertEnterpriseDiscount(appendEnterpriseDiscountLog(
+      { ...activity, status: plan.status, pausedAt: plan.keepPausedAt ? activity.pausedAt : undefined },
+      plan.action,
+      `活动「${activity.name}」${plan.detail}`,
+      currentOperator,
+    ))
+    showToast(plan.toast)
+  }
+
+  const handleEnterpriseDiscountDemoSetPausedMinutes = (id: string, minutes: number) => {
+    const activity = enterpriseDiscountActivities.find((a) => a.id === id)
+    if (!activity || activity.status !== 'paused') return
+    upsertEnterpriseDiscount({ ...activity, pausedAt: shiftedPausedAt(minutes) })
+    showToast(minutes === 0 ? '已重置为「刚暂停」' : `已模拟暂停 ${minutes} 分钟`)
+  }
+
   const handleFullReductionPause = (id: string) => {
     const activity = fullReductionActivities.find((a) => a.id === id)
     if (!activity) return
@@ -753,6 +867,11 @@ function App() {
           ? appendStoredValuePayLog({ ...a, status: 'ended' as const }, '暂停中到期结束', expiredDetail(a.name), currentOperator)
           : a)))
       }
+      if (enterpriseDiscountActivities.some((a) => isPausedExpired(a, now))) {
+        persistEnterpriseDiscount(enterpriseDiscountActivities.map((a) => (isPausedExpired(a, now)
+          ? appendEnterpriseDiscountLog({ ...a, status: 'ended' as const }, '暂停中到期结束', expiredDetail(a.name), currentOperator)
+          : a)))
+      }
       if (fullReductionActivities.some((a) => isPausedExpired(a, now))) {
         persistFullReduction(fullReductionActivities.map((a) => (isPausedExpired(a, now)
           ? appendFullReductionLog({ ...a, status: 'ended' }, '暂停中到期结束', expiredDetail(a.name), currentOperator)
@@ -763,7 +882,7 @@ function App() {
     const timer = window.setInterval(sweep, 30_000)
     return () => window.clearInterval(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activities, multiItemActivities, memberPriceActivities, storedValuePayActivities, fullReductionActivities])
+  }, [activities, multiItemActivities, memberPriceActivities, storedValuePayActivities, enterpriseDiscountActivities, fullReductionActivities])
 
   const handleMultiItemDelete = (id: string) => {
     persistMultiItem(multiItemActivities.filter((a) => a.id !== id))
@@ -777,6 +896,11 @@ function App() {
 
   const handleStoredValuePayDelete = (id: string) => {
     persistStoredValuePay(storedValuePayActivities.filter((a) => a.id !== id))
+    showToast('活动已删除')
+  }
+
+  const handleEnterpriseDiscountDelete = (id: string) => {
+    persistEnterpriseDiscount(enterpriseDiscountActivities.filter((a) => a.id !== id))
     showToast('活动已删除')
   }
 
@@ -831,6 +955,18 @@ function App() {
     showToast('草稿保存成功')
     setView({ type: 'stored-value-pay-list' })
     setStoredValuePayDraft(null)
+  }
+
+  const handleEnterpriseDiscountSaveDraft = () => {
+    if (!enterpriseDiscountDraft) return
+    const exists = enterpriseDiscountActivities.some((a) => a.id === enterpriseDiscountDraft.id)
+    const saved = exists
+      ? appendEnterpriseDiscountLog({ ...enterpriseDiscountDraft, status: 'draft' as const }, '编辑活动', `保存草稿「${enterpriseDiscountDraft.name}」`, currentOperator)
+      : { ...enterpriseDiscountDraft, status: 'draft' as const }
+    upsertEnterpriseDiscount(saved)
+    showToast('草稿保存成功')
+    setView({ type: 'enterprise-discount-list' })
+    setEnterpriseDiscountDraft(null)
   }
 
   const handleFullReductionSaveDraft = () => {
@@ -895,6 +1031,15 @@ function App() {
     showToast(keep ? '活动已保存' : '活动保存成功，请前往活动列表发布')
     setView({ type: 'stored-value-pay-list' })
     setStoredValuePayDraft(null)
+  }
+
+  const handleEnterpriseDiscountSave = () => {
+    if (!enterpriseDiscountDraft) return
+    const { status, keep } = resolveSavedStatus(enterpriseDiscountActivities, enterpriseDiscountDraft)
+    upsertEnterpriseDiscount(appendEnterpriseDiscountLog({ ...enterpriseDiscountDraft, status }, keep ? '编辑活动' : '保存活动', `保存活动「${enterpriseDiscountDraft.name}」`, currentOperator))
+    showToast(keep ? '活动已保存' : '活动保存成功，请前往活动列表发布')
+    setView({ type: 'enterprise-discount-list' })
+    setEnterpriseDiscountDraft(null)
   }
 
   const handleFullReductionSave = () => {
@@ -1210,6 +1355,7 @@ function App() {
     setMultiItemDraft(null)
     setMemberPriceDraft(null)
     setStoredValuePayDraft(null)
+    setEnterpriseDiscountDraft(null)
     setFullReductionDraft(null)
     setPaidMemberPriceDraft(null)
     if (key === 'orders') {
@@ -1224,6 +1370,8 @@ function App() {
       setView({ type: 'member-price-list' })
     } else if (key === 'stored_value_pay') {
       setView({ type: 'stored-value-pay-list' })
+    } else if (key === 'enterprise_discount') {
+      setView({ type: 'enterprise-discount-list' })
     } else if (key === 'paid_member_price') {
       setView({ type: 'paid-member-price-list' })
     } else if (key === 'paid_member_card') {
@@ -1245,6 +1393,10 @@ function App() {
     || view.type === 'stored-value-pay-wizard'
     || view.type === 'stored-value-pay-participation'
     || (view.type === 'order-detail' && view.from === 'stored-value-pay-participation')
+  const isEnterpriseDiscountModule = view.type === 'enterprise-discount-list'
+    || view.type === 'enterprise-discount-wizard'
+    || view.type === 'enterprise-discount-participation'
+    || (view.type === 'order-detail' && view.from === 'enterprise-discount-participation')
   const isFullReductionModule = view.type === 'full-reduction-list'
     || view.type === 'full-reduction-wizard'
     || view.type === 'full-reduction-participation'
@@ -1268,11 +1420,13 @@ function App() {
           ? 'member_price'
           : isStoredValuePayModule
             ? 'stored_value_pay'
-            : isPaidMemberPriceModule
-              ? 'paid_member_price'
-              : isPaidMemberCardModule
-                ? 'paid_member_card'
-                : 'bogo'
+            : isEnterpriseDiscountModule
+              ? 'enterprise_discount'
+              : isPaidMemberPriceModule
+                ? 'paid_member_price'
+                : isPaidMemberCardModule
+                  ? 'paid_member_card'
+                  : 'bogo'
 
   const multiItemParticipationActivity = view.type === 'multi-item-participation'
     ? multiItemActivities.find((a) => a.id === view.activityId)
@@ -1290,6 +1444,12 @@ function App() {
     ? storedValuePayActivities.find((a) => a.id === view.activityId)
     : view.type === 'order-detail' && view.from === 'stored-value-pay-participation' && view.activityId
       ? storedValuePayActivities.find((a) => a.id === view.activityId)
+      : undefined
+
+  const enterpriseDiscountParticipationActivity = view.type === 'enterprise-discount-participation'
+    ? enterpriseDiscountActivities.find((a) => a.id === view.activityId)
+    : view.type === 'order-detail' && view.from === 'enterprise-discount-participation' && view.activityId
+      ? enterpriseDiscountActivities.find((a) => a.id === view.activityId)
       : undefined
 
   const paidMemberPriceParticipationActivity = view.type === 'paid-member-price-participation'
@@ -1336,6 +1496,14 @@ function App() {
           : view.type === 'stored-value-pay-wizard'
             ? ['营销管理', '促销活动', '储值支付优惠', view.mode === 'create' ? '新建活动' : view.mode === 'view' ? '查看活动' : '编辑活动']
             : ['营销管理', '促销活动', '储值支付优惠']
+      : isEnterpriseDiscountModule
+        ? view.type === 'enterprise-discount-list'
+          ? ['营销管理', '促销活动', '企业员工折扣']
+          : view.type === 'enterprise-discount-participation' && enterpriseDiscountParticipationActivity
+            ? ['营销管理', '促销活动', '企业员工折扣', '参与记录']
+            : view.type === 'enterprise-discount-wizard'
+              ? ['营销管理', '促销活动', '企业员工折扣', view.mode === 'create' ? '新建活动' : view.mode === 'view' ? '查看活动' : '编辑活动']
+              : ['营销管理', '促销活动', '企业员工折扣']
       : isFullReductionModule
         ? view.type === 'full-reduction-list'
           ? ['营销管理', '促销活动', '满减/折']
@@ -1454,6 +1622,16 @@ function App() {
         <div className="page-card">
           <div className="table-empty">未找到活动</div>
           <button type="button" className="btn btn--default" onClick={() => setView({ type: 'stored-value-pay-list' })}>返回列表</button>
+        </div>
+      ) : view.type === 'enterprise-discount-participation' && enterpriseDiscountParticipationActivity ? (
+        <EnterpriseDiscountParticipationRecords
+          activity={enterpriseDiscountParticipationActivity}
+          onBack={() => setView({ type: 'enterprise-discount-list' })}
+        />
+      ) : view.type === 'enterprise-discount-participation' ? (
+        <div className="page-card">
+          <div className="table-empty">未找到活动</div>
+          <button type="button" className="btn btn--default" onClick={() => setView({ type: 'enterprise-discount-list' })}>返回列表</button>
         </div>
       ) : view.type === 'paid-member-price-participation' && paidMemberPriceParticipationActivity ? (
         <MemberPriceParticipationRecords
@@ -1602,6 +1780,22 @@ function App() {
           onDelete={handleStoredValuePayDelete}
           onToast={showToast}
         />
+      ) : view.type === 'enterprise-discount-list' ? (
+        <EnterpriseDiscountActivityList
+          activities={enterpriseDiscountActivities}
+          onCreate={handleEnterpriseDiscountCreate}
+          onView={handleEnterpriseDiscountView}
+          onViewParticipation={(id) => setView({ type: 'enterprise-discount-participation', activityId: id })}
+          onEdit={handleEnterpriseDiscountEdit}
+          onCopy={handleEnterpriseDiscountCopy}
+          onPublish={handleEnterpriseDiscountPublishFromList}
+          onPause={handleEnterpriseDiscountPause}
+          onResume={handleEnterpriseDiscountResume}
+          onDemoSetPausedMinutes={handleEnterpriseDiscountDemoSetPausedMinutes}
+          onVoid={handleEnterpriseDiscountVoid}
+          onDelete={handleEnterpriseDiscountDelete}
+          onToast={showToast}
+        />
       ) : view.type === 'full-reduction-list' ? (
         <FullReductionActivityList
           activities={fullReductionActivities}
@@ -1660,6 +1854,17 @@ function App() {
           onSaveDraft={handleStoredValuePaySaveDraft}
           onSave={handleStoredValuePaySave}
           onSwitchToEdit={view.type === 'stored-value-pay-wizard' && view.mode === 'view' ? () => setView({ type: 'stored-value-pay-wizard', mode: 'edit' }) : undefined}
+          onToast={showToast}
+        />
+      ) : enterpriseDiscountDraft ? (
+        <EnterpriseDiscountActivityWizard
+          activity={enterpriseDiscountDraft}
+          mode={view.type === 'enterprise-discount-wizard' ? view.mode : 'create'}
+          onChange={setEnterpriseDiscountDraft}
+          onCancel={() => { setView({ type: 'enterprise-discount-list' }); setEnterpriseDiscountDraft(null) }}
+          onSaveDraft={handleEnterpriseDiscountSaveDraft}
+          onSave={handleEnterpriseDiscountSave}
+          onSwitchToEdit={view.type === 'enterprise-discount-wizard' && view.mode === 'view' ? () => setView({ type: 'enterprise-discount-wizard', mode: 'edit' }) : undefined}
           onToast={showToast}
         />
       ) : fullReductionDraft ? (

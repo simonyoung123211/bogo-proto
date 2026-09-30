@@ -7,6 +7,7 @@ import type {
   MultiItemActivityForm,
   PaidMemberCardTemplate,
   PaidMemberPriceActivityForm,
+  EnterpriseDiscountActivityForm,
   StoredValuePayActivityForm,
   StoredValuePayGeneralSettings,
 } from '../types'
@@ -18,12 +19,14 @@ import {
   initialPaidMemberCards,
   initialPaidMemberPriceActivities,
 } from '../mockPaidMemberPriceData'
+import { initialEnterpriseDiscountActivities } from '../mockEnterpriseDiscountData'
 import { initialStoredValuePayActivities } from '../mockStoredValuePayData'
 import { migrateActivity } from './activity'
 import { migrateFullReductionActivity } from './fullReductionActivity'
 import { migrateMemberPriceActivity } from './memberPriceActivity'
 import { migrateMultiItemActivity } from './multiItemActivity'
 import { migratePaidMemberPriceActivity } from './paidMemberPriceActivity'
+import { migrateEnterpriseDiscountActivity } from './enterpriseDiscountActivity'
 import { migrateStoredValuePayActivity } from './storedValuePayActivity'
 
 const STORAGE_KEY = 'bogo-activities-v1'
@@ -33,6 +36,7 @@ const FULL_REDUCTION_STORAGE_KEY = 'full-reduction-activities-v1'
 const PAID_MEMBER_PRICE_STORAGE_KEY = 'paid-member-price-activities-v1'
 const PAID_MEMBER_CARD_STORAGE_KEY = 'paid-member-cards-v1'
 const STORED_VALUE_PAY_STORAGE_KEY = 'stored-value-pay-activities-v1'
+const ENTERPRISE_DISCOUNT_STORAGE_KEY = 'enterprise-discount-activities-v1'
 const GENERAL_SETTINGS_KEY = 'bogo-general-settings-v1'
 const MEMBER_PRICE_GENERAL_SETTINGS_KEY = 'member-price-general-settings-v1'
 const STORED_VALUE_PAY_GENERAL_SETTINGS_KEY = 'stored-value-pay-general-settings-v1'
@@ -259,6 +263,23 @@ export function loadStoredValuePayActivities(): StoredValuePayActivityForm[] {
 
 export function saveStoredValuePayActivities(activities: StoredValuePayActivityForm[]): void {
   localStorage.setItem(STORED_VALUE_PAY_STORAGE_KEY, JSON.stringify(activities))
+}
+
+export function loadEnterpriseDiscountActivities(): EnterpriseDiscountActivityForm[] {
+  try {
+    const raw = localStorage.getItem(ENTERPRISE_DISCOUNT_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>[]
+      return parsed.map((a) => migrateEnterpriseDiscountActivity(a))
+    }
+  } catch {
+    /* ignore */
+  }
+  return [...initialEnterpriseDiscountActivities]
+}
+
+export function saveEnterpriseDiscountActivities(activities: EnterpriseDiscountActivityForm[]): void {
+  localStorage.setItem(ENTERPRISE_DISCOUNT_STORAGE_KEY, JSON.stringify(activities))
 }
 
 export function loadStoredValuePayGeneralSettings(): StoredValuePayGeneralSettings {

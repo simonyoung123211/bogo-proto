@@ -84,8 +84,8 @@ export function buildClosureInboxMessages(
         messages.push({
           id,
           recipientCreatorId: creator,
-          title: '促销活动参与门店已清空',
-          body: `门店「${storeName}」已停业，系统已将其从您创建的活动「${only.activityName}」的参与门店中移出，当前有效参与门店为 0。活动状态未变更。请尽快重新选择参与门店，或作废该活动。`,
+          title: '促销活动已暂停：参与门店已清空',
+          body: `门店「${storeName}」已停业，系统已将其从您创建的活动「${only.activityName}」的参与门店中移出，当前有效参与门店为 0，活动已自动暂停。请重新选择参与门店后恢复活动，或作废该活动。`,
           kind: 'S1',
           primaryActivityId: primary,
           activityIds,
@@ -97,8 +97,8 @@ export function buildClosureInboxMessages(
         messages.push({
           id,
           recipientCreatorId: creator,
-          title: '促销活动不参与门店已清空',
-          body: `门店「${storeName}」已停业，系统已将其从您创建的活动「${only.activityName}」的不参与门店中移出，当前不参与名单为空（未排除任何门店）。活动状态未变更。请确认是否需重新配置。`,
+          title: '促销活动已暂停：不参与门店已清空',
+          body: `门店「${storeName}」已停业，系统已将其从您创建的活动「${only.activityName}」的不参与门店中移出，当前不参与名单为空，活动已自动暂停。请重新配置不参与门店，或改为全部门店 / 部分门店参与后恢复活动。`,
           kind: 'S2',
           primaryActivityId: primary,
           activityIds,
@@ -115,8 +115,8 @@ export function buildClosureInboxMessages(
     messages.push({
       id,
       recipientCreatorId: creator,
-      title: '多个促销活动门店配置需处理',
-      body: `门店「${storeName}」已停业，您创建的以下活动门店配置已失效（状态未变更）：\n参与门店已清空：${s1Names}\n不参与门店已清空：${s2Names}\n请尽快处理。`,
+      title: '多个促销活动已暂停，门店配置需处理',
+      body: `门店「${storeName}」已停业，您创建的以下活动因门店配置失效已自动暂停：\n参与门店已清空：${s1Names}\n不参与门店已清空：${s2Names}\n请修好门店配置后恢复活动。`,
       kind: s1.length && s2.length ? 'mixed' : s1.length ? 'S1' : 'S2',
       primaryActivityId: primary,
       activityIds,
