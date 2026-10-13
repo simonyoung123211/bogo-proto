@@ -28,9 +28,10 @@ const sidebarMenus: MenuItem[] = [
     label: '营销活动',
     icon: 'activity',
     children: [
-      { id: 'bogo', label: '买1送N', navKey: 'bogo' },
+      { id: 'bogo', label: '买1送1', navKey: 'bogo' },
       { id: 'half-item', label: '第N件优惠', navKey: 'half_item' },
       { id: 'full-reduction', label: '满减/折', navKey: 'full_reduction' },
+      { id: 'delivery-fee', label: '减配送费', navKey: 'delivery_fee' },
       { id: 'member-price', label: '会员价', navKey: 'member_price' },
       { id: 'paid-member-price', label: '付费会员价', navKey: 'paid_member_price' },
       { id: 'stored-value-pay', label: '储值支付优惠', navKey: 'stored_value_pay' },

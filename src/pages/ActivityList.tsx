@@ -191,7 +191,7 @@ export function ActivityList({
         <div className="alert-banner alert-banner--danger">
           <span className="alert-banner__icon">!</span>
           <span>
-            有 {overdueCount} 个买1送N活动暂停超过 {PAUSE_OVERDUE_MINUTES} 分钟未恢复，顾客暂时无法参与
+            有 {overdueCount} 个买1送1活动暂停超过 {PAUSE_OVERDUE_MINUTES} 分钟未恢复，顾客暂时无法参与
           </span>
           <button type="button" className="link-btn" onClick={() => setFilters((f) => ({ ...f, status: 'paused' }))}>
             查看这些活动
@@ -202,7 +202,7 @@ export function ActivityList({
       <header className="list-page-header list-page-header--compact">
         <div className="list-page-header__main">
           <div className="list-page-header__title-row">
-            <h1 className="list-page-header__title">买1送N</h1>
+            <h1 className="list-page-header__title">买1送1</h1>
             <PageHelpButton open={helpOpen} onToggle={() => setHelpOpen((v) => !v)} onClose={() => setHelpOpen(false)} />
           </div>
         </div>

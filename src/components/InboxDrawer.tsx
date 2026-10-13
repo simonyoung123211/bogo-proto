@@ -43,7 +43,7 @@ export function InboxDrawer({
         </div>
         <div className="inbox-drawer__body">
           {mine.length === 0 && others.length === 0 && (
-            <div className="table-empty">暂无站内信。可在买1送N 列表使用「模拟门店已停业」触发。</div>
+            <div className="table-empty">暂无站内信。可在买1送1 列表使用「模拟门店已停业」触发。</div>
           )}
           {mine.length > 0 && (
             <section className="inbox-section">

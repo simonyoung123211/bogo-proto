@@ -1,5 +1,6 @@
 import type {
   ActivityForm,
+  DeliveryFeeActivityForm,
   FullReductionActivityForm,
   GeneralSettings,
   MemberPriceActivityForm,
@@ -12,6 +13,7 @@ import type {
   StoredValuePayGeneralSettings,
 } from '../types'
 import { initialActivities } from '../mockData'
+import { initialDeliveryFeeActivities } from '../mockDeliveryFeeData'
 import { initialFullReductionActivities } from '../mockFullReductionData'
 import { initialMemberPriceActivities } from '../mockMemberPriceData'
 import { initialMultiItemActivities } from '../mockMultiItemData'
@@ -22,6 +24,8 @@ import {
 import { initialEnterpriseDiscountActivities } from '../mockEnterpriseDiscountData'
 import { initialStoredValuePayActivities } from '../mockStoredValuePayData'
 import { migrateActivity } from './activity'
+import { reopenStoresForDemo } from './storeRegistry'
+import { migrateDeliveryFeeActivity } from './deliveryFeeActivity'
 import { migrateFullReductionActivity } from './fullReductionActivity'
 import { migrateMemberPriceActivity } from './memberPriceActivity'
 import { migrateMultiItemActivity } from './multiItemActivity'
@@ -33,6 +37,7 @@ const STORAGE_KEY = 'bogo-activities-v1'
 const MULTI_ITEM_STORAGE_KEY = 'multi-item-activities-v1'
 const MEMBER_PRICE_STORAGE_KEY = 'member-price-activities-v1'
 const FULL_REDUCTION_STORAGE_KEY = 'full-reduction-activities-v1'
+const DELIVERY_FEE_STORAGE_KEY = 'delivery-fee-activities-v1'
 const PAID_MEMBER_PRICE_STORAGE_KEY = 'paid-member-price-activities-v1'
 const PAID_MEMBER_CARD_STORAGE_KEY = 'paid-member-cards-v1'
 const STORED_VALUE_PAY_STORAGE_KEY = 'stored-value-pay-activities-v1'
@@ -77,18 +82,21 @@ export function loadActivities(): ActivityForm[] {
   return [...initialActivities]
 }
 
-/** 为已有本地缓存补齐「已停业清理」演示活动，避免清缓存才能看到 */
+/** 为已有本地缓存补齐 / 重置「已停业清理」演示活动，保证部分门店参与/不参与场景可重复演示 */
+const STORE_CLOSURE_DEMO_IDS = [
+  'ACT20240924010',
+  'ACT20240924011',
+  'ACT20240924012',
+] as const
+
 function ensureStoreClosureDemoActivities(list: ActivityForm[]): ActivityForm[] {
-  const demos = initialActivities.filter(
-    (a) => a.id === 'ACT20240924010' || a.id === 'ACT20240924011',
-  )
-  let next = list
-  for (const demo of demos) {
-    if (!next.some((a) => a.id === demo.id)) {
-      next = [migrateActivity(demo as unknown as Record<string, unknown>), ...next]
-    }
-  }
-  return next
+  const demos = initialActivities
+    .filter((a) => (STORE_CLOSURE_DEMO_IDS as readonly string[]).includes(a.id))
+    .map((a) => migrateActivity(a as unknown as Record<string, unknown>))
+  const demoStoreIds = [...new Set(demos.flatMap((a) => a.storeIds))]
+  reopenStoresForDemo(demoStoreIds)
+  const rest = list.filter((a) => !(STORE_CLOSURE_DEMO_IDS as readonly string[]).includes(a.id))
+  return [...demos, ...rest]
 }
 
 export function saveActivities(activities: ActivityForm[]): void {
@@ -197,6 +205,23 @@ export function loadFullReductionActivities(): FullReductionActivityForm[] {
 
 export function saveFullReductionActivities(activities: FullReductionActivityForm[]): void {
   localStorage.setItem(FULL_REDUCTION_STORAGE_KEY, JSON.stringify(activities))
+}
+
+export function loadDeliveryFeeActivities(): DeliveryFeeActivityForm[] {
+  try {
+    const raw = localStorage.getItem(DELIVERY_FEE_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>[]
+      return parsed.map((a) => migrateDeliveryFeeActivity(a))
+    }
+  } catch {
+    /* ignore */
+  }
+  return [...initialDeliveryFeeActivities]
+}
+
+export function saveDeliveryFeeActivities(activities: DeliveryFeeActivityForm[]): void {
+  localStorage.setItem(DELIVERY_FEE_STORAGE_KEY, JSON.stringify(activities))
 }
 
 export function loadPaidMemberPriceActivities(): PaidMemberPriceActivityForm[] {

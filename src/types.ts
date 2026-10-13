@@ -624,6 +624,93 @@ export interface FullReductionListFilters {
   storeId: string
 }
 
+/* ================= 减配送费 ================= */
+
+/** 收货城市：全国 / 指定城市（仅门店快递） */
+export type DeliveryFeeRuleMode = 'national' | 'by_city'
+
+/** 活动门槛：按金额 / 按件数 / 无门槛 */
+export type DeliveryFeeThresholdType = 'amount' | 'item_count' | 'none'
+
+/** 立减 / 免除 / 折扣 */
+export type DeliveryFeeDiscountMethod = 'amount_off' | 'waive' | 'percent_off'
+
+export interface DeliveryFeeTier {
+  id: string
+  /** 订单金额门槛（元） */
+  threshold: number
+  discountMethod: DeliveryFeeDiscountMethod
+  /** 立减金额或折扣折数；免除时忽略 */
+  discountValue: number
+}
+
+export interface DeliveryFeeActivityForm {
+  id: string
+  name: string
+  title: string
+  tag: string
+  description: string
+  startTime: string
+  endTime: string
+  cycleType: CycleType
+  timeSlotType: TimeSlotType
+  channels: string[]
+  /** 外卖（配送）/ 门店快递 / 蛋糕外卖 / 团餐外卖 / 拼单（外卖）；按城市模式不可含外卖类 */
+  orderTypes: string[]
+  /**
+   * 收货城市（勾选门店快递后展示）：
+   * - national：全国，一套门槛+阶梯（可与外卖并存）
+   * - by_city：指定城市，仅门店快递；活动级 1 组城市名单 + 一套门槛+阶梯；未命中不减免；不可勾外卖
+   */
+  ruleMode: DeliveryFeeRuleMode
+  /** 活动门槛类型：按金额 / 按件数 / 无门槛 */
+  thresholdType: DeliveryFeeThresholdType
+  /** 优惠阶梯（全国统一与按收货城市共用这一套） */
+  tiers: DeliveryFeeTier[]
+  /** 按收货城市时的适用城市（活动级仅 1 组；省不落库） */
+  cityIds: string[]
+  /** 活动级门槛口径：商品售价小计 / 活动价小计（仅按金额时展示） */
+  thresholdBase: 'sale_price' | 'promo_price'
+  /** 门槛金额是否计入加料商品价格 */
+  includeToppings: boolean
+  /** 门槛金额是否计入打包费/餐盒费 */
+  includePackagingFee: boolean
+  /** 门槛金额是否计入做法加价 */
+  includePreparationSurcharge: boolean
+  totalParticipationLimitType: LimitType
+  totalParticipationLimit: number
+  participationFrequencyType: LimitType
+  participationFrequencyPeriod: ParticipationPeriod
+  participationFrequencyLimit: number
+  productScope: ProductScope
+  productIds: string[]
+  storeScope: StoreScope
+  storeIds: string[]
+  shareMutexRelation: ShareMutexRelation
+  participantUser: ParticipantUser
+  memberTagId: string
+  activityCode: string
+  titleDisplay: DisplayToggle
+  tagDisplay: DisplayToggle
+  status: ActivityStatus
+  pausedAt?: string
+  creator: string
+  creatorPhone: string
+  creatorOrg: string
+  createdAt: string
+  updatedAt: string
+  operationLogs: ActivityOperationLog[]
+}
+
+export interface DeliveryFeeListFilters {
+  keyword: string
+  status: ActivityStatus | 'all'
+  ruleMode: DeliveryFeeRuleMode | 'all'
+  startDate: string
+  endDate: string
+  activityCode: string
+}
+
 /* ================= 会员价 ================= */
 
 export type MemberLevelId = 'normal' | 'silver' | 'gold' | 'platinum' | 'diamond'
@@ -1068,6 +1155,8 @@ export type PageView =
   | { type: 'full-reduction-list' }
   | { type: 'full-reduction-wizard'; mode: WizardMode; activityId?: string; step?: number }
   | { type: 'full-reduction-participation'; activityId: string }
+  | { type: 'delivery-fee-list' }
+  | { type: 'delivery-fee-wizard'; mode: WizardMode; activityId?: string; step?: number }
   | { type: 'paid-member-price-list' }
   | { type: 'paid-member-price-wizard'; mode: WizardMode; activityId?: string; step?: number; from?: 'card-list' }
   | { type: 'paid-member-price-participation'; activityId: string }

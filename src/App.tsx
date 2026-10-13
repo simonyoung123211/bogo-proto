@@ -7,6 +7,8 @@ import { ActivityWizard } from './pages/ActivityWizard'
 import { FullReductionActivityList } from './pages/FullReductionActivityList'
 import { FullReductionActivityWizard } from './pages/FullReductionActivityWizard'
 import { FullReductionParticipationRecords } from './pages/FullReductionParticipationRecords'
+import { DeliveryFeeActivityList } from './pages/DeliveryFeeActivityList'
+import { DeliveryFeeActivityWizard } from './pages/DeliveryFeeActivityWizard'
 import { MemberPriceActivityList } from './pages/MemberPriceActivityList'
 import { MemberPriceActivityWizard } from './pages/MemberPriceActivityWizard'
 import { MemberPriceGeneralSettingsPage } from './pages/MemberPriceGeneralSettings'
@@ -27,6 +29,7 @@ import { OrderList } from './pages/OrderList'
 import { OrderDetail } from './pages/OrderDetail'
 import { createEmptyActivity, getCreatorProfile } from './mockData'
 import { createEmptyFullReductionActivity } from './mockFullReductionData'
+import { createEmptyDeliveryFeeActivity } from './mockDeliveryFeeData'
 import { createEmptyMemberPriceActivity } from './mockMemberPriceData'
 import { createEmptyMultiItemActivity } from './mockMultiItemData'
 import { createEmptyPaidMemberPriceActivity } from './mockPaidMemberPriceData'
@@ -34,6 +37,7 @@ import { createEmptyStoredValuePayActivity } from './mockStoredValuePayData'
 import { createEmptyEnterpriseDiscountActivity } from './mockEnterpriseDiscountData'
 import type {
   ActivityForm,
+  DeliveryFeeActivityForm,
   FullReductionActivityForm,
   MemberPriceActivityForm,
   MultiItemActivityForm,
@@ -55,6 +59,12 @@ import {
   cloneActivity as cloneFullReductionActivity,
   computePublishStatus as computeFullReductionPublishStatus,
 } from './utils/fullReductionActivity'
+import {
+  appendActivityLog as appendDeliveryFeeLog,
+  cloneActivity as cloneDeliveryFeeActivity,
+  computePublishStatus as computeDeliveryFeePublishStatus,
+  validateBeforeSave as validateDeliveryFeeBeforeSave,
+} from './utils/deliveryFeeActivity'
 import {
   appendActivityLog as appendMemberPriceLog,
   cloneActivity as cloneMemberPriceActivity,
@@ -86,6 +96,7 @@ import {
 } from './utils/enterpriseDiscountActivity'
 import {
   loadActivities,
+  loadDeliveryFeeActivities,
   loadFullReductionActivities,
   loadMemberPriceActivities,
   loadMultiItemActivities,
@@ -94,6 +105,7 @@ import {
   loadEnterpriseDiscountActivities,
   loadStoredValuePayActivities,
   saveActivities,
+  saveDeliveryFeeActivities,
   saveFullReductionActivities,
   saveMemberPriceActivities,
   saveMultiItemActivities,
@@ -125,6 +137,7 @@ function App() {
   const [multiItemActivities, setMultiItemActivities] = useState<MultiItemActivityForm[]>(loadMultiItemActivities)
   const [memberPriceActivities, setMemberPriceActivities] = useState<MemberPriceActivityForm[]>(loadMemberPriceActivities)
   const [fullReductionActivities, setFullReductionActivities] = useState<FullReductionActivityForm[]>(loadFullReductionActivities)
+  const [deliveryFeeActivities, setDeliveryFeeActivities] = useState<DeliveryFeeActivityForm[]>(loadDeliveryFeeActivities)
   const [paidMemberPriceActivities, setPaidMemberPriceActivities] = useState<PaidMemberPriceActivityForm[]>(loadPaidMemberPriceActivities)
   const [storedValuePayActivities, setStoredValuePayActivities] = useState<StoredValuePayActivityForm[]>(loadStoredValuePayActivities)
   const [enterpriseDiscountActivities, setEnterpriseDiscountActivities] = useState<EnterpriseDiscountActivityForm[]>(loadEnterpriseDiscountActivities)
@@ -136,6 +149,7 @@ function App() {
   const [multiItemDraft, setMultiItemDraft] = useState<MultiItemActivityForm | null>(null)
   const [memberPriceDraft, setMemberPriceDraft] = useState<MemberPriceActivityForm | null>(null)
   const [fullReductionDraft, setFullReductionDraft] = useState<FullReductionActivityForm | null>(null)
+  const [deliveryFeeDraft, setDeliveryFeeDraft] = useState<DeliveryFeeActivityForm | null>(null)
   const [paidMemberPriceDraft, setPaidMemberPriceDraft] = useState<PaidMemberPriceActivityForm | null>(null)
   const [storedValuePayDraft, setStoredValuePayDraft] = useState<StoredValuePayActivityForm | null>(null)
   const [enterpriseDiscountDraft, setEnterpriseDiscountDraft] = useState<EnterpriseDiscountActivityForm | null>(null)
@@ -233,6 +247,11 @@ function App() {
     saveFullReductionActivities(next)
   }
 
+  const persistDeliveryFee = (next: DeliveryFeeActivityForm[]) => {
+    setDeliveryFeeActivities(next)
+    saveDeliveryFeeActivities(next)
+  }
+
   const persistPaidMemberPrice = (next: PaidMemberPriceActivityForm[]) => {
     setPaidMemberPriceActivities(next)
     savePaidMemberPriceActivities(next)
@@ -299,6 +318,14 @@ function App() {
     persistFullReduction(next)
   }
 
+  const upsertDeliveryFee = (activity: DeliveryFeeActivityForm) => {
+    const exists = deliveryFeeActivities.some((a) => a.id === activity.id)
+    const next = exists
+      ? deliveryFeeActivities.map((a) => (a.id === activity.id ? activity : a))
+      : [activity, ...deliveryFeeActivities]
+    persistDeliveryFee(next)
+  }
+
   const handleCreate = () => {
     setDraft(createEmptyActivity())
     setView({ type: 'wizard', mode: 'create' })
@@ -327,6 +354,11 @@ function App() {
   const handleFullReductionCreate = () => {
     setFullReductionDraft(createEmptyFullReductionActivity())
     setView({ type: 'full-reduction-wizard', mode: 'create' })
+  }
+
+  const handleDeliveryFeeCreate = () => {
+    setDeliveryFeeDraft(createEmptyDeliveryFeeActivity())
+    setView({ type: 'delivery-fee-wizard', mode: 'create' })
   }
 
   const handleEdit = (id: string) => {
@@ -369,6 +401,13 @@ function App() {
     if (!activity) return
     setFullReductionDraft({ ...activity })
     setView({ type: 'full-reduction-wizard', mode: 'edit' })
+  }
+
+  const handleDeliveryFeeEdit = (id: string) => {
+    const activity = deliveryFeeActivities.find((a) => a.id === id)
+    if (!activity) return
+    setDeliveryFeeDraft({ ...activity })
+    setView({ type: 'delivery-fee-wizard', mode: 'edit' })
   }
 
   const handleView = (id: string) => {
@@ -432,6 +471,13 @@ function App() {
     setView({ type: 'full-reduction-wizard', mode: 'view' })
   }
 
+  const handleDeliveryFeeView = (id: string) => {
+    const activity = deliveryFeeActivities.find((a) => a.id === id)
+    if (!activity) return
+    setDeliveryFeeDraft({ ...activity })
+    setView({ type: 'delivery-fee-wizard', mode: 'view' })
+  }
+
   const handleCopy = (id: string) => {
     const activity = activities.find((a) => a.id === id)
     if (!activity) return
@@ -489,6 +535,16 @@ function App() {
     persistFullReduction([copy, ...fullReductionActivities])
     setFullReductionDraft(copy)
     setView({ type: 'full-reduction-wizard', mode: 'copy' })
+    showToast('已复制活动，请编辑后保存')
+  }
+
+  const handleDeliveryFeeCopy = (id: string) => {
+    const activity = deliveryFeeActivities.find((a) => a.id === id)
+    if (!activity) return
+    const copy = cloneDeliveryFeeActivity(activity)
+    persistDeliveryFee([copy, ...deliveryFeeActivities])
+    setDeliveryFeeDraft(copy)
+    setView({ type: 'delivery-fee-wizard', mode: 'copy' })
     showToast('已复制活动，请编辑后保存')
   }
 
@@ -564,6 +620,23 @@ function App() {
     showToast('活动发布成功')
   }
 
+  const handleDeliveryFeePublishFromList = (id: string) => {
+    const activity = deliveryFeeActivities.find((a) => a.id === id)
+    if (!activity) return
+    const err = validateDeliveryFeeBeforeSave(activity, deliveryFeeActivities)
+    if (err) {
+      showToast(err)
+      return
+    }
+    upsertDeliveryFee(appendDeliveryFeeLog(
+      { ...activity, status: computeDeliveryFeePublishStatus(activity) },
+      '发布活动',
+      `发布活动「${activity.name}」`,
+      currentOperator,
+    ))
+    showToast('活动发布成功')
+  }
+
   const handleVoid = (id: string) => {
     const activity = activities.find((a) => a.id === id)
     if (!activity) return
@@ -604,6 +677,18 @@ function App() {
     if (!activity) return
     upsertFullReduction(appendFullReductionLog({ ...activity, status: 'voided' }, '作废活动', `作废活动「${activity.name}」`, currentOperator))
     showToast('活动已作废')
+  }
+
+  const handleDeliveryFeeVoid = (id: string) => {
+    const activity = deliveryFeeActivities.find((a) => a.id === id)
+    if (!activity) return
+    upsertDeliveryFee(appendDeliveryFeeLog({ ...activity, status: 'voided' }, '作废活动', `作废活动「${activity.name}」`, currentOperator))
+    showToast('活动已作废')
+  }
+
+  const handleDeliveryFeeDelete = (id: string) => {
+    persistDeliveryFee(deliveryFeeActivities.filter((a) => a.id !== id))
+    showToast('活动已删除')
   }
 
   /* ============ 暂停 / 恢复（四个活动类型同一套口径） ============ */
@@ -981,6 +1066,18 @@ function App() {
     setFullReductionDraft(null)
   }
 
+  const handleDeliveryFeeSaveDraft = () => {
+    if (!deliveryFeeDraft) return
+    const exists = deliveryFeeActivities.some((a) => a.id === deliveryFeeDraft.id)
+    const saved = exists
+      ? appendDeliveryFeeLog({ ...deliveryFeeDraft, status: 'draft' }, '编辑活动', `保存草稿「${deliveryFeeDraft.name}」`, currentOperator)
+      : { ...deliveryFeeDraft, status: 'draft' as const }
+    upsertDeliveryFee(saved)
+    showToast('草稿保存成功')
+    setView({ type: 'delivery-fee-list' })
+    setDeliveryFeeDraft(null)
+  }
+
   /**
    * 保存已存在活动时保持原状态，只有新建与草稿才落「待发布」。
    * 否则「暂停 → 改规则 → 恢复」会在保存那一步被打回待发布，暂停流程走不通。
@@ -1049,6 +1146,20 @@ function App() {
     showToast(keep ? '活动已保存' : '活动保存成功，请前往活动列表发布')
     setView({ type: 'full-reduction-list' })
     setFullReductionDraft(null)
+  }
+
+  const handleDeliveryFeeSave = () => {
+    if (!deliveryFeeDraft) return
+    const err = validateDeliveryFeeBeforeSave(deliveryFeeDraft, deliveryFeeActivities)
+    if (err) {
+      showToast(err)
+      return
+    }
+    const { status, keep } = resolveSavedStatus(deliveryFeeActivities, deliveryFeeDraft)
+    upsertDeliveryFee(appendDeliveryFeeLog({ ...deliveryFeeDraft, status }, keep ? '编辑活动' : '保存活动', `保存活动「${deliveryFeeDraft.name}」`, currentOperator))
+    showToast(keep ? '活动已保存' : '活动保存成功，请前往活动列表发布')
+    setView({ type: 'delivery-fee-list' })
+    setDeliveryFeeDraft(null)
   }
 
   /* ============ 付费会员价 ============ */
@@ -1357,6 +1468,7 @@ function App() {
     setStoredValuePayDraft(null)
     setEnterpriseDiscountDraft(null)
     setFullReductionDraft(null)
+    setDeliveryFeeDraft(null)
     setPaidMemberPriceDraft(null)
     if (key === 'orders') {
       setView({ type: 'order-list' })
@@ -1366,6 +1478,8 @@ function App() {
       setView({ type: 'multi-item-list' })
     } else if (key === 'full_reduction') {
       setView({ type: 'full-reduction-list' })
+    } else if (key === 'delivery_fee') {
+      setView({ type: 'delivery-fee-list' })
     } else if (key === 'member_price') {
       setView({ type: 'member-price-list' })
     } else if (key === 'stored_value_pay') {
@@ -1401,6 +1515,8 @@ function App() {
     || view.type === 'full-reduction-wizard'
     || view.type === 'full-reduction-participation'
     || (view.type === 'order-detail' && view.from === 'full-reduction-participation')
+  const isDeliveryFeeModule = view.type === 'delivery-fee-list'
+    || view.type === 'delivery-fee-wizard'
   const isPaidMemberPriceModule = view.type === 'paid-member-price-list'
     || view.type === 'paid-member-price-wizard'
     || view.type === 'paid-member-price-participation'
@@ -1416,17 +1532,19 @@ function App() {
       ? 'half_item'
       : isFullReductionModule
         ? 'full_reduction'
-        : isMemberPriceModule
-          ? 'member_price'
-          : isStoredValuePayModule
-            ? 'stored_value_pay'
-            : isEnterpriseDiscountModule
-              ? 'enterprise_discount'
-              : isPaidMemberPriceModule
-                ? 'paid_member_price'
-                : isPaidMemberCardModule
-                  ? 'paid_member_card'
-                  : 'bogo'
+        : isDeliveryFeeModule
+          ? 'delivery_fee'
+          : isMemberPriceModule
+            ? 'member_price'
+            : isStoredValuePayModule
+              ? 'stored_value_pay'
+              : isEnterpriseDiscountModule
+                ? 'enterprise_discount'
+                : isPaidMemberPriceModule
+                  ? 'paid_member_price'
+                  : isPaidMemberCardModule
+                    ? 'paid_member_card'
+                    : 'bogo'
 
   const multiItemParticipationActivity = view.type === 'multi-item-participation'
     ? multiItemActivities.find((a) => a.id === view.activityId)
@@ -1512,6 +1630,12 @@ function App() {
             : view.type === 'full-reduction-wizard'
               ? ['营销管理', '促销活动', '满减/折', view.mode === 'create' ? '新建活动' : view.mode === 'view' ? '查看活动' : '编辑活动']
               : ['营销管理', '促销活动', '满减/折']
+      : isDeliveryFeeModule
+        ? view.type === 'delivery-fee-list'
+          ? ['营销管理', '促销活动', '减配送费']
+          : view.type === 'delivery-fee-wizard'
+            ? ['营销管理', '促销活动', '减配送费', view.mode === 'create' ? '新建活动' : view.mode === 'view' ? '查看活动' : '编辑活动']
+            : ['营销管理', '促销活动', '减配送费']
       : isMultiItemModule
         ? view.type === 'multi-item-list'
           ? ['营销管理', '促销活动', '第N件优惠']
@@ -1521,12 +1645,12 @@ function App() {
               ? ['营销管理', '促销活动', '第N件优惠', view.mode === 'create' ? '新建活动' : view.mode === 'view' ? '查看活动' : '编辑活动']
               : ['营销管理', '促销活动', '第N件优惠']
         : isBogoParticipation
-          ? ['营销管理', '促销活动', '买1送N', '参与记录']
+          ? ['营销管理', '促销活动', '买1送1', '参与记录']
           : view.type === 'list'
-            ? ['营销管理', '促销活动', '买1送N']
+            ? ['营销管理', '促销活动', '买1送1']
             : view.type === 'wizard'
-              ? ['营销管理', '促销活动', '买1送N', view.mode === 'create' ? '新建活动' : view.mode === 'view' ? '查看活动' : '编辑活动']
-              : ['营销管理', '促销活动', '买1送N']
+              ? ['营销管理', '促销活动', '买1送1', view.mode === 'create' ? '新建活动' : view.mode === 'view' ? '查看活动' : '编辑活动']
+              : ['营销管理', '促销活动', '买1送1']
 
   return (
     <AdminLayout
@@ -1812,6 +1936,18 @@ function App() {
           onDelete={handleFullReductionDelete}
           onToast={showToast}
         />
+      ) : view.type === 'delivery-fee-list' ? (
+        <DeliveryFeeActivityList
+          activities={deliveryFeeActivities}
+          onCreate={handleDeliveryFeeCreate}
+          onView={handleDeliveryFeeView}
+          onEdit={handleDeliveryFeeEdit}
+          onCopy={handleDeliveryFeeCopy}
+          onPublish={handleDeliveryFeePublishFromList}
+          onVoid={handleDeliveryFeeVoid}
+          onDelete={handleDeliveryFeeDelete}
+          onToast={showToast}
+        />
       ) : draft ? (
         <ActivityWizard
           activity={draft}
@@ -1876,6 +2012,17 @@ function App() {
           onSaveDraft={handleFullReductionSaveDraft}
           onSave={handleFullReductionSave}
           onSwitchToEdit={view.type === 'full-reduction-wizard' && view.mode === 'view' ? () => setView({ type: 'full-reduction-wizard', mode: 'edit' }) : undefined}
+          onToast={showToast}
+        />
+      ) : deliveryFeeDraft ? (
+        <DeliveryFeeActivityWizard
+          activity={deliveryFeeDraft}
+          mode={view.type === 'delivery-fee-wizard' ? view.mode : 'create'}
+          onChange={setDeliveryFeeDraft}
+          onCancel={() => { setView({ type: 'delivery-fee-list' }); setDeliveryFeeDraft(null) }}
+          onSaveDraft={handleDeliveryFeeSaveDraft}
+          onSave={handleDeliveryFeeSave}
+          onSwitchToEdit={view.type === 'delivery-fee-wizard' && view.mode === 'view' ? () => setView({ type: 'delivery-fee-wizard', mode: 'edit' }) : undefined}
           onToast={showToast}
         />
       ) : null}

@@ -46,6 +46,19 @@ export function markStoreClosed(storeId: string): Store | undefined {
   return { ...store, status: 'closed' }
 }
 
+/** 恢复演示门店为营业中（去掉本地停业覆盖） */
+export function reopenStoresForDemo(storeIds: string[]) {
+  const overrides = readOverrides()
+  let changed = false
+  for (const id of storeIds) {
+    if (overrides[id] === 'closed') {
+      delete overrides[id]
+      changed = true
+    }
+  }
+  if (changed) writeOverrides(overrides)
+}
+
 export function clearStoreStatusOverrides() {
   localStorage.removeItem(STORE_STATUS_KEY)
 }
