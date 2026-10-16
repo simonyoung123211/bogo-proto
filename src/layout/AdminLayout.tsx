@@ -30,6 +30,7 @@ const sidebarMenus: MenuItem[] = [
     children: [
       { id: 'bogo', label: '买1送1', navKey: 'bogo' },
       { id: 'half-item', label: '第N件优惠', navKey: 'half_item' },
+      { id: 'bundle-price', label: '一口价', navKey: 'bundle_price' },
       { id: 'full-reduction', label: '满减/折', navKey: 'full_reduction' },
       { id: 'delivery-fee', label: '减配送费', navKey: 'delivery_fee' },
       { id: 'member-price', label: '会员价', navKey: 'member_price' },

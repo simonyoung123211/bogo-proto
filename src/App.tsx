@@ -25,6 +25,8 @@ import { StoredValuePayParticipationRecords } from './pages/StoredValuePayPartic
 import { EnterpriseDiscountActivityList } from './pages/EnterpriseDiscountActivityList'
 import { EnterpriseDiscountActivityWizard } from './pages/EnterpriseDiscountActivityWizard'
 import { EnterpriseDiscountParticipationRecords } from './pages/EnterpriseDiscountParticipationRecords'
+import { BundlePriceActivityList } from './pages/BundlePriceActivityList'
+import { BundlePriceActivityWizard } from './pages/BundlePriceActivityWizard'
 import { OrderList } from './pages/OrderList'
 import { OrderDetail } from './pages/OrderDetail'
 import { createEmptyActivity, getCreatorProfile } from './mockData'
@@ -35,6 +37,7 @@ import { createEmptyMultiItemActivity } from './mockMultiItemData'
 import { createEmptyPaidMemberPriceActivity } from './mockPaidMemberPriceData'
 import { createEmptyStoredValuePayActivity } from './mockStoredValuePayData'
 import { createEmptyEnterpriseDiscountActivity } from './mockEnterpriseDiscountData'
+import { createEmptyBundlePriceActivity } from './mockBundlePriceData'
 import type {
   ActivityForm,
   DeliveryFeeActivityForm,
@@ -46,6 +49,7 @@ import type {
   PaidMemberPriceActivityForm,
   PaidMemberPriceBenefit,
   EnterpriseDiscountActivityForm,
+  BundlePriceActivityForm,
   StoredValuePayActivityForm,
 } from './types'
 import { appendActivityLog, cloneActivity, computePublishStatus, formatActivityDateTime } from './utils/activity'
@@ -95,6 +99,11 @@ import {
   computePublishStatus as computeEnterpriseDiscountPublishStatus,
 } from './utils/enterpriseDiscountActivity'
 import {
+  appendActivityLog as appendBundlePriceLog,
+  cloneActivity as cloneBundlePriceActivity,
+  computePublishStatus as computeBundlePricePublishStatus,
+} from './utils/bundlePriceActivity'
+import {
   loadActivities,
   loadDeliveryFeeActivities,
   loadFullReductionActivities,
@@ -103,6 +112,7 @@ import {
   loadPaidMemberCards,
   loadPaidMemberPriceActivities,
   loadEnterpriseDiscountActivities,
+  loadBundlePriceActivities,
   loadStoredValuePayActivities,
   saveActivities,
   saveDeliveryFeeActivities,
@@ -112,6 +122,7 @@ import {
   savePaidMemberCards,
   savePaidMemberPriceActivities,
   saveEnterpriseDiscountActivities,
+  saveBundlePriceActivities,
   saveStoredValuePayActivities,
 } from './utils/storage'
 import {
@@ -141,6 +152,7 @@ function App() {
   const [paidMemberPriceActivities, setPaidMemberPriceActivities] = useState<PaidMemberPriceActivityForm[]>(loadPaidMemberPriceActivities)
   const [storedValuePayActivities, setStoredValuePayActivities] = useState<StoredValuePayActivityForm[]>(loadStoredValuePayActivities)
   const [enterpriseDiscountActivities, setEnterpriseDiscountActivities] = useState<EnterpriseDiscountActivityForm[]>(loadEnterpriseDiscountActivities)
+  const [bundlePriceActivities, setBundlePriceActivities] = useState<BundlePriceActivityForm[]>(loadBundlePriceActivities)
   const [paidMemberCards, setPaidMemberCards] = useState<PaidMemberCardTemplate[]>(loadPaidMemberCards)
   const [view, setView] = useState<PageView>({ type: 'list' })
   /** 买1送N 参与记录的活动范围，空数组表示全部活动；提到这里是为了从订单详情返回时不丢失所选活动 */
@@ -153,6 +165,7 @@ function App() {
   const [paidMemberPriceDraft, setPaidMemberPriceDraft] = useState<PaidMemberPriceActivityForm | null>(null)
   const [storedValuePayDraft, setStoredValuePayDraft] = useState<StoredValuePayActivityForm | null>(null)
   const [enterpriseDiscountDraft, setEnterpriseDiscountDraft] = useState<EnterpriseDiscountActivityForm | null>(null)
+  const [bundlePriceDraft, setBundlePriceDraft] = useState<BundlePriceActivityForm | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [linkedConsumerActivityId, setLinkedConsumerActivityId] = useState<string | null>(() => getDemoBridgeSourceId())
   const [inboxMessages, setInboxMessages] = useState<InboxMessage[]>(() => loadInboxMessages())
@@ -242,6 +255,11 @@ function App() {
     saveEnterpriseDiscountActivities(next)
   }
 
+  const persistBundlePrice = (next: BundlePriceActivityForm[]) => {
+    setBundlePriceActivities(next)
+    saveBundlePriceActivities(next)
+  }
+
   const persistFullReduction = (next: FullReductionActivityForm[]) => {
     setFullReductionActivities(next)
     saveFullReductionActivities(next)
@@ -302,6 +320,14 @@ function App() {
     persistEnterpriseDiscount(next)
   }
 
+  const upsertBundlePrice = (activity: BundlePriceActivityForm) => {
+    const exists = bundlePriceActivities.some((a) => a.id === activity.id)
+    const next = exists
+      ? bundlePriceActivities.map((a) => (a.id === activity.id ? activity : a))
+      : [activity, ...bundlePriceActivities]
+    persistBundlePrice(next)
+  }
+
   const upsertPaidMemberPrice = (activity: PaidMemberPriceActivityForm) => {
     const exists = paidMemberPriceActivities.some((a) => a.id === activity.id)
     const next = exists
@@ -351,6 +377,11 @@ function App() {
     setView({ type: 'enterprise-discount-wizard', mode: 'create' })
   }
 
+  const handleBundlePriceCreate = () => {
+    setBundlePriceDraft(createEmptyBundlePriceActivity())
+    setView({ type: 'bundle-price-wizard', mode: 'create' })
+  }
+
   const handleFullReductionCreate = () => {
     setFullReductionDraft(createEmptyFullReductionActivity())
     setView({ type: 'full-reduction-wizard', mode: 'create' })
@@ -394,6 +425,13 @@ function App() {
     if (!activity) return
     setEnterpriseDiscountDraft({ ...activity })
     setView({ type: 'enterprise-discount-wizard', mode: 'edit' })
+  }
+
+  const handleBundlePriceEdit = (id: string) => {
+    const activity = bundlePriceActivities.find((a) => a.id === id)
+    if (!activity) return
+    setBundlePriceDraft({ ...activity })
+    setView({ type: 'bundle-price-wizard', mode: 'edit' })
   }
 
   const handleFullReductionEdit = (id: string) => {
@@ -464,6 +502,13 @@ function App() {
     setView({ type: 'enterprise-discount-wizard', mode: 'view' })
   }
 
+  const handleBundlePriceView = (id: string) => {
+    const activity = bundlePriceActivities.find((a) => a.id === id)
+    if (!activity) return
+    setBundlePriceDraft({ ...activity })
+    setView({ type: 'bundle-price-wizard', mode: 'view' })
+  }
+
   const handleFullReductionView = (id: string) => {
     const activity = fullReductionActivities.find((a) => a.id === id)
     if (!activity) return
@@ -525,6 +570,16 @@ function App() {
     persistEnterpriseDiscount([copy, ...enterpriseDiscountActivities])
     setEnterpriseDiscountDraft(copy)
     setView({ type: 'enterprise-discount-wizard', mode: 'copy' })
+    showToast('已复制活动，请编辑后保存')
+  }
+
+  const handleBundlePriceCopy = (id: string) => {
+    const activity = bundlePriceActivities.find((a) => a.id === id)
+    if (!activity) return
+    const copy = cloneBundlePriceActivity(activity)
+    persistBundlePrice([copy, ...bundlePriceActivities])
+    setBundlePriceDraft(copy)
+    setView({ type: 'bundle-price-wizard', mode: 'copy' })
     showToast('已复制活动，请编辑后保存')
   }
 
@@ -608,6 +663,18 @@ function App() {
     showToast('活动发布成功')
   }
 
+  const handleBundlePricePublishFromList = (id: string) => {
+    const activity = bundlePriceActivities.find((a) => a.id === id)
+    if (!activity) return
+    upsertBundlePrice(appendBundlePriceLog(
+      { ...activity, status: computeBundlePricePublishStatus(activity) },
+      '发布活动',
+      `发布活动「${activity.name}」`,
+      currentOperator,
+    ))
+    showToast('活动发布成功')
+  }
+
   const handleFullReductionPublishFromList = (id: string) => {
     const activity = fullReductionActivities.find((a) => a.id === id)
     if (!activity) return
@@ -669,6 +736,13 @@ function App() {
     const activity = enterpriseDiscountActivities.find((a) => a.id === id)
     if (!activity) return
     upsertEnterpriseDiscount(appendEnterpriseDiscountLog({ ...activity, status: 'voided' as const }, '作废活动', `作废活动「${activity.name}」`, currentOperator))
+    showToast('活动已作废')
+  }
+
+  const handleBundlePriceVoid = (id: string) => {
+    const activity = bundlePriceActivities.find((a) => a.id === id)
+    if (!activity) return
+    upsertBundlePrice(appendBundlePriceLog({ ...activity, status: 'voided' }, '作废活动', `作废活动「${activity.name}」`, currentOperator))
     showToast('活动已作废')
   }
 
@@ -875,6 +949,18 @@ function App() {
     showToast('活动已暂停，企业员工暂时无法享受折扣')
   }
 
+  const handleBundlePricePause = (id: string) => {
+    const activity = bundlePriceActivities.find((a) => a.id === id)
+    if (!activity) return
+    upsertBundlePrice(appendBundlePriceLog(
+      { ...activity, status: 'paused', pausedAt: formatActivityDateTime() },
+      '暂停活动',
+      `暂停活动「${activity.name}」，顾客暂时无法享受打包一口价`,
+      currentOperator,
+    ))
+    showToast('活动已暂停，顾客暂时无法享受打包一口价')
+  }
+
   const handleEnterpriseDiscountResume = (id: string) => {
     const activity = enterpriseDiscountActivities.find((a) => a.id === id)
     if (!activity) return
@@ -888,10 +974,30 @@ function App() {
     showToast(plan.toast)
   }
 
+  const handleBundlePriceResume = (id: string) => {
+    const activity = bundlePriceActivities.find((a) => a.id === id)
+    if (!activity) return
+    const plan = buildResumePlan(activity, '打包一口价立即重新生效')
+    upsertBundlePrice(appendBundlePriceLog(
+      { ...activity, status: plan.status, pausedAt: plan.keepPausedAt ? activity.pausedAt : undefined },
+      plan.action,
+      `活动「${activity.name}」${plan.detail}`,
+      currentOperator,
+    ))
+    showToast(plan.toast)
+  }
+
   const handleEnterpriseDiscountDemoSetPausedMinutes = (id: string, minutes: number) => {
     const activity = enterpriseDiscountActivities.find((a) => a.id === id)
     if (!activity || activity.status !== 'paused') return
     upsertEnterpriseDiscount({ ...activity, pausedAt: shiftedPausedAt(minutes) })
+    showToast(minutes === 0 ? '已重置为「刚暂停」' : `已模拟暂停 ${minutes} 分钟`)
+  }
+
+  const handleBundlePriceDemoSetPausedMinutes = (id: string, minutes: number) => {
+    const activity = bundlePriceActivities.find((a) => a.id === id)
+    if (!activity || activity.status !== 'paused') return
+    upsertBundlePrice({ ...activity, pausedAt: shiftedPausedAt(minutes) })
     showToast(minutes === 0 ? '已重置为「刚暂停」' : `已模拟暂停 ${minutes} 分钟`)
   }
 
@@ -957,6 +1063,11 @@ function App() {
           ? appendEnterpriseDiscountLog({ ...a, status: 'ended' as const }, '暂停中到期结束', expiredDetail(a.name), currentOperator)
           : a)))
       }
+      if (bundlePriceActivities.some((a) => isPausedExpired(a, now))) {
+        persistBundlePrice(bundlePriceActivities.map((a) => (isPausedExpired(a, now)
+          ? appendBundlePriceLog({ ...a, status: 'ended' }, '暂停中到期结束', expiredDetail(a.name), currentOperator)
+          : a)))
+      }
       if (fullReductionActivities.some((a) => isPausedExpired(a, now))) {
         persistFullReduction(fullReductionActivities.map((a) => (isPausedExpired(a, now)
           ? appendFullReductionLog({ ...a, status: 'ended' }, '暂停中到期结束', expiredDetail(a.name), currentOperator)
@@ -967,7 +1078,7 @@ function App() {
     const timer = window.setInterval(sweep, 30_000)
     return () => window.clearInterval(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activities, multiItemActivities, memberPriceActivities, storedValuePayActivities, enterpriseDiscountActivities, fullReductionActivities])
+  }, [activities, multiItemActivities, memberPriceActivities, storedValuePayActivities, enterpriseDiscountActivities, fullReductionActivities, bundlePriceActivities])
 
   const handleMultiItemDelete = (id: string) => {
     persistMultiItem(multiItemActivities.filter((a) => a.id !== id))
@@ -986,6 +1097,11 @@ function App() {
 
   const handleEnterpriseDiscountDelete = (id: string) => {
     persistEnterpriseDiscount(enterpriseDiscountActivities.filter((a) => a.id !== id))
+    showToast('活动已删除')
+  }
+
+  const handleBundlePriceDelete = (id: string) => {
+    persistBundlePrice(bundlePriceActivities.filter((a) => a.id !== id))
     showToast('活动已删除')
   }
 
@@ -1052,6 +1168,18 @@ function App() {
     showToast('草稿保存成功')
     setView({ type: 'enterprise-discount-list' })
     setEnterpriseDiscountDraft(null)
+  }
+
+  const handleBundlePriceSaveDraft = () => {
+    if (!bundlePriceDraft) return
+    const exists = bundlePriceActivities.some((a) => a.id === bundlePriceDraft.id)
+    const saved = exists
+      ? appendBundlePriceLog({ ...bundlePriceDraft, status: 'draft' }, '编辑活动', `保存草稿「${bundlePriceDraft.name}」`, currentOperator)
+      : { ...bundlePriceDraft, status: 'draft' as const }
+    upsertBundlePrice(saved)
+    showToast('草稿保存成功')
+    setView({ type: 'bundle-price-list' })
+    setBundlePriceDraft(null)
   }
 
   const handleFullReductionSaveDraft = () => {
@@ -1137,6 +1265,15 @@ function App() {
     showToast(keep ? '活动已保存' : '活动保存成功，请前往活动列表发布')
     setView({ type: 'enterprise-discount-list' })
     setEnterpriseDiscountDraft(null)
+  }
+
+  const handleBundlePriceSave = () => {
+    if (!bundlePriceDraft) return
+    const { status, keep } = resolveSavedStatus(bundlePriceActivities, bundlePriceDraft)
+    upsertBundlePrice(appendBundlePriceLog({ ...bundlePriceDraft, status }, keep ? '编辑活动' : '保存活动', `保存活动「${bundlePriceDraft.name}」`, currentOperator))
+    showToast(keep ? '活动已保存' : '活动保存成功，请前往活动列表发布')
+    setView({ type: 'bundle-price-list' })
+    setBundlePriceDraft(null)
   }
 
   const handleFullReductionSave = () => {
@@ -1467,6 +1604,7 @@ function App() {
     setMemberPriceDraft(null)
     setStoredValuePayDraft(null)
     setEnterpriseDiscountDraft(null)
+    setBundlePriceDraft(null)
     setFullReductionDraft(null)
     setDeliveryFeeDraft(null)
     setPaidMemberPriceDraft(null)
@@ -1486,6 +1624,8 @@ function App() {
       setView({ type: 'stored-value-pay-list' })
     } else if (key === 'enterprise_discount') {
       setView({ type: 'enterprise-discount-list' })
+    } else if (key === 'bundle_price') {
+      setView({ type: 'bundle-price-list' })
     } else if (key === 'paid_member_price') {
       setView({ type: 'paid-member-price-list' })
     } else if (key === 'paid_member_card') {
@@ -1517,6 +1657,8 @@ function App() {
     || (view.type === 'order-detail' && view.from === 'full-reduction-participation')
   const isDeliveryFeeModule = view.type === 'delivery-fee-list'
     || view.type === 'delivery-fee-wizard'
+  const isBundlePriceModule = view.type === 'bundle-price-list'
+    || view.type === 'bundle-price-wizard'
   const isPaidMemberPriceModule = view.type === 'paid-member-price-list'
     || view.type === 'paid-member-price-wizard'
     || view.type === 'paid-member-price-participation'
@@ -1532,8 +1674,10 @@ function App() {
       ? 'half_item'
       : isFullReductionModule
         ? 'full_reduction'
-        : isDeliveryFeeModule
-          ? 'delivery_fee'
+        : isBundlePriceModule
+          ? 'bundle_price'
+          : isDeliveryFeeModule
+            ? 'delivery_fee'
           : isMemberPriceModule
             ? 'member_price'
             : isStoredValuePayModule
@@ -1630,6 +1774,12 @@ function App() {
             : view.type === 'full-reduction-wizard'
               ? ['营销管理', '促销活动', '满减/折', view.mode === 'create' ? '新建活动' : view.mode === 'view' ? '查看活动' : '编辑活动']
               : ['营销管理', '促销活动', '满减/折']
+      : isBundlePriceModule
+        ? view.type === 'bundle-price-list'
+          ? ['营销管理', '促销活动', '一口价']
+          : view.type === 'bundle-price-wizard'
+            ? ['营销管理', '促销活动', '一口价', view.mode === 'create' ? '新建活动' : view.mode === 'view' ? '查看活动' : '编辑活动']
+            : ['营销管理', '促销活动', '一口价']
       : isDeliveryFeeModule
         ? view.type === 'delivery-fee-list'
           ? ['营销管理', '促销活动', '减配送费']
@@ -1936,6 +2086,21 @@ function App() {
           onDelete={handleFullReductionDelete}
           onToast={showToast}
         />
+      ) : view.type === 'bundle-price-list' ? (
+        <BundlePriceActivityList
+          activities={bundlePriceActivities}
+          onCreate={handleBundlePriceCreate}
+          onView={handleBundlePriceView}
+          onEdit={handleBundlePriceEdit}
+          onCopy={handleBundlePriceCopy}
+          onPublish={handleBundlePricePublishFromList}
+          onPause={handleBundlePricePause}
+          onResume={handleBundlePriceResume}
+          onDemoSetPausedMinutes={handleBundlePriceDemoSetPausedMinutes}
+          onVoid={handleBundlePriceVoid}
+          onDelete={handleBundlePriceDelete}
+          onToast={showToast}
+        />
       ) : view.type === 'delivery-fee-list' ? (
         <DeliveryFeeActivityList
           activities={deliveryFeeActivities}
@@ -2012,6 +2177,17 @@ function App() {
           onSaveDraft={handleFullReductionSaveDraft}
           onSave={handleFullReductionSave}
           onSwitchToEdit={view.type === 'full-reduction-wizard' && view.mode === 'view' ? () => setView({ type: 'full-reduction-wizard', mode: 'edit' }) : undefined}
+          onToast={showToast}
+        />
+      ) : bundlePriceDraft ? (
+        <BundlePriceActivityWizard
+          activity={bundlePriceDraft}
+          mode={view.type === 'bundle-price-wizard' ? view.mode : 'create'}
+          onChange={setBundlePriceDraft}
+          onCancel={() => { setView({ type: 'bundle-price-list' }); setBundlePriceDraft(null) }}
+          onSaveDraft={handleBundlePriceSaveDraft}
+          onSave={handleBundlePriceSave}
+          onSwitchToEdit={view.type === 'bundle-price-wizard' && view.mode === 'view' ? () => setView({ type: 'bundle-price-wizard', mode: 'edit' }) : undefined}
           onToast={showToast}
         />
       ) : deliveryFeeDraft ? (

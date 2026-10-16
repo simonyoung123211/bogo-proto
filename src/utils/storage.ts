@@ -9,6 +9,7 @@ import type {
   PaidMemberCardTemplate,
   PaidMemberPriceActivityForm,
   EnterpriseDiscountActivityForm,
+  BundlePriceActivityForm,
   StoredValuePayActivityForm,
   StoredValuePayGeneralSettings,
 } from '../types'
@@ -22,6 +23,7 @@ import {
   initialPaidMemberPriceActivities,
 } from '../mockPaidMemberPriceData'
 import { initialEnterpriseDiscountActivities } from '../mockEnterpriseDiscountData'
+import { initialBundlePriceActivities } from '../mockBundlePriceData'
 import { initialStoredValuePayActivities } from '../mockStoredValuePayData'
 import { migrateActivity } from './activity'
 import { reopenStoresForDemo } from './storeRegistry'
@@ -31,6 +33,7 @@ import { migrateMemberPriceActivity } from './memberPriceActivity'
 import { migrateMultiItemActivity } from './multiItemActivity'
 import { migratePaidMemberPriceActivity } from './paidMemberPriceActivity'
 import { migrateEnterpriseDiscountActivity } from './enterpriseDiscountActivity'
+import { migrateBundlePriceActivity } from './bundlePriceActivity'
 import { migrateStoredValuePayActivity } from './storedValuePayActivity'
 
 const STORAGE_KEY = 'bogo-activities-v1'
@@ -42,6 +45,7 @@ const PAID_MEMBER_PRICE_STORAGE_KEY = 'paid-member-price-activities-v1'
 const PAID_MEMBER_CARD_STORAGE_KEY = 'paid-member-cards-v1'
 const STORED_VALUE_PAY_STORAGE_KEY = 'stored-value-pay-activities-v1'
 const ENTERPRISE_DISCOUNT_STORAGE_KEY = 'enterprise-discount-activities-v1'
+const BUNDLE_PRICE_STORAGE_KEY = 'bundle-price-activities-v1'
 const GENERAL_SETTINGS_KEY = 'bogo-general-settings-v1'
 const MEMBER_PRICE_GENERAL_SETTINGS_KEY = 'member-price-general-settings-v1'
 const STORED_VALUE_PAY_GENERAL_SETTINGS_KEY = 'stored-value-pay-general-settings-v1'
@@ -305,6 +309,23 @@ export function loadEnterpriseDiscountActivities(): EnterpriseDiscountActivityFo
 
 export function saveEnterpriseDiscountActivities(activities: EnterpriseDiscountActivityForm[]): void {
   localStorage.setItem(ENTERPRISE_DISCOUNT_STORAGE_KEY, JSON.stringify(activities))
+}
+
+export function loadBundlePriceActivities(): BundlePriceActivityForm[] {
+  try {
+    const raw = localStorage.getItem(BUNDLE_PRICE_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>[]
+      return parsed.map((a) => migrateBundlePriceActivity(a))
+    }
+  } catch {
+    /* ignore */
+  }
+  return [...initialBundlePriceActivities]
+}
+
+export function saveBundlePriceActivities(activities: BundlePriceActivityForm[]): void {
+  localStorage.setItem(BUNDLE_PRICE_STORAGE_KEY, JSON.stringify(activities))
 }
 
 export function loadStoredValuePayGeneralSettings(): StoredValuePayGeneralSettings {
