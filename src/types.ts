@@ -1134,6 +1134,72 @@ export interface EnterpriseDiscountListFilters {
   endDate: string
 }
 
+/* ================= 一口价（满件数打包价） ================= */
+
+/** 一口价阶梯：满 quantity 件，合计 price 元 */
+export interface BundlePriceTier {
+  id: string
+  /** 满件数，正整数 */
+  quantity: number
+  /** 这 quantity 件的打包一口价（元） */
+  price: number
+}
+
+export interface BundlePriceActivityForm {
+  id: string
+  name: string
+  title: string
+  description: string
+  startTime: string
+  endTime: string
+  cycleType: CycleType
+  timeSlotType: TimeSlotType
+  /** 活动权重，数值越大越优先 */
+  priority: number
+  channels: string[]
+  orderTypes: string[]
+  tiers: BundlePriceTier[]
+  /** 每单最多享受的打包组数 */
+  maxBundleGroupsPerOrderType: LimitType
+  maxBundleGroupsPerOrder: number
+  totalParticipationLimitType: LimitType
+  totalParticipationLimit: number
+  participationFrequencyType: LimitType
+  participationFrequencyPeriod: ParticipationPeriod
+  participationFrequencyLimit: number
+  productScope: ProductScope
+  productIds: string[]
+  productSelectionMode: 'include' | 'exclude'
+  storeScope: StoreScope
+  storeIds: string[]
+  shareMutexRelation: ShareMutexRelation
+  participantUser: ParticipantUser
+  memberTagId: string
+  activityCode: string
+  titleDisplay: DisplayToggle
+  tagDisplay: DisplayToggle
+  status: ActivityStatus
+  /** 进入「已暂停」的时刻，用于计算暂停时长与超时分级 */
+  pausedAt?: string
+  creator: string
+  creatorPhone: string
+  creatorOrg: string
+  createdAt: string
+  updatedAt: string
+  operationLogs: ActivityOperationLog[]
+}
+
+export interface BundlePriceListFilters {
+  keyword: string
+  productName: string
+  productId: string
+  activityCode: string
+  status: ActivityStatus | 'all'
+  startDate: string
+  endDate: string
+  storeId: string
+}
+
 export type PageView =
   | { type: 'list' }
   | { type: 'wizard'; mode: WizardMode; activityId?: string; step?: number }
@@ -1157,6 +1223,8 @@ export type PageView =
   | { type: 'full-reduction-participation'; activityId: string }
   | { type: 'delivery-fee-list' }
   | { type: 'delivery-fee-wizard'; mode: WizardMode; activityId?: string; step?: number }
+  | { type: 'bundle-price-list' }
+  | { type: 'bundle-price-wizard'; mode: WizardMode; activityId?: string; step?: number }
   | { type: 'paid-member-price-list' }
   | { type: 'paid-member-price-wizard'; mode: WizardMode; activityId?: string; step?: number; from?: 'card-list' }
   | { type: 'paid-member-price-participation'; activityId: string }
