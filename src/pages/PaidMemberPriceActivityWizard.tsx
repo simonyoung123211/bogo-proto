@@ -273,6 +273,7 @@ export function PaidMemberPriceActivityWizard({
                   showMemberLevels={false}
                   onChange={onChange}
                   onToast={onToast}
+                  sceneOrderTypes={activity.orderTypes}
                 />
               </Section>
             </div>

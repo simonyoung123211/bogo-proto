@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 import { ActivityOperationLogModal } from '../components/ActivityOperationLogModal'
 import { PauseConfirmModal, PauseDemoGroup, ResumeConfirmModal } from '../components/ActivityPauseControls'
 import { BundlePriceScopeSnapshotModal, type BundlePriceScopeSnapshotType } from '../components/BundlePriceScopeSnapshotModal'
-import { CHANNELS, MORE_STATUS_TABS, PAUSE_OVERDUE_MINUTES, PRIMARY_STATUS_TABS, STATUS_LABELS } from '../mockData'
+import { BUNDLE_PRICE_CHANNELS } from '../mockBundlePriceData'
+import { MORE_STATUS_TABS, PAUSE_OVERDUE_MINUTES, PRIMARY_STATUS_TABS, STATUS_LABELS } from '../mockData'
 import type { ActivityStatus, BundlePriceActivityForm, BundlePriceListFilters } from '../types'
 import {
   canPause,
@@ -28,6 +29,8 @@ interface BundlePriceActivityListProps {
   activities: BundlePriceActivityForm[]
   onCreate: () => void
   onView: (id: string) => void
+  onViewParticipation: (id: string) => void
+  onViewAllParticipation: () => void
   onEdit: (id: string) => void
   onCopy: (id: string) => void
   onPublish: (id: string) => void
@@ -50,13 +53,15 @@ const EMPTY_FILTERS: BundlePriceListFilters = {
   storeId: 'all',
 }
 
-const CHANNEL_MAP = Object.fromEntries(CHANNELS.map((c) => [c.id, c]))
+const CHANNEL_MAP = Object.fromEntries(BUNDLE_PRICE_CHANNELS.map((c) => [c.id, c]))
 const PAGE_SIZE = 10
 
 export function BundlePriceActivityList({
   activities,
   onCreate,
   onView,
+  onViewParticipation,
+  onViewAllParticipation,
   onEdit,
   onCopy,
   onPublish,
@@ -151,7 +156,7 @@ export function BundlePriceActivityList({
   return (
     <div className="page-card page-card--list">
       <div className="list-info-banner">
-        一口价把凑满的活动商品按打包价结算，例如满 3 件一共 9.9 元。与「第 N 件优惠」不同，这里不是其中某几件特价。
+        一口价把凑满的活动商品按打包价结算，例如 3 件一共 9.9 元。活动条件可选每满循环或阶梯就高。
         <button type="button" className="link-btn" onClick={() => setHelpOpen(true)}>了解更多</button>
       </div>
 
@@ -175,6 +180,7 @@ export function BundlePriceActivityList({
           </div>
         </div>
         <div className="list-page-header__actions">
+          <button type="button" className="btn btn--default" onClick={onViewAllParticipation}>参与记录</button>
           <button type="button" className="btn btn--primary btn--icon" onClick={onCreate}>
             <IconPlus />
             新建活动
@@ -317,6 +323,7 @@ export function BundlePriceActivityList({
                   <td className="table-actions" onClick={stopRowClick}>
                     <button type="button" className="table-actions__view" onClick={() => onView(a.id)}><IconView />查看</button>
                     <RowActionMenu open={openMenuId === a.id} onToggle={() => setOpenMenuId((id) => (id === a.id ? null : a.id))} onClose={() => setOpenMenuId(null)}>
+                      <button type="button" onClick={() => { onViewParticipation(a.id); setOpenMenuId(null) }}>参与记录</button>
                       <button type="button" onClick={() => { setLogTarget(a); setOpenMenuId(null) }}>
                         操作日志（{a.operationLogs?.length ?? 0}）
                       </button>
@@ -431,7 +438,7 @@ function PageHelpButton({ open, onToggle, onClose }: { open: boolean; onToggle: 
       {open && (
         <div className="page-help__popover" role="tooltip">
           <p className="page-help__title">一口价说明</p>
-          <p className="page-help__text">凑满指定件数后，这些件数合计按打包特价结算，可配多级阶梯并按已达到的最高一级就高。不提供折扣和立减，也不做每满循环。计件固定为任意活动商品合计。</p>
+          <p className="page-help__text">凑满指定件数后，这些件数合计按打包特价结算。活动条件可选每满循环或阶梯就高，阶梯最多 10 级。不提供折扣和立减。计件固定为任意活动商品合计。</p>
         </div>
       )}
     </div>

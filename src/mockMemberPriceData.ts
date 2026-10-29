@@ -258,7 +258,7 @@ export const initialMemberPriceActivities: MemberPriceActivityForm[] = [
     productScope: 'partial',
     productIds: ['p4', 'p5', 'p6'],
     productItems: [
-      { productId: 'p4', value: 9 },
+      { productId: 'p4', value: 9, sceneValues: { takeaway: 8.5 } },
       { productId: 'p5', value: 9 },
       { productId: 'p6', value: 9 },
     ],

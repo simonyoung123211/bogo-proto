@@ -6,6 +6,7 @@ import type {
   MemberPriceListFilters,
   MemberPriceMethod,
   MemberPriceProductCoreFields,
+  MemberPriceProductItem,
   StoreScope,
 } from '../types'
 import {
@@ -13,7 +14,7 @@ import {
   MEMBER_PRICE_METHOD_LABELS,
   createEmptyMemberPriceActivity,
 } from '../mockMemberPriceData'
-import { MEMBER_LEVELS, getCreatorProfile, products, stores } from '../mockData'
+import { MEMBER_LEVELS, ORDER_TYPES, getCreatorProfile, products, stores } from '../mockData'
 import { createOperationLog, formatActivityDateTime, maskPhone } from './activity'
 
 export { MEMBER_LEVEL_LABELS, MEMBER_PRICE_METHOD_LABELS }
@@ -34,16 +35,158 @@ export function isUniformPricing(activity: MemberPriceProductCoreFields): boolea
   return activity.productScope === 'all' || activity.productSelectionMode === 'exclude'
 }
 
+export function orderTypeLabel(sceneId: string): string {
+  return ORDER_TYPES.find((item) => item.id === sceneId)?.label ?? sceneId
+}
+
+export function readMemberSceneValue(
+  values: Record<string, number | null> | undefined,
+  sceneId: string,
+  fallback: number,
+): number | null {
+  if (values && Object.prototype.hasOwnProperty.call(values, sceneId)) return values[sceneId]
+  return fallback
+}
+
+/** 商品在已选业务里单独设置、且与默认力度不同的值 */
+export function memberSceneOverrides(
+  orderTypes: string[],
+  item: MemberPriceProductItem,
+): { sceneId: string; value: number }[] {
+  return orderTypes.flatMap((sceneId) => {
+    const value = item.sceneValues?.[sceneId]
+    return value == null || Number.isNaN(value) || value === item.value ? [] : [{ sceneId, value }]
+  })
+}
+
+export function memberSceneOverrideCount(activity: MemberPriceProductCoreFields, orderTypes?: string[]): number {
+  return activity.productItems.filter((item) => memberSceneOverrides(orderTypes ?? Object.keys(item.sceneValues ?? {}), item).length > 0).length
+}
+
+export function isMemberSameAsDefault(item: MemberPriceProductItem, sceneId: string): boolean {
+  const value = item.sceneValues?.[sceneId]
+  return value != null && value === item.value
+}
+
+export function setMemberSceneOverride(
+  item: MemberPriceProductItem,
+  sceneId: string,
+  value: number | null,
+): MemberPriceProductItem {
+  const sceneValues = { ...(item.sceneValues ?? {}) }
+  if (value == null) delete sceneValues[sceneId]
+  else sceneValues[sceneId] = value
+  return { ...item, sceneValues }
+}
+
+export function pruneMemberSameAsDefault(item: MemberPriceProductItem): MemberPriceProductItem {
+  const entries = Object.entries(item.sceneValues ?? {})
+  if (!entries.some(([, value]) => value != null && value === item.value)) return item
+  return {
+    ...item,
+    sceneValues: Object.fromEntries(entries.filter(([, value]) => value == null || value !== item.value)),
+  }
+}
+
+/** 全部商品、反选时，活动级的默认力度和业务例外 */
+export function uniformDiscountItem(activity: MemberPriceProductCoreFields): MemberPriceProductItem {
+  return {
+    productId: '',
+    value: activity.allProductsValue,
+    sceneValues: activity.sceneValues ?? {},
+  }
+}
+
+export function writeUniformDiscount<T extends MemberPriceProductCoreFields>(
+  activity: T,
+  patch: Partial<Pick<MemberPriceProductItem, 'value' | 'sceneValues'>>,
+  prune = false,
+): T {
+  const merged: MemberPriceProductItem = {
+    ...uniformDiscountItem(activity),
+    ...patch,
+    sceneValues: patch.sceneValues ?? activity.sceneValues ?? {},
+  }
+  const next = prune ? pruneMemberSameAsDefault(merged) : merged
+  return { ...activity, allProductsValue: next.value, sceneValues: next.sceneValues, valueMode: 'unified' }
+}
+
+/** 预览、快照里某个商品实际配置的力度文案 */
+export function formatConfiguredStrength(
+  activity: MemberPriceProductCoreFields,
+  orderTypes: string[],
+  productId: string,
+): string {
+  if (isUniformPricing(activity)) {
+    const base = formatPriceMethodValue(activity.priceMethod, activity.allProductsValue)
+    const overrides = memberSceneOverrides(orderTypes, uniformDiscountItem(activity))
+    if (overrides.length === 0) return base
+    const extra = overrides
+      .map(({ sceneId, value }) => `${orderTypeLabel(sceneId)} ${formatPriceMethodValue(activity.priceMethod, value)}`)
+      .join('、')
+    return `默认${base}（${extra}）`
+  }
+  const item = activity.productItems.find((row) => row.productId === productId)
+  if (!item) return '未设置'
+  const base = formatPriceMethodValue(activity.priceMethod, item.value)
+  const overrides = memberSceneOverrides(orderTypes, item)
+  if (overrides.length === 0) return base
+  const extra = overrides
+    .map(({ sceneId, value }) => `${orderTypeLabel(sceneId)} ${formatPriceMethodValue(activity.priceMethod, value)}`)
+    .join('、')
+  return `${base}（${extra}）`
+}
+
+export function formatUniformStrength(activity: MemberPriceProductCoreFields, orderTypes: string[]): string {
+  const method = MEMBER_PRICE_METHOD_LABELS[activity.priceMethod]
+  const base = formatPriceMethodValue(activity.priceMethod, activity.allProductsValue)
+  const overrides = memberSceneOverrides(orderTypes, uniformDiscountItem(activity))
+  if (overrides.length === 0) return `${method}（参与商品统一${base}）`
+  const parts = overrides
+    .map(({ sceneId, value }) => `${orderTypeLabel(sceneId)} ${formatPriceMethodValue(activity.priceMethod, value)}`)
+    .join('、')
+  return `${method}（默认${base}，${parts}单独设置）`
+}
+
+/** 分业务力度的范围校验；与默认相同的值不算单独设置 */
+export function validateMemberSceneSettings(
+  activity: MemberPriceProductCoreFields & { orderTypes: string[] },
+): string | null {
+  if (isUniformPricing(activity)) {
+    for (const { sceneId, value } of memberSceneOverrides(activity.orderTypes, uniformDiscountItem(activity))) {
+      const err = validateProductItemValue(activity.priceMethod, value)
+      if (err) return `${orderTypeLabel(sceneId)}：${err}`
+    }
+    return null
+  }
+  for (const item of activity.productItems) {
+    const product = products.find((row) => row.id === item.productId)
+    for (const { sceneId, value } of memberSceneOverrides(activity.orderTypes, item)) {
+      const err = validateProductItemValue(activity.priceMethod, value, product?.price)
+      if (err) return `「${product?.name ?? item.productId}」在${orderTypeLabel(sceneId)}：${err}`
+    }
+  }
+  return null
+}
+
 export function formatRuleSummary(activity: MemberPriceProductCoreFields): string {
   const methodLabel = MEMBER_PRICE_METHOD_LABELS[activity.priceMethod]
   const uniformValue = formatPriceMethodValue(activity.priceMethod, activity.allProductsValue)
+  const sharedCount = memberSceneOverrides(
+    Object.keys(activity.sceneValues ?? {}),
+    uniformDiscountItem(activity),
+  ).length
+  const sharedText = sharedCount > 0 ? `，${sharedCount}个业务单独设置` : ''
   let count: string
   if (activity.productScope === 'all') {
-    count = `全部商品${uniformValue}`
+    count = `全部商品${sharedCount > 0 ? `默认${uniformValue}` : uniformValue}${sharedText}`
   } else if (activity.productSelectionMode === 'exclude') {
-    count = `排除${activity.productIds.length}个商品，其余${uniformValue}`
+    count = `排除${activity.productIds.length}个商品，其余${sharedCount > 0 ? `默认${uniformValue}` : uniformValue}${sharedText}`
   } else {
-    count = `${activity.productItems.length}个商品`
+    const sceneCount = memberSceneOverrideCount(activity)
+    count = sceneCount > 0
+      ? `${activity.productItems.length}个商品，其中 ${sceneCount} 个有业务单独设置`
+      : `${activity.productItems.length}个商品`
   }
   return `${methodLabel} · ${count}`
 }
@@ -189,12 +332,16 @@ export function syncProductItems<T extends MemberPriceProductCoreFields>(
   productIds: string[],
   resetValues = false,
 ): T {
-  const valueMap = new Map(activity.productItems.map((i) => [i.productId, i.value]))
+  const prev = new Map(activity.productItems.map((item) => [item.productId, item]))
   const defaultVal = defaultValueForMethod(activity.priceMethod)
-  const productItems = productIds.map((productId) => ({
-    productId,
-    value: resetValues ? defaultVal : (valueMap.get(productId) ?? defaultVal),
-  }))
+  const productItems = productIds.map((productId) => {
+    const old = prev.get(productId)
+    return {
+      productId,
+      value: resetValues ? defaultVal : (old?.value ?? defaultVal),
+      sceneValues: resetValues ? {} : (old?.sceneValues ?? {}),
+    }
+  })
   return { ...activity, productIds, productItems }
 }
 
@@ -273,6 +420,8 @@ export function validateStep(activity: MemberPriceActivityForm, step: number): s
         if (err) return `「${product?.name ?? item.productId}」${err}`
       }
     }
+    const sceneErr = validateMemberSceneSettings(activity)
+    if (sceneErr) return sceneErr
   }
   return null
 }

@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { formatBundlePriceAdvancedPreview } from './BundlePriceAdvancedOptionsFields'
 import { formatBundlePriceBasicPreview } from './BundlePriceBasicInfoFields'
 import { formatBundlePriceLimitsSummary } from './BundlePriceRuleLimitFields'
-import { CHANNELS, ORDER_TYPES } from '../mockData'
+import { BUNDLE_PRICE_CHANNELS, BUNDLE_PRICE_ORDER_TYPES } from '../mockBundlePriceData'
 import type { BundlePriceActivityForm } from '../types'
 import {
-  formatCountScopeLabel,
+  formatConditionModeLabel,
   formatHitRuleLabel,
   formatRuleSummary,
   getActivityProducts,
@@ -48,8 +48,8 @@ export function BundlePriceActivityPreview({
   const summaryTags = [
     '特价',
     formatRuleSummary(activity),
-    formatCountScopeLabel(),
-    formatHitRuleLabel(),
+    formatConditionModeLabel(activity),
+    formatHitRuleLabel(activity),
     getProductSummary(activity),
     getStoreSummary(activity),
     getChannelSummary(activity),
@@ -83,8 +83,8 @@ export function BundlePriceActivityPreview({
 
       <div className="preview-sections">
         <PreviewSection id="bp-preview-scope" title="适用范围" step={0} showEdit={showEditLinks} onEdit={onEditSection}>
-          <PreviewItem label="参与渠道" value={activity.channels.map((c) => CHANNELS.find((x) => x.id === c)?.label).join('、') || '-'} />
-          <PreviewItem label="业务场景" value={activity.orderTypes.map((c) => ORDER_TYPES.find((x) => x.id === c)?.label).filter(Boolean).join('、') || '-'} />
+          <PreviewItem label="参与渠道" value={activity.channels.map((c) => BUNDLE_PRICE_CHANNELS.find((x) => x.id === c)?.label).join('、') || '-'} />
+          <PreviewItem label="业务场景" value={activity.orderTypes.map((c) => BUNDLE_PRICE_ORDER_TYPES.find((x) => x.id === c)?.label).filter(Boolean).join('、') || '-'} />
         </PreviewSection>
 
         <PreviewSection id="bp-preview-basic" title="基础信息" step={0} showEdit={showEditLinks} onEdit={onEditSection}>
@@ -97,9 +97,8 @@ export function BundlePriceActivityPreview({
         </PreviewSection>
 
         <PreviewSection id="bp-preview-rules" title="活动规则" step={0} showEdit={showEditLinks} onEdit={onEditSection}>
-          <PreviewItem label="优惠方式" value="特价（打包一口价）" />
-          <PreviewItem label="计件范围" value={formatCountScopeLabel()} />
-          <PreviewItem label="命中方式" value={formatHitRuleLabel()} />
+          <PreviewItem label="活动条件" value={formatConditionModeLabel(activity)} />
+          <PreviewItem label="优惠命中规则" value={formatHitRuleLabel(activity)} />
           <PreviewItem label="规则摘要" value={formatRuleSummary(activity)} />
           <PreviewItem label="每单打包组数" value={limits.groups} />
           <PreviewItem label="每人参与总次数" value={limits.totalLimit} />
@@ -110,7 +109,6 @@ export function BundlePriceActivityPreview({
           <PreviewItem label="共享互斥" value={adv.shareLabel} />
           <PreviewItem label="参与用户" value={adv.userLabel} />
           <PreviewItem label="打标签" value={adv.tagLabel} />
-          <PreviewItem label="活动权重" value={String(activity.priority)} />
           <PreviewItem label="活动编码" value={activity.activityCode || '-'} />
           <PreviewItem label="点单页展示标题" value={adv.display(activity.titleDisplay)} />
         </PreviewSection>

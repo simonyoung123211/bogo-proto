@@ -5,7 +5,13 @@ import type {
   BundlePriceListFilters,
   BundlePriceTier,
 } from '../types'
-import { MAX_BUNDLE_PRICE_TIERS, createEmptyBundlePriceActivity } from '../mockBundlePriceData'
+import {
+  BUNDLE_PRICE_CHANNELS,
+  MAX_BUNDLE_PRICE_TIERS,
+  createEmptyBundlePriceActivity,
+  normalizeBundleChannels,
+  normalizeBundleOrderTypes,
+} from '../mockBundlePriceData'
 import { PARTICIPANT_USER_OPTIONS, getCreatorProfile, products, stores } from '../mockData'
 import { createOperationLog, formatActivityDateTime, maskPhone } from './activity'
 
@@ -21,11 +27,17 @@ export function formatTierLabel(tier: BundlePriceTier): string {
   return `满${tier.quantity}件一口价${formatBundlePriceAmount(tier.price)}元`
 }
 
+export function formatCyclicLabel(activity: Pick<BundlePriceActivityForm, 'cyclicQuantity' | 'cyclicPrice'>): string {
+  return `每满${activity.cyclicQuantity}件一口价${formatBundlePriceAmount(activity.cyclicPrice)}元`
+}
+
 /**
  * 列表与预览用的规则摘要。
- * 单档直接展示「满3件一口价9.9元」；多档不超过 3 级时逐级列出，更多时展示级数与最高阶。
+ * 每满直接展示「每满3件一口价9.9元」。
+ * 阶梯单档展示「满3件一口价9.9元」；多档不超过 3 级时逐级列出，更多时展示级数与最高阶。
  */
 export function formatRuleSummary(activity: BundlePriceActivityForm): string {
+  if (activity.conditionMode === 'cyclic') return formatCyclicLabel(activity)
   const tiers = activity.tiers ?? []
   if (tiers.length === 0) return '未配置规则'
   if (tiers.length === 1) return formatTierLabel(tiers[0])
@@ -34,12 +46,12 @@ export function formatRuleSummary(activity: BundlePriceActivityForm): string {
   return `${tiers.length}级阶梯，最高${formatTierLabel(highest)}`
 }
 
-export function formatHitRuleLabel(): string {
-  return '阶梯就高'
+export function formatConditionModeLabel(activity: BundlePriceActivityForm): string {
+  return activity.conditionMode === 'cyclic' ? '每满设置' : '阶梯设置'
 }
 
-export function formatCountScopeLabel(): string {
-  return '任意活动商品合计'
+export function formatHitRuleLabel(activity: BundlePriceActivityForm): string {
+  return activity.priceHitRule === 'low_to_high' ? '按商品售价从低到高' : '按商品售价从高到低'
 }
 
 export function computePublishStatus(activity: BundlePriceActivityForm): ActivityStatus {
@@ -78,17 +90,9 @@ export function getProductScopeLabel(activity: BundlePriceActivityForm): string 
 }
 
 export function getChannelSummary(activity: BundlePriceActivityForm): string {
-  const map: Record<string, string> = {
-    h5: '手机网页',
-    wechat: '微信',
-    alipay: '支付宝',
-    app: 'App',
-    pos: 'POS',
-    douyin: '抖音',
-    third_party: '第三方外卖',
-    other: '其他',
-  }
-  return activity.channels.map((c) => map[c] || c).join('、') || '-'
+  return activity.channels
+    .map((id) => BUNDLE_PRICE_CHANNELS.find((item) => item.id === id)?.label ?? id)
+    .join('、') || '-'
 }
 
 export function getActivityProducts(activity: BundlePriceActivityForm) {
@@ -157,6 +161,12 @@ function isPositiveInteger(value: number): boolean {
   return Number.isInteger(value) && value >= 1
 }
 
+export function validateCyclic(activity: BundlePriceActivityForm): string | null {
+  if (!isPositiveInteger(activity.cyclicQuantity)) return '每满件数须为大于 0 的整数'
+  if (!Number.isFinite(activity.cyclicPrice) || activity.cyclicPrice <= 0) return '每满一口价金额须大于 0'
+  return null
+}
+
 export function validateTiers(tiers: BundlePriceTier[]): string | null {
   if (!tiers.length) return '请至少配置一级打包价'
   if (tiers.length > MAX_BUNDLE_PRICE_TIERS) return `最多设置${MAX_BUNDLE_PRICE_TIERS}级阶梯`
@@ -186,7 +196,6 @@ function validateLimitFields(activity: BundlePriceActivityForm): string | null {
   if (activity.participationFrequencyType === 'limited' && activity.participationFrequencyLimit < 1) {
     return '每人参与活动频次须大于 0'
   }
-  if (activity.priority < 1) return '活动权重须大于 0'
   return null
 }
 
@@ -201,8 +210,10 @@ export function validateStep(activity: BundlePriceActivityForm, step: number): s
     if (new Date(activity.endTime) <= new Date(activity.startTime)) return '结束时间须晚于开始时间'
     if (activity.channels.length === 0) return '请至少选择一个参与渠道'
     if (activity.orderTypes.length === 0) return '请至少选择一个业务场景'
-    const tierErr = validateTiers(activity.tiers)
-    if (tierErr) return tierErr
+    const ruleErr = activity.conditionMode === 'cyclic'
+      ? validateCyclic(activity)
+      : validateTiers(activity.tiers)
+    if (ruleErr) return ruleErr
     const limitErr = validateLimitFields(activity)
     if (limitErr) return limitErr
   }
@@ -298,12 +309,22 @@ export function migrateBundlePriceActivity(raw: Record<string, unknown>): Bundle
         price: Number(tier.price) || 0,
       }))
     : defaults.tiers
+  const conditionMode = legacy.conditionMode === 'cyclic' || legacy.conditionMode === 'tiered'
+    ? legacy.conditionMode
+    : defaults.conditionMode
+  const priceHitRule = legacy.priceHitRule === 'low_to_high' || legacy.priceHitRule === 'high_to_low'
+    ? legacy.priceHitRule
+    : defaults.priceHitRule
   return {
     ...defaults,
     ...legacy,
+    conditionMode,
+    priceHitRule,
+    cyclicQuantity: Number(legacy.cyclicQuantity) > 0 ? Number(legacy.cyclicQuantity) : defaults.cyclicQuantity,
+    cyclicPrice: Number(legacy.cyclicPrice) > 0 ? Number(legacy.cyclicPrice) : defaults.cyclicPrice,
     tiers,
-    channels: legacy.channels?.length ? legacy.channels : defaults.channels,
-    orderTypes: legacy.orderTypes?.length ? legacy.orderTypes : defaults.orderTypes,
+    channels: normalizeBundleChannels(legacy.channels?.length ? legacy.channels : defaults.channels),
+    orderTypes: normalizeBundleOrderTypes(legacy.orderTypes?.length ? legacy.orderTypes : defaults.orderTypes),
     productIds: legacy.productIds ?? defaults.productIds,
     storeIds: legacy.storeIds ?? defaults.storeIds,
     creatorPhone: legacy.creatorPhone ?? getCreatorProfile(legacy.creator ?? defaults.creator).phone,

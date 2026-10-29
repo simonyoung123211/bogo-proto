@@ -16,8 +16,10 @@ import {
 } from '../mockPaidMemberPriceData'
 import { formatActivityDateTime, createOperationLog } from './activity'
 import {
+  formatRuleSummary,
   getActivityProducts,
   isUniformPricing,
+  validateMemberSceneSettings,
   validateProductItemValue,
 } from './memberPriceActivity'
 
@@ -375,6 +377,8 @@ export function validateStep(
         if (err) return `「${product?.name ?? item.productId}」${err}`
       }
     }
+    const sceneErr = validateMemberSceneSettings(activity)
+    if (sceneErr) return sceneErr
   }
   return null
 }
@@ -520,25 +524,7 @@ export function migratePaidMemberPriceActivity(
 /* ================= 展示辅助 ================= */
 
 export function formatPaidRuleSummary(activity: PaidMemberPriceActivityForm): string {
-  const labels: Record<MemberPriceMethod, string> = {
-    discount: '折扣',
-    fixed_reduction: '减价',
-    special_price: '固定价格',
-  }
-  const uniform = activity.priceMethod === 'discount'
-    ? `${activity.allProductsValue}折`
-    : activity.priceMethod === 'fixed_reduction'
-      ? `立减${activity.allProductsValue}元`
-      : `特价${activity.allProductsValue}元`
-  let count: string
-  if (activity.productScope === 'all') {
-    count = `全部商品${uniform}`
-  } else if (activity.productSelectionMode === 'exclude') {
-    count = `排除${activity.productIds.length}个商品，其余${uniform}`
-  } else {
-    count = `${activity.productItems.length}个商品`
-  }
-  return `${labels[activity.priceMethod]} · ${count}`
+  return formatRuleSummary(activity)
 }
 
 /** 参与商品中已失效（已下架/删除）的数量 */

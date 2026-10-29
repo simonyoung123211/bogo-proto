@@ -493,7 +493,7 @@ function PageHelpButton({ open, onToggle, onClose }: { open: boolean; onToggle: 
       {open && (
         <div className="page-help__popover" role="tooltip">
           <p className="page-help__title">会员价说明</p>
-          <p className="page-help__text">面向不同会员等级配置专享价，支持折扣、减价、固定价格三种形式，并可逐商品设置优惠力度。</p>
+          <p className="page-help__text">面向不同会员等级配置专享价，支持折扣、减价、固定价格三种形式，并可按商品设置默认力度，再为个别业务单独设置。</p>
         </div>
       )}
     </div>

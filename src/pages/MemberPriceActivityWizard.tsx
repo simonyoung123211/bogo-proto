@@ -197,6 +197,7 @@ export function MemberPriceActivityWizard({
                   readOnly={readOnly}
                   onChange={onChange}
                   onToast={onToast}
+                  sceneOrderTypes={activity.orderTypes}
                 />
               </Section>
             </div>

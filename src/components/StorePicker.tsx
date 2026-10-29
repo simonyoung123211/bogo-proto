@@ -9,9 +9,11 @@ interface StorePickerProps {
   onScopeChange: (scope: StoreScope) => void
   onChange: (ids: string[]) => void
   readOnly?: boolean
+  /** 外层已提供门店方式时，隐藏组件自带的三个选项 */
+  hideScopeRadios?: boolean
 }
 
-export function StorePicker({ scope, selectedIds, onScopeChange, onChange, readOnly }: StorePickerProps) {
+export function StorePicker({ scope, selectedIds, onScopeChange, onChange, readOnly, hideScopeRadios }: StorePickerProps) {
   const [regionId, setRegionId] = useState('all')
   const [keyword, setKeyword] = useState('')
   const allStores = getResolvedStores()
@@ -40,7 +42,7 @@ export function StorePicker({ scope, selectedIds, onScopeChange, onChange, readO
 
   return (
     <div className="store-picker">
-      {!readOnly && (
+      {!readOnly && !hideScopeRadios && (
         <div className="form-row">
           <label className="form-label">门店选择方式</label>
           <div className="radio-group">

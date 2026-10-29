@@ -6,8 +6,9 @@ import { CHANNELS, ORDER_TYPES, products } from '../mockData'
 import { MEMBER_PRICE_METHOD_LABELS } from '../mockMemberPriceData'
 import type { MemberPriceActivityForm } from '../types'
 import {
-  formatPriceMethodValue,
+  formatConfiguredStrength,
   formatRuleSummary,
+  formatUniformStrength,
   getActivityProducts,
   isUniformPricing,
   getActivityStores,
@@ -54,8 +55,6 @@ export function MemberPriceActivityPreview({
   const basic = formatMemberPriceBasicPreview(activity)
   const adv = formatMemberPriceAdvancedPreview(activity)
   const limits = formatMemberPriceLimitsSummary(activity)
-  const valueMap = new Map(activity.productItems.map((i) => [i.productId, i.value]))
-
   const scrollToSection = (id: string) => {
     setActiveAnchor(id)
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -132,7 +131,7 @@ export function MemberPriceActivityPreview({
             label="优惠形式"
             value={
               isUniformPricing(activity)
-                ? `${MEMBER_PRICE_METHOD_LABELS[activity.priceMethod]}（参与商品统一${formatPriceMethodValue(activity.priceMethod, activity.allProductsValue)}）`
+                ? formatUniformStrength(activity, activity.orderTypes)
                 : MEMBER_PRICE_METHOD_LABELS[activity.priceMethod]
             }
           />
@@ -164,10 +163,7 @@ export function MemberPriceActivityPreview({
                     <td>{p.spec}</td>
                     <td>¥{p.price}</td>
                     <td>
-                      {formatPriceMethodValue(
-                        activity.priceMethod,
-                        isUniformPricing(activity) ? activity.allProductsValue : valueMap.get(p.id) ?? 0,
-                      )}
+                      {formatConfiguredStrength(activity, activity.orderTypes, p.id)}
                     </td>
                   </tr>
                 ))}

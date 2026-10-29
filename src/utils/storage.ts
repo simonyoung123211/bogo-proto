@@ -10,6 +10,7 @@ import type {
   PaidMemberPriceActivityForm,
   EnterpriseDiscountActivityForm,
   BundlePriceActivityForm,
+  LimitDiscountActivityForm,
   StoredValuePayActivityForm,
   StoredValuePayGeneralSettings,
 } from '../types'
@@ -24,6 +25,7 @@ import {
 } from '../mockPaidMemberPriceData'
 import { initialEnterpriseDiscountActivities } from '../mockEnterpriseDiscountData'
 import { initialBundlePriceActivities } from '../mockBundlePriceData'
+import { initialLimitDiscountActivities } from '../mockLimitDiscountData'
 import { initialStoredValuePayActivities } from '../mockStoredValuePayData'
 import { migrateActivity } from './activity'
 import { reopenStoresForDemo } from './storeRegistry'
@@ -34,6 +36,7 @@ import { migrateMultiItemActivity } from './multiItemActivity'
 import { migratePaidMemberPriceActivity } from './paidMemberPriceActivity'
 import { migrateEnterpriseDiscountActivity } from './enterpriseDiscountActivity'
 import { migrateBundlePriceActivity } from './bundlePriceActivity'
+import { migrateLimitDiscountActivity } from './limitDiscountActivity'
 import { migrateStoredValuePayActivity } from './storedValuePayActivity'
 
 const STORAGE_KEY = 'bogo-activities-v1'
@@ -46,6 +49,7 @@ const PAID_MEMBER_CARD_STORAGE_KEY = 'paid-member-cards-v1'
 const STORED_VALUE_PAY_STORAGE_KEY = 'stored-value-pay-activities-v1'
 const ENTERPRISE_DISCOUNT_STORAGE_KEY = 'enterprise-discount-activities-v1'
 const BUNDLE_PRICE_STORAGE_KEY = 'bundle-price-activities-v1'
+const LIMIT_DISCOUNT_STORAGE_KEY = 'limit-discount-activities-v1'
 const GENERAL_SETTINGS_KEY = 'bogo-general-settings-v1'
 const MEMBER_PRICE_GENERAL_SETTINGS_KEY = 'member-price-general-settings-v1'
 const STORED_VALUE_PAY_GENERAL_SETTINGS_KEY = 'stored-value-pay-general-settings-v1'
@@ -326,6 +330,23 @@ export function loadBundlePriceActivities(): BundlePriceActivityForm[] {
 
 export function saveBundlePriceActivities(activities: BundlePriceActivityForm[]): void {
   localStorage.setItem(BUNDLE_PRICE_STORAGE_KEY, JSON.stringify(activities))
+}
+
+export function loadLimitDiscountActivities(): LimitDiscountActivityForm[] {
+  try {
+    const raw = localStorage.getItem(LIMIT_DISCOUNT_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>[]
+      return parsed.map((activity) => migrateLimitDiscountActivity(activity))
+    }
+  } catch {
+    /* ignore */
+  }
+  return [...initialLimitDiscountActivities]
+}
+
+export function saveLimitDiscountActivities(activities: LimitDiscountActivityForm[]): void {
+  localStorage.setItem(LIMIT_DISCOUNT_STORAGE_KEY, JSON.stringify(activities))
 }
 
 export function loadStoredValuePayGeneralSettings(): StoredValuePayGeneralSettings {

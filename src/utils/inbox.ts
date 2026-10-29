@@ -7,7 +7,7 @@ export interface InboxMessage {
   title: string
   body: string
   kind: InboxMessageKind
-  /** 跳转用：首个活动 ID */
+  /** 跳转用：活动 ID */
   primaryActivityId: string
   activityIds: string[]
   storeName: string
@@ -52,81 +52,50 @@ function stamp() {
 export interface ClosureInboxItem {
   activityId: string
   activityName: string
+  /** 活动类型名称，如「买1送N」 */
+  activityTypeName: string
   creator: string
   issue: 'S1' | 'S2'
 }
 
-/** 按创建人合并生成站内信 */
+/** 按活动各发 1 条站内信（发给活动创建人） */
 export function buildClosureInboxMessages(
   storeName: string,
   items: ClosureInboxItem[],
 ): InboxMessage[] {
   if (items.length === 0) return []
 
-  const byCreator = new Map<string, ClosureInboxItem[]>()
-  for (const item of items) {
-    const list = byCreator.get(item.creator) ?? []
-    list.push(item)
-    byCreator.set(item.creator, list)
-  }
-
-  const messages: InboxMessage[] = []
-  for (const [creator, list] of byCreator) {
-    const s1 = list.filter((i) => i.issue === 'S1')
-    const s2 = list.filter((i) => i.issue === 'S2')
-    const activityIds = list.map((i) => i.activityId)
-    const primary = activityIds[0]
-    const id = `inbox-${Date.now()}-${creator}-${Math.random().toString(36).slice(2, 6)}`
-
-    if (list.length === 1) {
-      const only = list[0]
-      if (only.issue === 'S1') {
-        messages.push({
-          id,
-          recipientCreatorId: creator,
-          title: '促销活动已暂停：参与门店已清空',
-          body: `门店「${storeName}」已停业，系统已将其从您创建的活动「${only.activityName}」的参与门店中移出，当前有效参与门店为 0，活动已自动暂停。请重新选择参与门店后恢复活动，或作废该活动。`,
-          kind: 'S1',
-          primaryActivityId: primary,
-          activityIds,
-          storeName,
-          createdAt: stamp(),
-          read: false,
-        })
-      } else {
-        messages.push({
-          id,
-          recipientCreatorId: creator,
-          title: '促销活动已暂停：不参与门店已清空',
-          body: `门店「${storeName}」已停业，系统已将其从您创建的活动「${only.activityName}」的不参与门店中移出，当前不参与名单为空，活动已自动暂停。请重新配置不参与门店，或改为全部门店 / 部分门店参与后恢复活动。`,
-          kind: 'S2',
-          primaryActivityId: primary,
-          activityIds,
-          storeName,
-          createdAt: stamp(),
-          read: false,
-        })
+  return items.map((item) => {
+    const id = `inbox-${Date.now()}-${item.activityId}-${Math.random().toString(36).slice(2, 6)}`
+    const title = `【${item.activityTypeName}】【${item.activityName}】已自动暂停`
+    const meta = `活动类型：${item.activityTypeName}\n活动名称：${item.activityName}\n活动ID：${item.activityId}`
+    if (item.issue === 'S1') {
+      return {
+        id,
+        recipientCreatorId: item.creator,
+        title,
+        body: `${meta}\n参与门店均已停业，系统已自动暂停。请重新选择参与门店后恢复，或作废活动。`,
+        kind: 'S1' as const,
+        primaryActivityId: item.activityId,
+        activityIds: [item.activityId],
+        storeName,
+        createdAt: stamp(),
+        read: false,
       }
-      continue
     }
-
-    const s1Names = s1.map((i) => i.activityName).join('、') || '无'
-    const s2Names = s2.map((i) => i.activityName).join('、') || '无'
-    messages.push({
+    return {
       id,
-      recipientCreatorId: creator,
-      title: '多个促销活动已暂停，门店配置需处理',
-      body: `门店「${storeName}」已停业，您创建的以下活动因门店配置失效已自动暂停：\n参与门店已清空：${s1Names}\n不参与门店已清空：${s2Names}\n请修好门店配置后恢复活动。`,
-      kind: s1.length && s2.length ? 'mixed' : s1.length ? 'S1' : 'S2',
-      primaryActivityId: primary,
-      activityIds,
+      recipientCreatorId: item.creator,
+      title,
+      body: `${meta}\n不参与门店均已停业，排除配置已失效，系统已自动暂停。请重新配置门店范围后恢复。`,
+      kind: 'S2' as const,
+      primaryActivityId: item.activityId,
+      activityIds: [item.activityId],
       storeName,
       createdAt: stamp(),
       read: false,
-    })
-  }
-
-  return messages
+    }
+  })
 }
 
 export function prependInboxMessages(existing: InboxMessage[], incoming: InboxMessage[]): InboxMessage[] {

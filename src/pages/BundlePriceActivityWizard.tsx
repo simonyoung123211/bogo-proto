@@ -7,7 +7,8 @@ import { BundlePriceRuleLimitFields } from '../components/BundlePriceRuleLimitFi
 import { ProductPicker } from '../components/ProductPicker'
 import { SelectedProductTable } from '../components/SelectedProductTable'
 import { StorePicker } from '../components/StorePicker'
-import { CHANNELS, ORDER_TYPES, STATUS_LABELS } from '../mockData'
+import { BUNDLE_PRICE_CHANNELS, BUNDLE_PRICE_ORDER_TYPES, normalizeBundleChannels, normalizeBundleOrderTypes } from '../mockBundlePriceData'
+import { STATUS_LABELS } from '../mockData'
 import type { BundlePriceActivityForm, WizardMode } from '../types'
 import { validateStep } from '../utils/bundlePriceActivity'
 
@@ -45,6 +46,16 @@ export function BundlePriceActivityWizard({
   useEffect(() => {
     if (isView) setStep(PREVIEW_STEP)
   }, [isView])
+
+  useEffect(() => {
+    if (readOnly) return
+    const channels = normalizeBundleChannels(activity.channels)
+    const orderTypes = normalizeBundleOrderTypes(activity.orderTypes)
+    const sameChannels = channels.length === activity.channels.length && channels.every((id, i) => id === activity.channels[i])
+    const sameOrderTypes = orderTypes.length === activity.orderTypes.length && orderTypes.every((id, i) => id === activity.orderTypes[i])
+    if (sameChannels && sameOrderTypes) return
+    onChange({ ...activity, channels, orderTypes })
+  }, [activity, onChange, readOnly])
 
   useEffect(() => {
     if (error) errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -158,7 +169,7 @@ export function BundlePriceActivityWizard({
               <Section title="适用渠道">
                 <FormRow label="参与渠道" required>
                   <div className="channel-group">
-                    {CHANNELS.map((ch) => (
+                    {BUNDLE_PRICE_CHANNELS.map((ch) => (
                       <button
                         key={ch.id}
                         type="button"
@@ -174,7 +185,7 @@ export function BundlePriceActivityWizard({
                 </FormRow>
                 <FormRow label="参与业务场景" required>
                   <div className="checkbox-group">
-                    {ORDER_TYPES.map((ot) => (
+                    {BUNDLE_PRICE_ORDER_TYPES.map((ot) => (
                       <label key={ot.id} className="checkbox">
                         <input type="checkbox" disabled={readOnly} checked={activity.orderTypes.includes(ot.id)} onChange={() => toggleOrderType(ot.id)} />
                         {ot.label}

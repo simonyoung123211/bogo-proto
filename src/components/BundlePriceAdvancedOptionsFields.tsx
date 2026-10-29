@@ -50,19 +50,6 @@ export function BundlePriceAdvancedOptionsFields({ activity, readOnly, onChange 
               ))}
             </select>
           </FormRow>
-          <FormRow label="活动权重">
-            <div>
-              <input
-                type="number"
-                className="input input--num"
-                disabled={readOnly}
-                min={1}
-                value={activity.priority}
-                onChange={(e) => update('priority', Math.max(1, Number(e.target.value) || 1))}
-              />
-              <p className="field-hint">多个一口价同时可命中时，权重更高的活动优先。</p>
-            </div>
-          </FormRow>
           <FormRow label="活动编码">
             <div className="char-input-wrap">
               <input className="input input--wide input--count" disabled={readOnly} value={activity.activityCode} placeholder="请输入活动编码" maxLength={CODE_MAX} onChange={(e) => update('activityCode', e.target.value.slice(0, CODE_MAX))} />

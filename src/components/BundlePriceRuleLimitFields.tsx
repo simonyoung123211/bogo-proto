@@ -38,7 +38,9 @@ export function BundlePriceRuleLimitFields({ activity, readOnly, onChange }: Bun
             }
           />
           <p className="field-hint">
-            一组即命中一次阶梯。例如满 3 件一口价，限制每单 1 组时，第 4 件起按原价，不再凑第二组。
+            {activity.conditionMode === 'cyclic'
+              ? '一组即每满一次。例如每满 3 件一口价，限制每单 1 组时，第 4 件起按原价，不再凑第二组。'
+              : '阶梯就高时，一单按已达到的最高一级结算一组。限制每单 1 组后，超出该档的件数按原价。'}
           </p>
         </div>
       </FormRow>
