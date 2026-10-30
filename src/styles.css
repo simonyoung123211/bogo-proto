@@ -657,14 +657,34 @@ button, input, select, textarea { font: inherit; }
 
 /* Buttons */
 .btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
   padding: 6px 16px; border-radius: 4px; border: 1px solid transparent;
-  cursor: pointer; font-size: 13px; transition: all 0.15s; white-space: nowrap;
+  cursor: pointer; font-size: 13px; line-height: 1.4; font-weight: 400;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  white-space: nowrap;
+}
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 22%, transparent);
 }
 .btn--primary { background: var(--brand-primary); color: #fff; border-color: var(--brand-primary); }
-.btn--primary:hover { background: var(--brand-primary-hover); }
+.btn--primary:hover { background: var(--brand-primary-hover); border-color: var(--brand-primary-hover); }
+.btn--primary:active { filter: brightness(0.96); }
 .btn--default { background: #fff; border-color: #d9d9d9; color: var(--text-primary); }
 .btn--default:hover { border-color: var(--brand-primary); color: var(--brand-primary); }
+.btn--default:active { background: var(--brand-primary-light); }
 .btn--danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+.btn--danger:hover { filter: brightness(0.96); }
+.btn--danger:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent);
+}
+.btn:disabled,
+.btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: none;
+  box-shadow: none;
+}
 .link-btn,
 .btn-link {
   appearance: none;
@@ -862,18 +882,117 @@ button, input, select, textarea { font: inherit; }
   min-height: 32px;
 }
 .radio, .checkbox {
-  display: inline-flex; align-items: center; gap: 6px;
+  display: inline-flex; align-items: center; gap: 8px;
   font-size: 13px; cursor: pointer; white-space: nowrap;
   line-height: 1.2;
+  color: var(--promo-text, #333);
+  user-select: none;
 }
-.radio input,
-.checkbox input {
-  width: 14px;
-  height: 14px;
+.radio:hover, .checkbox:hover { color: var(--promo-strong, #1f2329); }
+.radio:has(input:disabled),
+.checkbox:has(input:disabled),
+.checkbox.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  color: var(--promo-sub, #8c8c8c);
+}
+
+/* 单选 / 多选：自定义控件，避免系统蓝方块，统一企迈绿 */
+.radio input[type="radio"],
+.checkbox input[type="checkbox"],
+.limit-checkbox input[type="checkbox"],
+.admin input[type="radio"],
+.admin input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
   margin: 0;
   flex: none;
-  accent-color: var(--promo-brand, #00b460);
+  border: 1.5px solid #c0c4cc;
+  background: #fff;
+  cursor: pointer;
   vertical-align: middle;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+.radio input[type="radio"],
+.admin input[type="radio"] {
+  border-radius: 50%;
+}
+.checkbox input[type="checkbox"],
+.limit-checkbox input[type="checkbox"],
+.admin input[type="checkbox"] {
+  border-radius: 3px;
+}
+.radio input[type="radio"]:hover,
+.checkbox input[type="checkbox"]:hover,
+.limit-checkbox input[type="checkbox"]:hover,
+.admin input[type="radio"]:hover,
+.admin input[type="checkbox"]:hover {
+  border-color: var(--promo-brand, #00b460);
+}
+.radio input[type="radio"]:focus-visible,
+.checkbox input[type="checkbox"]:focus-visible,
+.limit-checkbox input[type="checkbox"]:focus-visible,
+.admin input[type="radio"]:focus-visible,
+.admin input[type="checkbox"]:focus-visible {
+  outline: none;
+  border-color: var(--promo-brand, #00b460);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--promo-brand, #00b460) 22%, transparent);
+}
+.radio input[type="radio"]:checked,
+.admin input[type="radio"]:checked {
+  border-color: var(--promo-brand, #00b460);
+  background: #fff;
+}
+.radio input[type="radio"]:checked::after,
+.admin input[type="radio"]:checked::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: var(--promo-brand, #00b460);
+}
+.checkbox input[type="checkbox"]:checked,
+.limit-checkbox input[type="checkbox"]:checked,
+.admin input[type="checkbox"]:checked {
+  border-color: var(--promo-brand, #00b460);
+  background: var(--promo-brand, #00b460);
+}
+.checkbox input[type="checkbox"]:checked::after,
+.limit-checkbox input[type="checkbox"]:checked::after,
+.admin input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 4.5px;
+  top: 1.5px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.radio input[type="radio"]:disabled,
+.checkbox input[type="checkbox"]:disabled,
+.limit-checkbox input[type="checkbox"]:disabled,
+.admin input[type="radio"]:disabled,
+.admin input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+  border-color: #d9d9d9;
+  background: #f5f5f5;
+  box-shadow: none;
+}
+.radio input[type="radio"]:disabled:checked::after,
+.admin input[type="radio"]:disabled:checked::after {
+  background: #bfbfbf;
+}
+.checkbox input[type="checkbox"]:disabled:checked,
+.limit-checkbox input[type="checkbox"]:disabled:checked,
+.admin input[type="checkbox"]:disabled:checked {
+  background: #bfbfbf;
+  border-color: #bfbfbf;
 }
 .inline-inputs {
   display: inline-flex; align-items: center; gap: 8px;
@@ -889,7 +1008,14 @@ button, input, select, textarea { font: inherit; }
   position: relative; display: inline-flex; align-items: center; gap: 6px;
   min-width: 144px; height: 36px; padding: 0 14px;
   border: 1px solid #d9d9d9; border-radius: 4px; background: #fff;
-  cursor: pointer; font-size: 13px; transition: all 0.15s; white-space: nowrap;
+  cursor: pointer; font-size: 13px; color: var(--promo-text, #333);
+  transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+  white-space: nowrap;
+}
+.channel-btn:hover { border-color: var(--brand-primary); color: var(--brand-primary); }
+.channel-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 22%, transparent);
 }
 .channel-btn__icon {
   width: 22px; height: 22px; border-radius: 4px; background: #f0f0f0;
@@ -2677,8 +2803,14 @@ button, input, select, textarea { font: inherit; }
   border: 1px solid var(--promo-line); border-radius: 6px; background: var(--promo-surface);
   height: 36px; padding: 0 14px; min-width: 88px; font-size: 14px; white-space: nowrap;
   color: var(--promo-text); overflow: hidden; cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
-.choice:hover:not(:disabled) { background: var(--promo-hover); }
+.choice:hover:not(:disabled) { background: var(--promo-hover); border-color: var(--promo-brand-bd); }
+.choice:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--promo-brand) 22%, transparent);
+}
+.choice:disabled { opacity: 0.5; cursor: not-allowed; }
 .choice.selected { background: var(--promo-tint); border-color: var(--promo-brand-bd); color: var(--promo-brand); }
 .choice.channel { width: 144px; justify-content: flex-start; padding: 0 12px; }
 .choice.corner.selected::after {
@@ -2698,18 +2830,25 @@ button, input, select, textarea { font: inherit; }
 }
 .choice.box::before {
   content: "";
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   flex: none;
-  border: 1px solid var(--promo-line, #ebecf0);
+  border: 1.5px solid #c0c4cc;
   border-radius: 3px;
   background: var(--promo-surface, #fff);
   box-sizing: border-box;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.choice.box:hover:not(:disabled)::before {
+  border-color: var(--promo-brand, #00b460);
 }
 .choice.box.selected::before {
   content: "✓";
-  font-size: 10px;
-  line-height: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
   text-align: center;
   color: #fff;
   background: var(--promo-brand, #00b460);
@@ -2720,7 +2859,6 @@ button, input, select, textarea { font: inherit; }
   cursor: not-allowed;
   background: var(--promo-hover, #f7f8fa);
 }
-.choice:disabled { opacity: 0.52; cursor: not-allowed; }
 .choices--targets {
   max-width: 640px;
   gap: 8px 10px;
