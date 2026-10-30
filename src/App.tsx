@@ -87,7 +87,6 @@ import {
 } from './utils/multiItemActivity'
 import {
   cloneActivity as clonePaidMemberPriceActivity,
-  findPriceDisadvantages,
   formatDuration as formatPauseDuration,
   getPauseInfo,
   resolvePublishStatus,
@@ -1603,14 +1602,10 @@ function App() {
         `发布活动「${paidMemberPriceDraft.name}」，关联卡${card?.status === 'on_sale' ? '在售，活动直接生效' : '未上架，等待卡上架后生效'}`,
         currentOperator,
       ))
-      const disadvantages = findPriceDisadvantages(paidMemberPriceDraft, memberPriceActivities)
-      const baseMsg = card?.status === 'on_sale'
-        ? '活动已发布并生效'
-        : '活动已发布，关联卡上架后将自动生效'
       showToast(
-        disadvantages.length > 0
-          ? `${baseMsg}；注意有 ${disadvantages.length} 个商品的付费会员价高于普通会员价，建议核对优惠力度`
-          : baseMsg,
+        card?.status === 'on_sale'
+          ? '活动已发布并生效'
+          : '活动已发布，关联卡上架后将自动生效',
       )
     } else {
       const err = validatePaidMemberPriceBeforeSave(
@@ -1628,12 +1623,7 @@ function App() {
         `编辑活动「${paidMemberPriceDraft.name}」`,
         currentOperator,
       ))
-      const disadvantages = findPriceDisadvantages(paidMemberPriceDraft, memberPriceActivities)
-      showToast(
-        disadvantages.length > 0
-          ? `活动已保存；注意有 ${disadvantages.length} 个商品的付费会员价高于普通会员价，建议核对优惠力度`
-          : '活动已保存',
-      )
+      showToast('活动已保存')
     }
     closePaidMemberPriceWizard()
   }
@@ -2124,7 +2114,6 @@ function App() {
         <PaidMemberPriceActivityWizard
           activity={paidMemberPriceDraft}
           cards={paidMemberCards}
-          memberPriceActivities={memberPriceActivities}
           mode={view.mode}
           initialStep={view.step}
           onChange={setPaidMemberPriceDraft}

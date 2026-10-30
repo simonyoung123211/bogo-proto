@@ -720,6 +720,19 @@ export type MemberPriceMethod = 'discount' | 'fixed_reduction' | 'special_price'
 /** 全部商品、反选时的力度方式；逐商品配置时不使用 */
 export type MemberPriceValueMode = 'unified' | 'by_scene'
 
+/**
+ * 会员价 · 优惠会员（活动级单选）。
+ * 仅「指定等级 / 指定储值 / 指定实体卡」支持活动内多组（≤10）。
+ */
+export type MemberPriceAudienceType =
+  | 'all_level'
+  | 'specified_level'
+  | 'all_stored_value'
+  | 'specified_stored_value'
+  | 'any_physical_card'
+  | 'specified_physical_card'
+  | 'paid_member_card_user'
+
 /** 逐商品会员价配置 */
 export interface MemberPriceProductItem {
   productId: string
@@ -727,6 +740,24 @@ export interface MemberPriceProductItem {
   value: number
   /** 个别业务单独设置的力度；没有出现的业务按默认力度 */
   sceneValues?: Record<string, number | null>
+}
+
+/**
+ * 会员价活动内的一组「会员子集 + 商品 + 优惠」。
+ * 单套优惠会员类型下 groups 固定为 1 条；指定类最多 10 条。
+ */
+export interface MemberPriceOfferGroup {
+  id: string
+  /** 等级 / 储值等级 / 实体卡 id；「全部* / 任意实体卡 / 付费会员卡用户」可为空 */
+  targetIds: string[]
+  priceMethod: MemberPriceMethod
+  productItems: MemberPriceProductItem[]
+  allProductsValue: number
+  valueMode?: MemberPriceValueMode
+  sceneValues?: Record<string, number | null>
+  productScope: ProductScope
+  productIds: string[]
+  productSelectionMode: 'include' | 'exclude'
 }
 
 /**
@@ -745,7 +776,7 @@ export interface MemberPriceProductCoreFields {
   productScope: ProductScope
   productIds: string[]
   productSelectionMode: 'include' | 'exclude'
-  /** 仅普通会员价使用；付费会员价的资格来自权益卡，无此字段 */
+  /** 仅普通会员价历史字段；付费会员价的资格来自权益卡，无此字段 */
   memberLevels?: MemberLevelId[]
 }
 
@@ -762,6 +793,14 @@ export interface MemberPriceActivityForm {
   priority: number
   channels: string[]
   orderTypes: string[]
+  /** 优惠会员类型（活动级） */
+  audienceType: MemberPriceAudienceType
+  /** 商品与优惠组；指定类 1～10 组，其余固定 1 组 */
+  groups: MemberPriceOfferGroup[]
+  /**
+   * 以下商品/优惠字段与 groups[0] 保持同步，供列表检索、旧预览辅助与共有工具复用。
+   * 编辑以 groups 为准。
+   */
   memberLevels: MemberLevelId[]
   priceMethod: MemberPriceMethod
   productItems: MemberPriceProductItem[]

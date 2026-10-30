@@ -405,16 +405,11 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
                 )}
               </div>
               {memberSceneOverrides(scenes, uniformItem).length > 0 && (
-                <button type="button" className="ld-override-tags" onClick={() => setEditingUniform(true)}>
-                  {memberSceneOverrides(scenes, uniformItem).slice(0, 2).map(({ sceneId, value }) => (
-                    <span key={sceneId} className="ld-override-tag">
-                      {orderTypeLabel(sceneId)}<strong>{value}</strong>{unitLabel}
-                    </span>
-                  ))}
-                  {memberSceneOverrides(scenes, uniformItem).length > 2 && (
-                    <span className="ld-override-tag ld-override-tag--more">+{memberSceneOverrides(scenes, uniformItem).length - 2}</span>
-                  )}
-                </button>
+                <OverrideTagsButton
+                  overrides={memberSceneOverrides(scenes, uniformItem)}
+                  unitLabel={unitLabel}
+                  onOpen={() => setEditingUniform(true)}
+                />
               )}
             </div>
           </div>
@@ -880,7 +875,49 @@ function RadioGroup({
   )
 }
 
-const OVERRIDE_TAG_LIMIT = 2
+/** 单元格内默认露出的分业务标签数；超出用「查看更多」入口 */
+const OVERRIDE_TAG_LIMIT = 4
+
+function OverrideTagsButton({
+  overrides,
+  unitLabel,
+  onOpen,
+}: {
+  overrides: { sceneId: string; value: number }[]
+  unitLabel: string
+  onOpen: () => void
+}) {
+  const shown = overrides.slice(0, OVERRIDE_TAG_LIMIT)
+  const rest = overrides.length - shown.length
+  const fullText = overrides
+    .map(({ sceneId, value }) => `${orderTypeLabel(sceneId)} ${value}${unitLabel}`)
+    .join('；')
+  return (
+    <div className="ld-override-tags">
+      {shown.map(({ sceneId, value }) => (
+        <button
+          key={sceneId}
+          type="button"
+          className="ld-override-tag"
+          title={`单独设置：${fullText}`}
+          onClick={onOpen}
+        >
+          {orderTypeLabel(sceneId)}<strong>{value}</strong>{unitLabel}
+        </button>
+      ))}
+      {rest > 0 && (
+        <button
+          type="button"
+          className="ld-override-more"
+          title={`还有 ${rest} 项：${overrides.slice(OVERRIDE_TAG_LIMIT).map(({ sceneId, value }) => `${orderTypeLabel(sceneId)} ${value}${unitLabel}`).join('；')}`}
+          onClick={onOpen}
+        >
+          查看更多<span className="ld-override-more__count">+{rest}</span>
+        </button>
+      )}
+    </div>
+  )
+}
 
 function ProductStrengthCell({
   productName,
@@ -904,8 +941,6 @@ function ProductStrengthCell({
   onOpenScenes: () => void
 }) {
   const overrides = item ? memberSceneOverrides(scenes, item) : []
-  const shown = overrides.slice(0, OVERRIDE_TAG_LIMIT)
-  const rest = overrides.length - shown.length
   return (
     <div className="ld-item-mode">
       <div className="ld-item-mode__main">
@@ -935,14 +970,7 @@ function ProductStrengthCell({
         )}
       </div>
       {overrides.length > 0 && (
-        <button type="button" className="ld-override-tags" onClick={onOpenScenes}>
-          {shown.map(({ sceneId, value }) => (
-            <span key={sceneId} className="ld-override-tag">
-              {orderTypeLabel(sceneId)}<strong>{value}</strong>{unitLabel}
-            </span>
-          ))}
-          {rest > 0 && <span className="ld-override-tag ld-override-tag--more">+{rest}</span>}
-        </button>
+        <OverrideTagsButton overrides={overrides} unitLabel={unitLabel} onOpen={onOpenScenes} />
       )}
     </div>
   )

@@ -3,8 +3,27 @@ import type {
   MemberLevelId,
   MemberPriceActivityForm,
   MemberPriceMethod,
+  MemberPriceOfferGroup,
 } from './types'
 import { getCreatorProfile, MEMBER_LEVELS, products } from './mockData'
+
+export function createEmptyMemberPriceOfferGroup(
+  overrides: Partial<MemberPriceOfferGroup> = {},
+): MemberPriceOfferGroup {
+  return {
+    id: `mpg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    targetIds: [],
+    priceMethod: 'discount',
+    productItems: [],
+    allProductsValue: 8,
+    valueMode: 'unified',
+    sceneValues: {},
+    productScope: 'partial',
+    productIds: [],
+    productSelectionMode: 'include',
+    ...overrides,
+  }
+}
 
 function formatDateTime(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -56,7 +75,15 @@ export function createEmptyMemberPriceActivity(): MemberPriceActivityForm {
     priority: 1,
     channels: ['wechat', 'alipay'],
     orderTypes: ['dine_in', 'takeaway', 'pickup'],
-    memberLevels: ['normal', 'silver', 'gold', 'platinum', 'diamond'],
+    audienceType: 'specified_level',
+    groups: [
+      createEmptyMemberPriceOfferGroup({
+        targetIds: [],
+        priceMethod: 'discount',
+        allProductsValue: 8,
+      }),
+    ],
+    memberLevels: [],
     priceMethod: 'discount',
     productItems: [],
     allProductsValue: 8,
@@ -113,10 +140,39 @@ function seed(
       : []),
   ]
   const productIds = overrides.productIds ?? overrides.productItems?.map((i) => i.productId) ?? base.productIds
+  const priceMethod = overrides.priceMethod ?? base.priceMethod
+  const productItems =
+    overrides.productItems ??
+    productIds.map((productId) => ({
+      productId,
+      value: overrides.allProductsValue ?? base.allProductsValue,
+    }))
+  const memberLevels = overrides.memberLevels ?? base.memberLevels
+  const groups =
+    overrides.groups ??
+    [
+      createEmptyMemberPriceOfferGroup({
+        targetIds: memberLevels,
+        priceMethod,
+        productItems,
+        allProductsValue: overrides.allProductsValue ?? base.allProductsValue,
+        productScope: overrides.productScope ?? base.productScope,
+        productIds,
+        productSelectionMode: overrides.productSelectionMode ?? base.productSelectionMode,
+      }),
+    ]
+  const audienceType =
+    overrides.audienceType ??
+    (memberLevels.length >= MEMBER_LEVELS.length ? 'all_level' : 'specified_level')
   return {
     ...base,
     ...overrides,
+    audienceType,
+    groups,
+    memberLevels,
+    priceMethod,
     productIds,
+    productItems,
     createdAt,
     updatedAt,
     operationLogs: logs,
@@ -146,14 +202,37 @@ export const initialMemberPriceActivities: MemberPriceActivityForm[] = [
   }),
   seed({
     id: 'MP20250701002',
-    name: '金卡及以上特价9.9',
-    title: '金卡特价',
-    tag: '金卡价',
-    priceMethod: 'special_price',
-    memberLevels: ['gold', 'platinum', 'diamond'],
+    name: '分等级多组会员价',
+    title: '会员分档价',
+    tag: '会员价',
+    audienceType: 'specified_level',
+    memberLevels: ['gold', 'silver', 'diamond'],
+    priceMethod: 'fixed_reduction',
     productScope: 'partial',
-    productIds: products.slice(0, 80).map((p) => p.id),
-    productItems: products.slice(0, 80).map((p) => ({ productId: p.id, value: 9.9 })),
+    productIds: products.slice(0, 40).map((p) => p.id),
+    productItems: products.slice(0, 40).map((p) => ({ productId: p.id, value: 5 })),
+    groups: [
+      createEmptyMemberPriceOfferGroup({
+        id: 'mpg-demo-1',
+        targetIds: ['gold', 'silver'],
+        priceMethod: 'fixed_reduction',
+        productScope: 'partial',
+        productSelectionMode: 'include',
+        productIds: products.slice(0, 40).map((p) => p.id),
+        productItems: products.slice(0, 40).map((p) => ({ productId: p.id, value: 5 })),
+        allProductsValue: 5,
+      }),
+      createEmptyMemberPriceOfferGroup({
+        id: 'mpg-demo-2',
+        targetIds: ['diamond'],
+        priceMethod: 'discount',
+        productScope: 'partial',
+        productSelectionMode: 'include',
+        productIds: products.slice(40, 80).map((p) => p.id),
+        productItems: products.slice(40, 80).map((p) => ({ productId: p.id, value: 8 })),
+        allProductsValue: 8,
+      }),
+    ],
     storeScope: 'partial_include',
     storeIds: ['s1', 's2'],
     status: 'in_progress',
@@ -164,6 +243,39 @@ export const initialMemberPriceActivities: MemberPriceActivityForm[] = [
     creatorOrg: getCreatorProfile('205110').org,
     createdAt: '2026-06-28 09:00:00',
     updatedAt: '2026-07-01 08:00:00',
+  }),
+  seed({
+    id: 'MP20251030008',
+    name: '付费会员专享会员价',
+    title: '付费会员价',
+    tag: '会员价',
+    audienceType: 'paid_member_card_user',
+    memberLevels: [],
+    priceMethod: 'discount',
+    productScope: 'all',
+    productIds: [],
+    productItems: [],
+    allProductsValue: 8.5,
+    groups: [
+      createEmptyMemberPriceOfferGroup({
+        id: 'mpg-paid-1',
+        targetIds: [],
+        priceMethod: 'discount',
+        productScope: 'all',
+        productSelectionMode: 'include',
+        productIds: [],
+        productItems: [],
+        allProductsValue: 8.5,
+      }),
+    ],
+    status: 'in_progress',
+    startTime: '2026-10-01 00:00:00',
+    endTime: '2026-12-31 23:59:59',
+    creator: '10086',
+    creatorPhone: getCreatorProfile('10086').phone,
+    creatorOrg: getCreatorProfile('10086').org,
+    createdAt: '2026-09-28 10:00:00',
+    updatedAt: '2026-10-01 00:00:00',
   }),
   seed({
     id: 'MP20250705003',

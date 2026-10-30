@@ -3,8 +3,10 @@ import type {
   ActivityStatus,
   MemberLevelId,
   MemberPriceActivityForm,
+  MemberPriceAudienceType,
   MemberPriceListFilters,
   MemberPriceMethod,
+  MemberPriceOfferGroup,
   MemberPriceProductCoreFields,
   MemberPriceProductItem,
   StoreScope,
@@ -13,11 +15,232 @@ import {
   MEMBER_LEVEL_LABELS,
   MEMBER_PRICE_METHOD_LABELS,
   createEmptyMemberPriceActivity,
+  createEmptyMemberPriceOfferGroup,
 } from '../mockMemberPriceData'
-import { MEMBER_LEVELS, ORDER_TYPES, getCreatorProfile, products, stores } from '../mockData'
+import {
+  MEMBER_LEVELS,
+  ORDER_TYPES,
+  PHYSICAL_CARDS,
+  STORED_VALUE_LEVELS,
+  getCreatorProfile,
+  products,
+  stores,
+} from '../mockData'
 import { createOperationLog, formatActivityDateTime, maskPhone } from './activity'
 
 export { MEMBER_LEVEL_LABELS, MEMBER_PRICE_METHOD_LABELS }
+
+export const MEMBER_PRICE_AUDIENCE_OPTIONS: { value: MemberPriceAudienceType; label: string }[] = [
+  { value: 'all_level', label: '全部等级会员' },
+  { value: 'specified_level', label: '指定等级会员' },
+  { value: 'all_stored_value', label: '全部储值会员' },
+  { value: 'specified_stored_value', label: '指定储值会员' },
+  { value: 'any_physical_card', label: '使用任意实体卡付款用户' },
+  { value: 'specified_physical_card', label: '使用指定实体卡付款用户' },
+  { value: 'paid_member_card_user', label: '付费会员卡用户' },
+]
+
+export const MEMBER_PRICE_MULTI_GROUP_AUDIENCES: MemberPriceAudienceType[] = [
+  'specified_level',
+  'specified_stored_value',
+  'specified_physical_card',
+]
+
+export const MAX_MEMBER_PRICE_GROUPS = 10
+
+export function supportsMemberPriceMultiGroup(audienceType: MemberPriceAudienceType): boolean {
+  return MEMBER_PRICE_MULTI_GROUP_AUDIENCES.includes(audienceType)
+}
+
+export function needsMemberPriceTargets(audienceType: MemberPriceAudienceType): boolean {
+  return supportsMemberPriceMultiGroup(audienceType)
+}
+
+export function getMemberPriceAudienceLabel(audienceType: MemberPriceAudienceType): string {
+  return MEMBER_PRICE_AUDIENCE_OPTIONS.find((o) => o.value === audienceType)?.label ?? audienceType
+}
+
+export function getMemberPriceTargetOptions(
+  audienceType: MemberPriceAudienceType,
+): { id: string; label: string }[] {
+  if (audienceType === 'specified_level') return MEMBER_LEVELS.map((l) => ({ id: l.id, label: l.label }))
+  if (audienceType === 'specified_stored_value') return STORED_VALUE_LEVELS
+  if (audienceType === 'specified_physical_card') return PHYSICAL_CARDS
+  return []
+}
+
+export function getMemberPriceTargetFieldLabel(audienceType: MemberPriceAudienceType): string {
+  if (audienceType === 'specified_level') return '选择会员等级'
+  if (audienceType === 'specified_stored_value') return '选择会员等级'
+  if (audienceType === 'specified_physical_card') return '选择实体卡'
+  return '选择对象'
+}
+
+export function formatMemberPriceTargetIds(
+  audienceType: MemberPriceAudienceType,
+  targetIds: string[],
+): string {
+  if (!needsMemberPriceTargets(audienceType)) {
+    return getMemberPriceAudienceLabel(audienceType)
+  }
+  if (targetIds.length === 0) return '未选择'
+  const map = new Map(getMemberPriceTargetOptions(audienceType).map((o) => [o.id, o.label]))
+  return targetIds.map((id) => map.get(id) ?? id).join('、')
+}
+
+/** 多方案标签主文案：方案1 / 方案2 … */
+export function getMemberPriceOfferSchemeLabel(index: number): string {
+  return `方案${index + 1}`
+}
+
+/** 标签副文案：已选会员摘要（过长时截断） */
+export function formatMemberPriceGroupTabSummary(
+  audienceType: MemberPriceAudienceType,
+  targetIds: string[],
+  maxLabels = 2,
+): string {
+  if (!needsMemberPriceTargets(audienceType)) return ''
+  if (targetIds.length === 0) return '未选择'
+  const map = new Map(getMemberPriceTargetOptions(audienceType).map((o) => [o.id, o.label]))
+  const labels = targetIds.map((id) => map.get(id) ?? id)
+  if (labels.length <= maxLabels) return labels.join('、')
+  return `${labels.slice(0, maxLabels).join('、')}等${labels.length}项`
+}
+
+/** 将 groups[0] 商品字段同步到活动顶层，供列表检索等复用 */
+export function syncMemberPriceActivityMirrors(activity: MemberPriceActivityForm): MemberPriceActivityForm {
+  const groups = activity.groups?.length
+    ? activity.groups
+    : [createEmptyMemberPriceOfferGroup({ targetIds: activity.memberLevels ?? [] })]
+  const primary = groups[0]
+  const levelTargets = groups.flatMap((g) => g.targetIds).filter((id): id is MemberLevelId =>
+    MEMBER_LEVELS.some((l) => l.id === id),
+  )
+  return {
+    ...activity,
+    groups,
+    memberLevels: activity.audienceType === 'specified_level' || activity.audienceType === 'all_level'
+      ? (levelTargets.length ? [...new Set(levelTargets)] : (activity.memberLevels ?? []))
+      : [],
+    priceMethod: primary.priceMethod,
+    productItems: primary.productItems,
+    allProductsValue: primary.allProductsValue,
+    productScope: primary.productScope,
+    productIds: primary.productIds,
+    productSelectionMode: primary.productSelectionMode,
+  }
+}
+
+export function groupToProductCore(group: MemberPriceOfferGroup): MemberPriceProductCoreFields {
+  return {
+    priceMethod: group.priceMethod,
+    productItems: group.productItems,
+    allProductsValue: group.allProductsValue,
+    valueMode: group.valueMode,
+    sceneValues: group.sceneValues,
+    productScope: group.productScope,
+    productIds: group.productIds,
+    productSelectionMode: group.productSelectionMode,
+  }
+}
+
+export function applyProductCoreToGroup(
+  group: MemberPriceOfferGroup,
+  core: MemberPriceProductCoreFields,
+): MemberPriceOfferGroup {
+  return {
+    ...group,
+    priceMethod: core.priceMethod,
+    productItems: core.productItems,
+    allProductsValue: core.allProductsValue,
+    valueMode: core.valueMode,
+    sceneValues: core.sceneValues,
+    productScope: core.productScope,
+    productIds: core.productIds,
+    productSelectionMode: core.productSelectionMode,
+  }
+}
+
+/** 指定类下，其他方案已占用的会员子集 id（本方案内已选不计入） */
+export function getTakenMemberPriceTargetIds(
+  groups: MemberPriceOfferGroup[],
+  excludeGroupId?: string,
+): Set<string> {
+  const taken = new Set<string>()
+  for (const group of groups) {
+    if (excludeGroupId && group.id === excludeGroupId) continue
+    for (const id of group.targetIds) taken.add(id)
+  }
+  return taken
+}
+
+export function getMemberPriceAllAudienceHint(audienceType: MemberPriceAudienceType): string {
+  if (audienceType === 'specified_level') return '全部等级会员'
+  if (audienceType === 'specified_stored_value') return '全部储值会员'
+  if (audienceType === 'specified_physical_card') return '使用任意实体卡付款用户'
+  return '对应的「全部 / 任意」类型'
+}
+
+export function validateMemberPriceOfferGroup(
+  audienceType: MemberPriceAudienceType,
+  group: MemberPriceOfferGroup,
+  groupIndex: number,
+  orderTypes: string[],
+): string | null {
+  const prefix = supportsMemberPriceMultiGroup(audienceType)
+    ? `${getMemberPriceOfferSchemeLabel(groupIndex)}：`
+    : ''
+  if (needsMemberPriceTargets(audienceType) && group.targetIds.length === 0) {
+    return `${prefix}请至少选择一个${getMemberPriceTargetFieldLabel(audienceType).replace('选择', '')}`
+  }
+  if (needsMemberPriceTargets(audienceType)) {
+    const allCount = getMemberPriceTargetOptions(audienceType).length
+    if (allCount > 0 && group.targetIds.length >= allCount) {
+      return `${prefix}不可全选，如需覆盖全部请改选「${getMemberPriceAllAudienceHint(audienceType)}」`
+    }
+  }
+  const core = groupToProductCore(group)
+  const isExclude = group.productSelectionMode === 'exclude'
+  if (group.productScope === 'partial' && group.productIds.length === 0) {
+    return `${prefix}${isExclude ? '请至少选择一个不参与商品' : '请至少选择一个参与商品'}`
+  }
+  if (isUniformPricing(core)) {
+    const err = validateProductItemValue(group.priceMethod, group.allProductsValue)
+    if (err) return `${prefix}优惠设置：${err}`
+    if (isExclude && group.productScope === 'partial' && getActivityProducts(core).length === 0) {
+      return `${prefix}不参与商品已覆盖全部商品，请调整选择`
+    }
+  } else if (group.productScope === 'partial') {
+    for (const item of group.productItems) {
+      const product = products.find((p) => p.id === item.productId)
+      const err = validateProductItemValue(group.priceMethod, item.value, product?.price)
+      if (err) return `${prefix}「${product?.name ?? item.productId}」${err}`
+    }
+  }
+  const sceneErr = validateMemberSceneSettings({ ...core, orderTypes })
+  if (sceneErr) return `${prefix}${sceneErr}`
+  return null
+}
+
+/** 方案间会员子集不可重复 */
+export function validateMemberPriceTargetExclusive(
+  audienceType: MemberPriceAudienceType,
+  groups: MemberPriceOfferGroup[],
+): string | null {
+  if (!needsMemberPriceTargets(audienceType)) return null
+  const seen = new Map<string, number>()
+  const labelMap = new Map(getMemberPriceTargetOptions(audienceType).map((o) => [o.id, o.label]))
+  for (let i = 0; i < groups.length; i++) {
+    for (const id of groups[i].targetIds) {
+      const prev = seen.get(id)
+      if (prev != null) {
+        return `「${labelMap.get(id) ?? id}」不可在多个方案中重复选择（已用于${getMemberPriceOfferSchemeLabel(prev)}与${getMemberPriceOfferSchemeLabel(i)}）`
+      }
+      seen.set(id, i)
+    }
+  }
+  return null
+}
 
 export function formatPriceMethodValue(method: MemberPriceMethod, value: number): string {
   if (method === 'discount') return `${value}折`
@@ -192,9 +415,35 @@ export function formatRuleSummary(activity: MemberPriceProductCoreFields): strin
 }
 
 export function getMemberLevelsSummary(activity: MemberPriceActivityForm): string {
-  if (activity.memberLevels.length === 0) return '未选择'
-  if (activity.memberLevels.length === MEMBER_LEVELS.length) return '全部等级会员'
-  return activity.memberLevels.map((id) => MEMBER_LEVEL_LABELS[id]).join('、')
+  const audienceType = activity.audienceType ?? 'specified_level'
+  if (!needsMemberPriceTargets(audienceType)) {
+    return getMemberPriceAudienceLabel(audienceType)
+  }
+  const groups = activity.groups?.length ? activity.groups : []
+  if (groups.length === 0) return '未选择'
+  if (groups.length === 1) {
+    return formatMemberPriceTargetIds(audienceType, groups[0].targetIds)
+  }
+  return groups
+    .map((g, i) => `${getMemberPriceOfferSchemeLabel(i)}：${formatMemberPriceTargetIds(audienceType, g.targetIds)}`)
+    .join('；')
+}
+
+export function getMemberPriceGroupsSummary(activity: MemberPriceActivityForm): string {
+  const audienceType = activity.audienceType ?? 'specified_level'
+  const groups = activity.groups?.length ? activity.groups : []
+  if (!supportsMemberPriceMultiGroup(audienceType)) {
+    const g = groups[0]
+    if (!g) return getMemberPriceAudienceLabel(audienceType)
+    return `${getMemberPriceAudienceLabel(audienceType)} · ${formatRuleSummary(groupToProductCore(g))}`
+  }
+  if (groups.length === 0) return '未配置方案'
+  return groups
+    .map((g, i) => {
+      const targets = formatMemberPriceTargetIds(audienceType, g.targetIds)
+      return `${getMemberPriceOfferSchemeLabel(i)}（${targets}）· ${formatRuleSummary(groupToProductCore(g))}`
+    })
+    .join('；')
 }
 
 export function computePublishStatus(activity: MemberPriceActivityForm): ActivityStatus {
@@ -382,57 +631,103 @@ function validateLimitFields(activity: MemberPriceActivityForm): string | null {
   return null
 }
 
-export function validateStep(activity: MemberPriceActivityForm, step: number): string | null {
+export type MemberPriceHealthIssue = { step: number; message: string }
+
+/** 单步全部问题（页脚体检 / 步骤副标题同源） */
+export function collectMemberPriceStepIssues(
+  activity: MemberPriceActivityForm,
+  step: number,
+): string[] {
+  const issues: string[] = []
   if (step === 0) {
-    if (!activity.name.trim()) return '请填写活动名称'
-    if (activity.name.length > 30) return '活动名称不超过30字'
-    if (activity.title.length > 20) return '活动标题不超过20字'
-    if (activity.tag.length > 20) return '商品促销标签不超过20字'
-    if (activity.description.length > 500) return '活动说明不超过500字'
-    if (activity.activityCode.length > 30) return '活动编码不超过30字'
-    if (!activity.startTime || !activity.endTime) return '请填写活动时间'
-    if (new Date(activity.endTime) <= new Date(activity.startTime)) return '结束时间须晚于开始时间'
-    if (activity.channels.length === 0) return '请至少选择一个参与渠道'
+    if (!activity.name.trim()) issues.push('请填写活动名称')
+    if (activity.name.length > 30) issues.push('活动名称不超过30字')
+    if (activity.title.length > 20) issues.push('活动标题不超过20字')
+    if (activity.tag.length > 20) issues.push('商品促销标签不超过20字')
+    if (activity.description.length > 500) issues.push('活动说明不超过500字')
+    if (activity.activityCode.length > 30) issues.push('活动编码不超过30字')
+    if (!activity.startTime || !activity.endTime) issues.push('请填写活动时间')
+    else if (new Date(activity.endTime) <= new Date(activity.startTime)) {
+      issues.push('结束时间须晚于开始时间')
+    }
+    if (activity.channels.length === 0) issues.push('请至少选择一个参与渠道')
+    if (activity.orderTypes.length === 0) issues.push('请至少选择一个业务场景')
     const limitErr = validateLimitFields(activity)
-    if (limitErr) return limitErr
+    if (limitErr) issues.push(limitErr)
   }
   if (step === 1) {
     if (activity.storeScope !== 'all' && activity.storeIds.length === 0) {
-      return '请至少选择一个门店'
+      issues.push('请至少选择一个门店')
     }
   }
   if (step === 2) {
-    if (activity.memberLevels.length === 0) return '请至少选择一个会员等级'
-    const isExclude = activity.productSelectionMode === 'exclude'
-    if (activity.productScope === 'partial' && activity.productIds.length === 0) {
-      return isExclude ? '请至少选择一个不参与商品' : '请至少选择一个参与商品'
+    const audienceType = activity.audienceType ?? 'specified_level'
+    const groups = activity.groups?.length
+      ? activity.groups
+      : [createEmptyMemberPriceOfferGroup({ targetIds: activity.memberLevels ?? [] })]
+    if (supportsMemberPriceMultiGroup(audienceType) && groups.length > MAX_MEMBER_PRICE_GROUPS) {
+      issues.push(`方案最多${MAX_MEMBER_PRICE_GROUPS}个`)
     }
-    if (isUniformPricing(activity)) {
-      const err = validateProductItemValue(activity.priceMethod, activity.allProductsValue)
-      if (err) return `优惠设置：${err}`
-      if (isExclude && activity.productScope === 'partial' && getActivityProducts(activity).length === 0) {
-        return '不参与商品已覆盖全部商品，请调整选择'
-      }
-    } else if (activity.productScope === 'partial') {
-      for (const item of activity.productItems) {
-        const product = products.find((p) => p.id === item.productId)
-        const err = validateProductItemValue(activity.priceMethod, item.value, product?.price)
-        if (err) return `「${product?.name ?? item.productId}」${err}`
-      }
+    if (groups.length === 0) issues.push('请至少配置一个方案')
+    const exclusiveErr = validateMemberPriceTargetExclusive(audienceType, groups)
+    if (exclusiveErr) issues.push(exclusiveErr)
+    for (let i = 0; i < groups.length; i++) {
+      const err = validateMemberPriceOfferGroup(audienceType, groups[i], i, activity.orderTypes)
+      if (err) issues.push(err)
     }
-    const sceneErr = validateMemberSceneSettings(activity)
-    if (sceneErr) return sceneErr
   }
-  return null
+  return issues
 }
 
-function matchesProductName(activity: MemberPriceActivityForm, keyword: string): boolean {
+export function validateStep(activity: MemberPriceActivityForm, step: number): string | null {
+  return collectMemberPriceStepIssues(activity, step)[0] ?? null
+}
+
+/** 全流程体检条目（不含末步预览） */
+export function collectMemberPriceHealthIssues(
+  activity: MemberPriceActivityForm,
+): MemberPriceHealthIssue[] {
+  const out: MemberPriceHealthIssue[] = []
+  for (let step = 0; step <= 2; step++) {
+    for (const message of collectMemberPriceStepIssues(activity, step)) {
+      out.push({ step, message })
+    }
+  }
+  return out
+}
+
+/** 方案是否尚未配齐必填（多方案 Tab 空态） */
+export function isMemberPriceGroupIncomplete(
+  audienceType: MemberPriceAudienceType,
+  group: MemberPriceOfferGroup,
+  orderTypes: string[],
+): boolean {
+  return Boolean(validateMemberPriceOfferGroup(audienceType, group, 0, orderTypes))
+}
+
+/** 点单预览样例价（示意，非真实结算） */
+export function previewMemberSamplePrice(
+  method: MemberPriceMethod,
+  value: number,
+  originalPrice = 18,
+): number {
+  if (!Number.isFinite(value)) return originalPrice
+  if (method === 'discount') {
+    return Math.round(((originalPrice * value) / 10) * 100) / 100
+  }
+  if (method === 'fixed_reduction') {
+    return Math.max(0, Math.round((originalPrice - value) * 100) / 100)
+  }
+  return Math.round(value * 100) / 100
+}
+
+function matchesProductName(activity: MemberPriceProductCoreFields, keyword: string): boolean {
   const kw = keyword.trim().toLowerCase()
   if (!kw) return true
   return getActivityProducts(activity).some((p) => p.name.toLowerCase().includes(kw))
 }
 
-function matchesProductId(activity: MemberPriceActivityForm, keyword: string): boolean {
+function matchesProductId(activity: MemberPriceProductCoreFields, keyword: string): boolean {
   const kw = keyword.trim().toLowerCase()
   if (!kw) return true
   return getActivityProducts(activity).some((p) =>
@@ -440,16 +735,42 @@ function matchesProductId(activity: MemberPriceActivityForm, keyword: string): b
   )
 }
 
+function matchesProductNameAcrossGroups(activity: MemberPriceActivityForm, keyword: string): boolean {
+  const groups = activity.groups?.length ? activity.groups : [groupToProductCore(activity as unknown as MemberPriceOfferGroup)]
+  if (groups.length === 0) return matchesProductName(activity, keyword)
+  return groups.some((g) => matchesProductName(groupToProductCore(g as MemberPriceOfferGroup), keyword))
+}
+
+function matchesProductIdAcrossGroups(activity: MemberPriceActivityForm, keyword: string): boolean {
+  const groups = activity.groups?.length ? activity.groups : null
+  if (!groups?.length) return matchesProductId(activity, keyword)
+  return groups.some((g) => matchesProductId(groupToProductCore(g), keyword))
+}
+
 export function matchesFilters(activity: MemberPriceActivityForm, filters: MemberPriceListFilters): boolean {
   if (filters.status !== 'all' && activity.status !== filters.status) return false
-  if (filters.priceMethod !== 'all' && activity.priceMethod !== filters.priceMethod) return false
-  if (filters.memberLevel !== 'all' && !activity.memberLevels.includes(filters.memberLevel)) return false
+  const groupMethods = (activity.groups?.length ? activity.groups : [{ priceMethod: activity.priceMethod }])
+    .map((g) => g.priceMethod)
+  if (filters.priceMethod !== 'all' && !groupMethods.includes(filters.priceMethod) && activity.priceMethod !== filters.priceMethod) {
+    return false
+  }
+  if (filters.memberLevel !== 'all') {
+    const levelIds = new Set<string>([
+      ...(activity.memberLevels ?? []),
+      ...(activity.groups ?? []).flatMap((g) => g.targetIds),
+    ])
+    if (activity.audienceType === 'all_level') {
+      // 全部等级：任意等级筛选都命中
+    } else if (!levelIds.has(filters.memberLevel)) {
+      return false
+    }
+  }
   if (filters.keyword) {
     const kw = filters.keyword.toLowerCase()
     if (!activity.name.toLowerCase().includes(kw) && !activity.id.toLowerCase().includes(kw)) return false
   }
-  if (filters.productName && !matchesProductName(activity, filters.productName)) return false
-  if (filters.productId && !matchesProductId(activity, filters.productId)) return false
+  if (filters.productName && !matchesProductNameAcrossGroups(activity, filters.productName)) return false
+  if (filters.productId && !matchesProductIdAcrossGroups(activity, filters.productId)) return false
   if (filters.activityCode) {
     const code = filters.activityCode.toLowerCase()
     if (!activity.activityCode.toLowerCase().includes(code)) return false
@@ -492,28 +813,50 @@ export function migrateMemberPriceActivity(raw: Record<string, unknown>): Member
   const defaults = createEmptyMemberPriceActivity()
   const legacy = raw as Partial<MemberPriceActivityForm>
   const productIds = legacy.productIds ?? legacy.productItems?.map((i) => i.productId) ?? defaults.productIds
+  const priceMethod = legacy.priceMethod ?? defaults.priceMethod
   const productItems = legacy.productItems?.length
     ? legacy.productItems
     : productIds.map((productId) => ({
         productId,
-        value: defaultValueForMethod(legacy.priceMethod ?? defaults.priceMethod),
+        value: defaultValueForMethod(priceMethod),
       }))
-  return {
+  const memberLevels = (legacy.memberLevels as MemberLevelId[] | undefined)?.length
+    ? legacy.memberLevels as MemberLevelId[]
+    : defaults.memberLevels
+  const productScope =
+    legacy.productSelectionMode === 'exclude' && legacy.productScope === 'all'
+      ? 'partial'
+      : legacy.productScope ?? defaults.productScope
+  const allProductsValue =
+    legacy.allProductsValue ?? defaultValueForMethod(priceMethod)
+  const groups =
+    legacy.groups?.length
+      ? legacy.groups
+      : [
+          createEmptyMemberPriceOfferGroup({
+            targetIds: memberLevels,
+            priceMethod,
+            productItems,
+            allProductsValue,
+            productScope,
+            productIds,
+            productSelectionMode: legacy.productSelectionMode ?? defaults.productSelectionMode,
+          }),
+        ]
+  const audienceType =
+    legacy.audienceType ??
+    (memberLevels.length >= MEMBER_LEVELS.length ? 'all_level' : 'specified_level')
+  return syncMemberPriceActivityMirrors({
     ...defaults,
     ...legacy,
-    memberLevels: (legacy.memberLevels as MemberLevelId[] | undefined)?.length
-      ? legacy.memberLevels as MemberLevelId[]
-      : defaults.memberLevels,
-    priceMethod: legacy.priceMethod ?? defaults.priceMethod,
+    audienceType,
+    groups,
+    memberLevels,
+    priceMethod,
     productIds,
     productItems,
-    allProductsValue:
-      legacy.allProductsValue ?? defaultValueForMethod(legacy.priceMethod ?? defaults.priceMethod),
-    // 反选模式下不存在「全部商品」范围，历史数据兜底为部分商品
-    productScope:
-      legacy.productSelectionMode === 'exclude' && legacy.productScope === 'all'
-        ? 'partial'
-        : legacy.productScope ?? defaults.productScope,
+    allProductsValue,
+    productScope,
     memberPriceTagDisplay: legacy.memberPriceTagDisplay ?? defaults.memberPriceTagDisplay,
     creatorPhone: legacy.creatorPhone ?? getCreatorProfile(legacy.creator ?? defaults.creator).phone,
     creatorOrg: legacy.creatorOrg ?? getCreatorProfile(legacy.creator ?? defaults.creator).org,
@@ -521,5 +864,5 @@ export function migrateMemberPriceActivity(raw: Record<string, unknown>): Member
     operationLogs: (legacy.operationLogs as ActivityOperationLog[] | undefined)?.length
       ? legacy.operationLogs as ActivityOperationLog[]
       : defaults.operationLogs,
-  }
+  })
 }
