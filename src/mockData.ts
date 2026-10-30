@@ -39,6 +39,28 @@ export const MEMBER_LEVELS = [
   { id: 'diamond' as const, label: '钻石卡' },
 ]
 
+/** 储值会员等级（会员价 · 指定/全部储值会员） */
+export const STORED_VALUE_LEVELS = [
+  { id: 'sv_default', label: '储值会员等级' },
+  { id: 'sv_gold', label: '黄金会员' },
+  { id: 'sv_platinum', label: '铂金会员' },
+  { id: 'sv_l4', label: '会员储值等级四' },
+  { id: 'sv_test', label: '测试' },
+  { id: 'sv_6', label: '会员6' },
+]
+
+/** 实体卡模版（会员价 · 指定/任意实体卡付款用户） */
+export const PHYSICAL_CARDS = [
+  { id: 'pc_1234', label: '1234' },
+  { id: 'pc_tripartite', label: '三方实体卡' },
+  { id: 'pc_month9', label: '9月实体卡' },
+  { id: 'pc_trial', label: '试用实体卡' },
+  { id: 'pc_200', label: '200元实体卡' },
+  { id: 'pc_demo', label: '演示实体卡' },
+  { id: 'pc_vip', label: 'VIP实体卡' },
+  { id: 'pc_staff', label: '员工实体卡' },
+]
+
 export const STATUS_LABELS: Record<string, string> = {
   all: '所有活动',
   draft: '草稿',

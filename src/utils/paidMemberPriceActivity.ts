@@ -1,7 +1,4 @@
 import type {
-  MemberPriceActivityForm,
-  MemberPriceMethod,
-  MemberPriceProductCoreFields,
   PaidMemberCardStatus,
   PaidMemberCardTemplate,
   PaidMemberPriceActivityForm,
@@ -16,8 +13,10 @@ import {
 } from '../mockPaidMemberPriceData'
 import { formatActivityDateTime, createOperationLog } from './activity'
 import {
+  formatRuleSummary,
   getActivityProducts,
   isUniformPricing,
+  validateMemberSceneSettings,
   validateProductItemValue,
 } from './memberPriceActivity'
 
@@ -241,73 +240,6 @@ export function hasActiveBoundActivity(
   )
 }
 
-/* ================= 与普通会员价的比价提醒 ================= */
-
-/** 按优惠形式算出商品的实际成交价 */
-function resolveUnitPrice(method: MemberPriceMethod, value: number, originalPrice: number): number {
-  if (method === 'discount') return Math.round(originalPrice * value * 10) / 100
-  if (method === 'fixed_reduction') return Math.max(0, Math.round((originalPrice - value) * 100) / 100)
-  return value
-}
-
-/** 商品在某个会员价类活动中的成交价；商品不参与该活动时返回 null */
-function unitPriceIn(
-  activity: MemberPriceProductCoreFields,
-  productId: string,
-  originalPrice: number,
-): number | null {
-  if (!getActivityProducts(activity).some((p) => p.id === productId)) return null
-  const value = isUniformPricing(activity)
-    ? activity.allProductsValue
-    : activity.productItems.find((i) => i.productId === productId)?.value
-  if (value == null) return null
-  return resolveUnitPrice(activity.priceMethod, value, originalPrice)
-}
-
-export interface PriceDisadvantage {
-  productName: string
-  paidPrice: number
-  memberPrice: number
-  memberActivityName: string
-}
-
-/**
- * 检出「付费会员价比普通会员价更贵」的商品。
- * 顾客付费开卡却买得更贵会直接损伤口碑，因此保存时提醒但不阻断。
- * 对比基准取生效中的普通会员价里对顾客最优（最低）的那一档。
- */
-export function findPriceDisadvantages(
-  activity: PaidMemberPriceActivityForm,
-  memberPriceActivities: MemberPriceActivityForm[],
-): PriceDisadvantage[] {
-  const live = memberPriceActivities.filter(
-    (m) => m.status === 'in_progress' || m.status === 'not_started',
-  )
-  if (live.length === 0) return []
-
-  const result: PriceDisadvantage[] = []
-  for (const product of getActivityProducts(activity)) {
-    const paidPrice = unitPriceIn(activity, product.id, product.price)
-    if (paidPrice == null) continue
-
-    let best: { price: number; name: string } | null = null
-    for (const m of live) {
-      const price = unitPriceIn(m, product.id, product.price)
-      if (price == null) continue
-      if (!best || price < best.price) best = { price, name: m.name }
-    }
-    if (best && paidPrice > best.price) {
-      result.push({
-        productName: product.name,
-        paidPrice,
-        memberPrice: best.price,
-        memberActivityName: best.name,
-      })
-    }
-  }
-  return result
-}
-
 /* ================= 校验 ================= */
 
 const NAME_MAX = 30
@@ -375,6 +307,8 @@ export function validateStep(
         if (err) return `「${product?.name ?? item.productId}」${err}`
       }
     }
+    const sceneErr = validateMemberSceneSettings(activity)
+    if (sceneErr) return sceneErr
   }
   return null
 }
@@ -520,25 +454,7 @@ export function migratePaidMemberPriceActivity(
 /* ================= 展示辅助 ================= */
 
 export function formatPaidRuleSummary(activity: PaidMemberPriceActivityForm): string {
-  const labels: Record<MemberPriceMethod, string> = {
-    discount: '折扣',
-    fixed_reduction: '减价',
-    special_price: '固定价格',
-  }
-  const uniform = activity.priceMethod === 'discount'
-    ? `${activity.allProductsValue}折`
-    : activity.priceMethod === 'fixed_reduction'
-      ? `立减${activity.allProductsValue}元`
-      : `特价${activity.allProductsValue}元`
-  let count: string
-  if (activity.productScope === 'all') {
-    count = `全部商品${uniform}`
-  } else if (activity.productSelectionMode === 'exclude') {
-    count = `排除${activity.productIds.length}个商品，其余${uniform}`
-  } else {
-    count = `${activity.productItems.length}个商品`
-  }
-  return `${labels[activity.priceMethod]} · ${count}`
+  return formatRuleSummary(activity)
 }
 
 /** 参与商品中已失效（已下架/删除）的数量 */

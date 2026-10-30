@@ -31,7 +31,7 @@ export function InboxDrawer({
         <div className="inbox-drawer__header">
           <div>
             <h3>站内信</h3>
-            <p className="inbox-drawer__sub">空名单/失效态通知 · 正式规则发给活动创建人</p>
+            <p className="inbox-drawer__sub">门店停业导致活动自动暂停时通知 · 发给活动创建人 · 一活动一条</p>
           </div>
           <button type="button" className="modal__close" onClick={onClose}>×</button>
         </div>

@@ -9,13 +9,11 @@ import { StorePicker } from '../components/StorePicker'
 import { CHANNELS, ORDER_TYPES } from '../mockData'
 import { PAID_MEMBER_PRICE_STATUS_LABELS } from '../mockPaidMemberPriceData'
 import type {
-  MemberPriceActivityForm,
   PaidMemberCardTemplate,
   PaidMemberPriceActivityForm,
   WizardMode,
 } from '../types'
 import {
-  findPriceDisadvantages,
   getPauseInfo,
   isBindingLocked,
   isRuleLocked,
@@ -25,8 +23,6 @@ import {
 interface PaidMemberPriceActivityWizardProps {
   activity: PaidMemberPriceActivityForm
   cards: PaidMemberCardTemplate[]
-  /** 用于比价提醒：付费会员价不应比普通会员价更贵 */
-  memberPriceActivities: MemberPriceActivityForm[]
   mode: WizardMode
   /** 从权益卡带绑定进来时直接落在「活动基础规则」，省掉一次确认 */
   initialStep?: number
@@ -45,7 +41,6 @@ const PREVIEW_STEP = STEPS.length - 1
 export function PaidMemberPriceActivityWizard({
   activity,
   cards,
-  memberPriceActivities,
   mode,
   initialStep,
   onChange,
@@ -76,8 +71,6 @@ export function PaidMemberPriceActivityWizard({
     return () => window.clearInterval(timer)
   }, [activity.status])
   const pauseInfo = getPauseInfo(activity, now)
-
-  const priceDisadvantages = findPriceDisadvantages(activity, memberPriceActivities)
 
   useEffect(() => {
     if (isView) setStep(PREVIEW_STEP)
@@ -273,6 +266,7 @@ export function PaidMemberPriceActivityWizard({
                   showMemberLevels={false}
                   onChange={onChange}
                   onToast={onToast}
+                  sceneOrderTypes={activity.orderTypes}
                 />
               </Section>
             </div>
@@ -280,20 +274,6 @@ export function PaidMemberPriceActivityWizard({
 
           {step === PREVIEW_STEP && (
             <div className="wizard-step wizard-step--animate">
-              {priceDisadvantages.length > 0 && (
-                <div className="alert-banner alert-banner--warning">
-                  <span className="alert-banner__icon">!</span>
-                  <span>
-                    有 {priceDisadvantages.length} 个商品的付费会员价高于普通会员价，顾客付费开卡反而买得更贵，建议核对优惠力度：
-                    {priceDisadvantages
-                      .slice(0, 3)
-                      .map((d) => `「${d.productName}」付费价 ¥${d.paidPrice}、普通会员价 ¥${d.memberPrice}（${d.memberActivityName}）`)
-                      .join('；')}
-                    {priceDisadvantages.length > 3 && ` 等 ${priceDisadvantages.length} 个商品`}。
-                    仍可保存，结算时会按对顾客更优的价格执行。
-                  </span>
-                </div>
-              )}
               <PaidMemberPriceActivityPreview
                 activity={activity}
                 cards={cards}

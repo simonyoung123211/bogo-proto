@@ -9,9 +9,11 @@ interface StorePickerProps {
   onScopeChange: (scope: StoreScope) => void
   onChange: (ids: string[]) => void
   readOnly?: boolean
+  /** 外层已提供门店方式时，隐藏组件自带的三个选项 */
+  hideScopeRadios?: boolean
 }
 
-export function StorePicker({ scope, selectedIds, onScopeChange, onChange, readOnly }: StorePickerProps) {
+export function StorePicker({ scope, selectedIds, onScopeChange, onChange, readOnly, hideScopeRadios }: StorePickerProps) {
   const [regionId, setRegionId] = useState('all')
   const [keyword, setKeyword] = useState('')
   const allStores = getResolvedStores()
@@ -40,27 +42,29 @@ export function StorePicker({ scope, selectedIds, onScopeChange, onChange, readO
 
   return (
     <div className="store-picker">
-      {!readOnly && (
+      {!readOnly && !hideScopeRadios && (
         <div className="form-row">
           <label className="form-label">门店选择方式</label>
-          <div className="radio-group">
-            {[
-              { value: 'all', label: '全部门店参与' },
-              { value: 'partial_include', label: '部分门店参与' },
-              { value: 'partial_exclude', label: '部分门店不参与' },
-            ].map((opt) => (
-              <label key={opt.value} className="radio">
-                <input
-                  type="radio"
-                  name="storeScope"
-                  checked={scope === opt.value}
-                  onChange={() => onScopeChange(opt.value as StoreScope)}
-                />
-                {opt.label}
-              </label>
-            ))}
+          <div className="form-control">
+            <div className="radio-group">
+              {[
+                { value: 'all', label: '全部门店参与' },
+                { value: 'partial_include', label: '部分门店参与' },
+                { value: 'partial_exclude', label: '部分门店不参与' },
+              ].map((opt) => (
+                <label key={opt.value} className="radio">
+                  <input
+                    type="radio"
+                    name="storeScope"
+                    checked={scope === opt.value}
+                    onChange={() => onScopeChange(opt.value as StoreScope)}
+                  />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+            <p className="field-hint">已停业门店不可选入参与/不参与名单。</p>
           </div>
-          <p className="form-hint" style={{ margin: '6px 0 0' }}>已停业门店不可选入参与/不参与名单。</p>
         </div>
       )}
 

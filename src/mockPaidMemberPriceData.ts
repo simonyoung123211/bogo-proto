@@ -284,7 +284,11 @@ export const initialPaidMemberPriceActivities: PaidMemberPriceActivityForm[] = [
     priceMethod: 'special_price',
     productScope: 'partial',
     productIds: coffeeProducts.map((p) => p.id),
-    productItems: coffeeProducts.map((p) => ({ productId: p.id, value: 9.9 })),
+    productItems: coffeeProducts.map((p, index) => ({
+      productId: p.id,
+      value: 9.9,
+      ...(index === 0 ? { sceneValues: { takeaway: 8.9 } } : {}),
+    })),
     storeScope: 'partial_include',
     storeIds: ['s1', 's2', 's3'],
     maxDiscountItemsPerOrderType: 'limited',

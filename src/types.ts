@@ -717,11 +717,47 @@ export type MemberLevelId = 'normal' | 'silver' | 'gold' | 'platinum' | 'diamond
 
 export type MemberPriceMethod = 'discount' | 'fixed_reduction' | 'special_price'
 
+/** 全部商品、反选时的力度方式；逐商品配置时不使用 */
+export type MemberPriceValueMode = 'unified' | 'by_scene'
+
+/**
+ * 会员价 · 优惠会员（活动级单选）。
+ * 仅「指定等级 / 指定储值 / 指定实体卡」支持活动内多组（≤10）。
+ */
+export type MemberPriceAudienceType =
+  | 'all_level'
+  | 'specified_level'
+  | 'all_stored_value'
+  | 'specified_stored_value'
+  | 'any_physical_card'
+  | 'specified_physical_card'
+  | 'paid_member_card_user'
+
 /** 逐商品会员价配置 */
 export interface MemberPriceProductItem {
   productId: string
-  /** 折数(如8.5) / 减价金额 / 固定价格，按 priceMethod 解释 */
+  /** 默认力度。折数(如8.5) / 减价金额 / 固定价格，按 priceMethod 解释；未单独设置的业务都按它执行 */
   value: number
+  /** 个别业务单独设置的力度；没有出现的业务按默认力度 */
+  sceneValues?: Record<string, number | null>
+}
+
+/**
+ * 会员价活动内的一组「会员子集 + 商品 + 优惠」。
+ * 单套优惠会员类型下 groups 固定为 1 条；指定类最多 10 条。
+ */
+export interface MemberPriceOfferGroup {
+  id: string
+  /** 等级 / 储值等级 / 实体卡 id；「全部* / 任意实体卡 / 付费会员卡用户」可为空 */
+  targetIds: string[]
+  priceMethod: MemberPriceMethod
+  productItems: MemberPriceProductItem[]
+  allProductsValue: number
+  valueMode?: MemberPriceValueMode
+  sceneValues?: Record<string, number | null>
+  productScope: ProductScope
+  productIds: string[]
+  productSelectionMode: 'include' | 'exclude'
 }
 
 /**
@@ -733,10 +769,14 @@ export interface MemberPriceProductCoreFields {
   priceMethod: MemberPriceMethod
   productItems: MemberPriceProductItem[]
   allProductsValue: number
+  /** 全部商品、反选时：统一力度或按业务类型分别填写 */
+  valueMode?: MemberPriceValueMode
+  /** 全部商品、反选且按业务类型时，各业务的力度；缺省沿用 allProductsValue */
+  sceneValues?: Record<string, number | null>
   productScope: ProductScope
   productIds: string[]
   productSelectionMode: 'include' | 'exclude'
-  /** 仅普通会员价使用；付费会员价的资格来自权益卡，无此字段 */
+  /** 仅普通会员价历史字段；付费会员价的资格来自权益卡，无此字段 */
   memberLevels?: MemberLevelId[]
 }
 
@@ -753,6 +793,14 @@ export interface MemberPriceActivityForm {
   priority: number
   channels: string[]
   orderTypes: string[]
+  /** 优惠会员类型（活动级） */
+  audienceType: MemberPriceAudienceType
+  /** 商品与优惠组；指定类 1～10 组，其余固定 1 组 */
+  groups: MemberPriceOfferGroup[]
+  /**
+   * 以下商品/优惠字段与 groups[0] 保持同步，供列表检索、旧预览辅助与共有工具复用。
+   * 编辑以 groups 为准。
+   */
   memberLevels: MemberLevelId[]
   priceMethod: MemberPriceMethod
   productItems: MemberPriceProductItem[]
@@ -1134,6 +1182,198 @@ export interface EnterpriseDiscountListFilters {
   endDate: string
 }
 
+/* ================= 一口价（满件数打包价） ================= */
+
+/** 一口价阶梯：满 quantity 件，合计 price 元 */
+export interface BundlePriceTier {
+  id: string
+  /** 满件数，正整数 */
+  quantity: number
+  /** 这 quantity 件的打包一口价（元） */
+  price: number
+}
+
+/** 活动条件：每满循环，或阶梯就高 */
+export type BundlePriceConditionMode = 'cyclic' | 'tiered'
+
+/** 件数凑够后，按售价决定哪些商品进入打包价 */
+export type BundlePriceHitRule = 'high_to_low' | 'low_to_high'
+
+export interface BundlePriceActivityForm {
+  id: string
+  name: string
+  title: string
+  description: string
+  startTime: string
+  endTime: string
+  cycleType: CycleType
+  timeSlotType: TimeSlotType
+  /** 活动权重，数值越大越优先 */
+  priority: number
+  channels: string[]
+  orderTypes: string[]
+  /** 活动条件：每满设置 / 阶梯设置 */
+  conditionMode: BundlePriceConditionMode
+  /** 每满件数 */
+  cyclicQuantity: number
+  /** 每满对应的打包一口价（元） */
+  cyclicPrice: number
+  /** 优惠命中规则：售价从高到低，或从低到高 */
+  priceHitRule: BundlePriceHitRule
+  tiers: BundlePriceTier[]
+  /** 每单最多享受的打包组数 */
+  maxBundleGroupsPerOrderType: LimitType
+  maxBundleGroupsPerOrder: number
+  totalParticipationLimitType: LimitType
+  totalParticipationLimit: number
+  participationFrequencyType: LimitType
+  participationFrequencyPeriod: ParticipationPeriod
+  participationFrequencyLimit: number
+  productScope: ProductScope
+  productIds: string[]
+  productSelectionMode: 'include' | 'exclude'
+  storeScope: StoreScope
+  storeIds: string[]
+  shareMutexRelation: ShareMutexRelation
+  participantUser: ParticipantUser
+  memberTagId: string
+  activityCode: string
+  titleDisplay: DisplayToggle
+  tagDisplay: DisplayToggle
+  status: ActivityStatus
+  /** 进入「已暂停」的时刻，用于计算暂停时长与超时分级 */
+  pausedAt?: string
+  creator: string
+  creatorPhone: string
+  creatorOrg: string
+  createdAt: string
+  updatedAt: string
+  operationLogs: ActivityOperationLog[]
+}
+
+export interface BundlePriceListFilters {
+  keyword: string
+  productName: string
+  productId: string
+  activityCode: string
+  status: ActivityStatus | 'all'
+  startDate: string
+  endDate: string
+  storeId: string
+}
+
+/** 限时折扣优惠方式：折扣 / 减价 / 指定价格 */
+export type LimitDiscountMethod = 'discount' | 'reduce' | 'special_price'
+
+/** 参与商品范围 */
+export type LimitDiscountGoodsScope = 'all' | 'include' | 'exclude'
+
+/** 参与门店方式，含门店标签正反选 */
+export type LimitDiscountStoreMode = 'all' | 'include' | 'exclude' | 'tag_include' | 'tag_exclude'
+
+/** 限时折扣参与用户 */
+export type LimitDiscountParticipant = 'all_users' | 'registered_member' | 'unconsumed' | 'paid_member'
+
+/** 门槛商品范围 */
+export type LimitDiscountThresholdGoods = 'all' | 'exclude' | 'include'
+
+export interface LimitDiscountTimeRange {
+  id: string
+  start: string
+  end: string
+}
+
+/** 优惠力度：所选业务类型共用一套，或按业务类型分别填写 */
+export type LimitDiscountValueMode = 'unified' | 'by_scene'
+
+/** 指定商品上的优惠力度与活动库存；库存为空表示不限量 */
+export interface LimitDiscountProductItem {
+  productId: string
+  /** 默认力度，未单独设置的业务都按它执行 */
+  discountValue: number | null
+  /** 个别业务单独设置的力度，键为业务类型；没有出现的业务按默认力度 */
+  sceneDiscountValues: Record<string, number | null>
+  stock: number | null
+}
+
+export interface LimitDiscountActivityForm {
+  id: string
+  name: string
+  title: string
+  goodsLabel: string
+  startTime: string
+  endTime: string
+  cycleType: CycleType
+  weekDays: number[]
+  monthDays: number[]
+  timeSlotType: TimeSlotType
+  timeSlots: LimitDiscountTimeRange[]
+  holidayInactive: boolean
+  inactiveRanges: LimitDiscountTimeRange[]
+  thresholdType: LimitType
+  thresholdAmount: number
+  thresholdGoodsScope: LimitDiscountThresholdGoods
+  thresholdProductIds: string[]
+  thresholdIncludeTopping: boolean
+  thresholdIncludeCombo: boolean
+  thresholdIncludePractice: boolean
+  toppingDiscount: 'no' | 'yes'
+  comboSurchargeDiscount: 'no' | 'yes'
+  practiceSurchargeDiscount: 'no' | 'yes'
+  totalTimesType: LimitType
+  totalTimes: number
+  frequencyType: LimitType
+  frequencyPeriod: ParticipationPeriod
+  frequencyTimes: number
+  limitTotalPieces: boolean
+  totalPieces: number
+  limitPeriodPieces: boolean
+  periodPiecesPeriod: ParticipationPeriod
+  periodPieces: number
+  limitOrderPieces: boolean
+  orderPieces: number
+  hitRule: DiscountHitRule
+  activityCode: string
+  shareMutexRelation: ShareMutexRelation
+  participantUser: LimitDiscountParticipant
+  titleDisplay: DisplayToggle
+  goodsLabelDisplay: DisplayToggle
+  memberTagIds: string[]
+  searchKeyword: string
+  description: string
+  channels: string[]
+  orderTypes: string[]
+  storeMode: LimitDiscountStoreMode
+  storeIds: string[]
+  storeTagIds: string[]
+  discountMethod: LimitDiscountMethod
+  goodsScope: LimitDiscountGoodsScope
+  /** 全部商品或指定商品不参与时，余下商品共用的力度方式。指定商品时以每个商品自己的设置为准 */
+  valueMode: LimitDiscountValueMode
+  /** 全部商品或指定商品不参与时，余下商品共用的优惠力度 */
+  discountValue: number | null
+  /** 全部商品或余下商品按业务类型的优惠力度 */
+  sceneDiscountValues: Record<string, number | null>
+  /** 全部商品或余下商品的活动库存，空表示不限量 */
+  activityStock: number | null
+  productItems: LimitDiscountProductItem[]
+  status: ActivityStatus
+  pausedAt?: string
+  creator: string
+  creatorPhone: string
+  creatorOrg: string
+  createdAt: string
+  updatedAt: string
+  operationLogs: ActivityOperationLog[]
+}
+
+export interface LimitDiscountListFilters {
+  keyword: string
+  status: ActivityStatus | 'all'
+  startDate: string
+  endDate: string
+}
+
 export type PageView =
   | { type: 'list' }
   | { type: 'wizard'; mode: WizardMode; activityId?: string; step?: number }
@@ -1157,6 +1397,13 @@ export type PageView =
   | { type: 'full-reduction-participation'; activityId: string }
   | { type: 'delivery-fee-list' }
   | { type: 'delivery-fee-wizard'; mode: WizardMode; activityId?: string; step?: number }
+  | { type: 'bundle-price-list' }
+  | { type: 'bundle-price-wizard'; mode: WizardMode; activityId?: string; step?: number }
+  /** 不传 activityId 表示查询该类型下全部活动 */
+  | { type: 'bundle-price-participation'; activityId?: string }
+  | { type: 'limit-discount-list' }
+  | { type: 'limit-discount-wizard'; mode: WizardMode; activityId?: string; step?: number }
+  | { type: 'limit-discount-participation'; activityId?: string }
   | { type: 'paid-member-price-list' }
   | { type: 'paid-member-price-wizard'; mode: WizardMode; activityId?: string; step?: number; from?: 'card-list' }
   | { type: 'paid-member-price-participation'; activityId: string }
