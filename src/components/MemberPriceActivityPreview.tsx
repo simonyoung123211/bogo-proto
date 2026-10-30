@@ -225,7 +225,7 @@ function PreviewSection({
       <div className="preview-section__head">
         <h3 className="preview-section__title">{title}</h3>
         {showEdit && onEdit && (
-          <button type="button" className="btn-link" onClick={() => onEdit(step)}>编辑</button>
+          <button type="button" className="btn-link" aria-label={`编辑${title}`} onClick={() => onEdit(step)}>编辑</button>
         )}
       </div>
       <div className="preview-section__body">{children}</div>

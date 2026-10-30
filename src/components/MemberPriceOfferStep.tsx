@@ -280,25 +280,24 @@ export function MemberPriceOfferStep({
           {needsMemberPriceTargets(audienceType) && (
             <FormRow label={getMemberPriceTargetFieldLabel(audienceType)} required>
               <div className="member-level-group">
-                <div className="checkbox-group checkbox-group--wrap">
+                <div className="choices choices--targets" role="group" aria-label={getMemberPriceTargetFieldLabel(audienceType)}>
                   {options.map((opt) => {
                     const taken = takenByOthers.has(opt.id)
                     const checked = activeGroup.targetIds.includes(opt.id)
+                    const disabled = Boolean(readOnly || (taken && !checked))
                     return (
-                      <label
+                      <button
                         key={opt.id}
-                        className={`checkbox ${taken && !checked ? 'is-disabled' : ''}`}
+                        type="button"
+                        className={`choice box ${checked ? 'selected' : ''} ${taken && !checked ? 'is-taken' : ''}`}
+                        disabled={disabled}
+                        aria-pressed={checked}
                         title={taken && !checked ? '已在其他方案中使用' : undefined}
+                        onClick={() => toggleTarget(activeGroup.id, opt.id)}
                       >
-                        <input
-                          type="checkbox"
-                          disabled={readOnly || (taken && !checked)}
-                          checked={checked}
-                          onChange={() => toggleTarget(activeGroup.id, opt.id)}
-                        />
                         {opt.label}
-                        {taken && !checked ? <span className="mp-target-taken">（已占用）</span> : null}
-                      </label>
+                        {taken && !checked ? <span className="mp-target-taken">已占用</span> : null}
+                      </button>
                     )
                   })}
                 </div>

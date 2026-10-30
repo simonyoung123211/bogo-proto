@@ -79,6 +79,8 @@ import {
   appendActivityLog as appendMemberPriceLog,
   cloneActivity as cloneMemberPriceActivity,
   computePublishStatus as computeMemberPricePublishStatus,
+  findMemberPriceConflicts,
+  formatMemberPriceConflictSummary,
 } from './utils/memberPriceActivity'
 import {
   appendActivityLog as appendMultiItemLog,
@@ -1276,6 +1278,25 @@ function App() {
     setMemberPriceDraft(null)
   }
 
+  const handleMemberPriceEditStockFromConflict = (id: string, options?: { saveDraftFirst?: boolean }) => {
+    if (options?.saveDraftFirst && memberPriceDraft) {
+      const exists = memberPriceActivities.some((a) => a.id === memberPriceDraft.id)
+      const saved = exists
+        ? appendMemberPriceLog({ ...memberPriceDraft, status: 'draft' as const }, '编辑活动', `保存草稿「${memberPriceDraft.name}」`, currentOperator)
+        : { ...memberPriceDraft, status: 'draft' as const }
+      upsertMemberPrice(saved)
+      showToast('当前活动已存为草稿')
+    }
+    const target = memberPriceActivities.find((a) => a.id === id)
+    if (!target) {
+      showToast('未找到该存量活动')
+      return
+    }
+    setMemberPriceDraft({ ...target })
+    setView({ type: 'member-price-wizard', mode: 'edit' })
+    showToast(`已打开存量活动「${target.name || target.id}」`)
+  }
+
   const handleStoredValuePaySaveDraft = () => {
     if (!storedValuePayDraft) return
     const exists = storedValuePayActivities.some((a) => a.id === storedValuePayDraft.id)
@@ -1384,6 +1405,11 @@ function App() {
 
   const handleMemberPriceSave = () => {
     if (!memberPriceDraft) return
+    const conflicts = findMemberPriceConflicts(memberPriceDraft, memberPriceActivities)
+    if (conflicts.length > 0) {
+      showToast(`无法保存：${formatMemberPriceConflictSummary(conflicts)}`)
+      return
+    }
     const { status, keep } = resolveSavedStatus(memberPriceActivities, memberPriceDraft)
     upsertMemberPrice(appendMemberPriceLog({ ...memberPriceDraft, status }, keep ? '编辑活动' : '保存活动', `保存活动「${memberPriceDraft.name}」`, currentOperator))
     showToast(keep ? '活动已保存' : '活动保存成功，请前往活动列表发布')
@@ -2335,6 +2361,7 @@ function App() {
       ) : memberPriceDraft ? (
         <MemberPriceActivityWizard
           activity={memberPriceDraft}
+          activities={memberPriceActivities}
           mode={view.type === 'member-price-wizard' ? view.mode : 'create'}
           onChange={setMemberPriceDraft}
           onCancel={() => { setView({ type: 'member-price-list' }); setMemberPriceDraft(null) }}
@@ -2342,6 +2369,7 @@ function App() {
           onSave={handleMemberPriceSave}
           onSwitchToEdit={view.type === 'member-price-wizard' && view.mode === 'view' ? () => setView({ type: 'member-price-wizard', mode: 'edit' }) : undefined}
           onToast={showToast}
+          onEditStockActivity={handleMemberPriceEditStockFromConflict}
         />
       ) : storedValuePayDraft ? (
         <StoredValuePayActivityWizard

@@ -520,6 +520,384 @@ export function getActivityStores(activity: { storeIds: string[] }) {
   return stores.filter((s) => activity.storeIds.includes(s.id))
 }
 
+/* ================= 活动间冲突校验（会员价同类） ================= */
+
+const MEMBER_PRICE_CONFLICT_STATUSES: ActivityStatus[] = [
+  'pending',
+  'not_started',
+  'in_progress',
+  'paused',
+]
+
+/** 展开实际生效门店；反选先展开再比对 */
+export function resolveMemberPriceStoreIds(activity: MemberPriceActivityForm): string[] {
+  const openStores = stores.filter((s) => s.status === 'open')
+  if (activity.storeScope === 'all') return openStores.map((s) => s.id)
+  if (activity.storeScope === 'partial_exclude') {
+    return openStores.filter((s) => !activity.storeIds.includes(s.id)).map((s) => s.id)
+  }
+  return activity.storeIds.filter((id) => openStores.some((s) => s.id === id))
+}
+
+/** 展开实际生效商品（多方案取并集） */
+export function resolveMemberPriceProductIds(activity: MemberPriceActivityForm): string[] {
+  const groups = activity.groups?.length ? activity.groups : null
+  if (!groups) return getActivityProducts(activity).map((p) => p.id)
+  const ids = new Set<string>()
+  for (const g of groups) {
+    getActivityProducts(groupToProductCore(g)).forEach((p) => ids.add(p.id))
+  }
+  return [...ids]
+}
+
+function parseMemberPriceTime(value: string): number {
+  return new Date(value.replace(/-/g, '/')).getTime()
+}
+
+export function memberPriceTimeOverlaps(a: MemberPriceActivityForm, b: MemberPriceActivityForm): boolean {
+  const aStart = parseMemberPriceTime(a.startTime)
+  const aEnd = parseMemberPriceTime(a.endTime)
+  const bStart = parseMemberPriceTime(b.startTime)
+  const bEnd = parseMemberPriceTime(b.endTime)
+  if (![aStart, aEnd, bStart, bEnd].every(Number.isFinite)) return false
+  return aStart < bEnd && bStart < aEnd
+}
+
+function audienceFamily(type: MemberPriceAudienceType): 'level' | 'stored' | 'physical' | 'paid' {
+  if (type === 'all_level' || type === 'specified_level') return 'level'
+  if (type === 'all_stored_value' || type === 'specified_stored_value') return 'stored'
+  if (type === 'any_physical_card' || type === 'specified_physical_card') return 'physical'
+  return 'paid'
+}
+
+function collectAudienceTargets(activity: MemberPriceActivityForm): string[] {
+  const type = activity.audienceType ?? 'specified_level'
+  if (!needsMemberPriceTargets(type)) return ['*']
+  const groups = activity.groups?.length
+    ? activity.groups
+    : [createEmptyMemberPriceOfferGroup({ targetIds: activity.memberLevels ?? [] })]
+  return [...new Set(groups.flatMap((g) => g.targetIds))]
+}
+
+/** 优惠会员是否会命中同一批顾客子集 */
+export function memberPriceAudienceOverlaps(a: MemberPriceActivityForm, b: MemberPriceActivityForm): boolean {
+  const aType = a.audienceType ?? 'specified_level'
+  const bType = b.audienceType ?? 'specified_level'
+  if (audienceFamily(aType) !== audienceFamily(bType)) return false
+  if (aType === 'paid_member_card_user' || bType === 'paid_member_card_user') {
+    return aType === 'paid_member_card_user' && bType === 'paid_member_card_user'
+  }
+  const aAll = !needsMemberPriceTargets(aType)
+  const bAll = !needsMemberPriceTargets(bType)
+  if (aAll || bAll) return true
+  const aTargets = new Set(collectAudienceTargets(a))
+  return collectAudienceTargets(b).some((id) => aTargets.has(id))
+}
+
+function isPausedStillActive(activity: MemberPriceActivityForm, now = Date.now()): boolean {
+  if (activity.status !== 'paused') return true
+  const end = parseMemberPriceTime(activity.endTime)
+  return Number.isFinite(end) && end > now
+}
+
+export function participatesInMemberPriceConflict(activity: MemberPriceActivityForm, now = Date.now()): boolean {
+  if (!MEMBER_PRICE_CONFLICT_STATUSES.includes(activity.status)) return false
+  if (activity.status === 'paused' && !isPausedStillActive(activity, now)) return false
+  return true
+}
+
+export interface MemberPriceConflict {
+  activity: MemberPriceActivityForm
+  storeIds: string[]
+  productIds: string[]
+  channelIds: string[]
+  orderTypeIds: string[]
+  audienceHint: string
+  storeNames: string[]
+  productNames: string[]
+}
+
+/**
+ * 同类会员价冲突：时间 ∩ 门店 ∩ 商品 ∩ 渠道 ∩ 场景 ∩ 优惠会员 均有交集。
+ * 仅与待发布 / 未开始 / 进行中 / 暂停（未过期）比对；草稿、已结束、已作废不参与。
+ */
+export function findMemberPriceConflicts(
+  target: MemberPriceActivityForm,
+  all: MemberPriceActivityForm[],
+  now = Date.now(),
+): MemberPriceConflict[] {
+  const targetStores = new Set(resolveMemberPriceStoreIds(target))
+  const targetProducts = new Set(resolveMemberPriceProductIds(target))
+  const targetChannels = new Set(target.channels)
+  const targetScenes = new Set(target.orderTypes)
+  const conflicts: MemberPriceConflict[] = []
+
+  for (const other of all) {
+    if (other.id === target.id) continue
+    if (!participatesInMemberPriceConflict(other, now)) continue
+    if (!memberPriceTimeOverlaps(target, other)) continue
+    if (!memberPriceAudienceOverlaps(target, other)) continue
+
+    const storeHits = resolveMemberPriceStoreIds(other).filter((id) => targetStores.has(id))
+    if (storeHits.length === 0) continue
+    const productHits = resolveMemberPriceProductIds(other).filter((id) => targetProducts.has(id))
+    if (productHits.length === 0) continue
+    const channelHits = other.channels.filter((id) => targetChannels.has(id))
+    if (channelHits.length === 0) continue
+    const sceneHits = other.orderTypes.filter((id) => targetScenes.has(id))
+    if (sceneHits.length === 0) continue
+
+    const audienceHint = needsMemberPriceTargets(other.audienceType ?? 'specified_level')
+      ? formatMemberPriceTargetIds(other.audienceType ?? 'specified_level', collectAudienceTargets(other))
+      : getMemberPriceAudienceLabel(other.audienceType ?? 'specified_level')
+
+    conflicts.push({
+      activity: other,
+      storeIds: storeHits,
+      productIds: productHits,
+      channelIds: channelHits,
+      orderTypeIds: sceneHits,
+      audienceHint,
+      storeNames: storeHits.slice(0, 5).map((id) => stores.find((s) => s.id === id)?.name ?? id),
+      productNames: productHits.slice(0, 5).map((id) => products.find((p) => p.id === id)?.name ?? id),
+    })
+  }
+  return conflicts
+}
+
+/** 从当前活动中排除冲突门店（就地解除门店维度重叠） */
+export function excludeConflictStoresFromMemberPrice(
+  activity: MemberPriceActivityForm,
+  storeIdsToExclude: string[],
+): MemberPriceActivityForm {
+  const exclude = [...new Set(storeIdsToExclude)]
+  if (exclude.length === 0) return activity
+  if (activity.storeScope === 'all') {
+    return { ...activity, storeScope: 'partial_exclude', storeIds: exclude }
+  }
+  if (activity.storeScope === 'partial_exclude') {
+    return { ...activity, storeIds: [...new Set([...activity.storeIds, ...exclude])] }
+  }
+  const nextIds = activity.storeIds.filter((id) => !exclude.includes(id))
+  return { ...activity, storeIds: nextIds }
+}
+
+export function formatMemberPriceConflictSummary(conflicts: MemberPriceConflict[]): string {
+  if (conflicts.length === 0) return ''
+  const first = conflicts[0]
+  const more = conflicts.length > 1 ? `（另有 ${conflicts.length - 1} 个活动同样重叠）` : ''
+  return `与「${first.activity.id} · ${first.activity.name}」在时间、门店、商品、渠道与优惠会员上范围重叠${more}`
+}
+
+export interface MemberPriceConflictToken {
+  id: string
+  label: string
+  /** 是否落在重叠集合内 */
+  hit: boolean
+}
+
+export interface MemberPriceConflictCompareRow {
+  key: 'time' | 'cycle' | 'audience' | 'store' | 'product' | 'channel' | 'scene'
+  label: string
+  /** 跳转向导步骤：0 基础 / 1 门店 / 2 商品 */
+  step: 0 | 1 | 2
+  currentSummary: string
+  otherSummary: string
+  currentTokens: MemberPriceConflictToken[]
+  otherTokens: MemberPriceConflictToken[]
+  overlapTokens: MemberPriceConflictToken[]
+  /** 重叠列文案；门店/商品用简洁「共 N」+ 查看列表 */
+  overlapHint: string
+  /** 是否在重叠列展示「查看列表」并锚定底部明细 */
+  listKind?: 'store' | 'product'
+}
+
+const CHANNEL_LABEL_MAP: Record<string, string> = {
+  h5: '手机网页',
+  wechat: '微信',
+  alipay: '支付宝',
+  app: 'App',
+  pos: 'POS',
+  douyin: '抖音',
+  third_party: '第三方外卖',
+  other: '其他',
+}
+
+function channelTokens(ids: string[], hitIds: Set<string>): MemberPriceConflictToken[] {
+  return ids.map((id) => ({
+    id,
+    label: CHANNEL_LABEL_MAP[id] ?? id,
+    hit: hitIds.has(id),
+  }))
+}
+
+function sceneTokens(ids: string[], hitIds: Set<string>): MemberPriceConflictToken[] {
+  return ids.map((id) => ({
+    id,
+    label: orderTypeLabel(id),
+    hit: hitIds.has(id),
+  }))
+}
+
+function formatOverlapTime(a: MemberPriceActivityForm, b: MemberPriceActivityForm): string {
+  const aStart = parseMemberPriceTime(a.startTime)
+  const aEnd = parseMemberPriceTime(a.endTime)
+  const bStart = parseMemberPriceTime(b.startTime)
+  const bEnd = parseMemberPriceTime(b.endTime)
+  if (![aStart, aEnd, bStart, bEnd].every(Number.isFinite)) return '-'
+  const start = Math.max(aStart, bStart)
+  const end = Math.min(aEnd, bEnd)
+  if (start >= end) return '-'
+  const fmt = (ms: number) => {
+    const d = new Date(ms)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  }
+  return `${fmt(start)} ~ ${fmt(end)}`
+}
+
+/** 当前活动 vs 冲突活动：结构化对照行（重叠枚举单独列出） */
+export function buildMemberPriceConflictCompare(
+  current: MemberPriceActivityForm,
+  conflict: MemberPriceConflict,
+): MemberPriceConflictCompareRow[] {
+  const other = conflict.activity
+  const currentAudienceType = current.audienceType ?? 'specified_level'
+  const otherAudienceType = other.audienceType ?? 'specified_level'
+  const currentAudienceIds = collectAudienceTargets(current)
+  const otherAudienceIds = collectAudienceTargets(other)
+  const audienceHit = new Set(
+    !needsMemberPriceTargets(currentAudienceType) || !needsMemberPriceTargets(otherAudienceType)
+      ? (needsMemberPriceTargets(otherAudienceType) ? otherAudienceIds : currentAudienceIds)
+      : currentAudienceIds.filter((id) => otherAudienceIds.includes(id)),
+  )
+  if (!needsMemberPriceTargets(currentAudienceType) && !needsMemberPriceTargets(otherAudienceType)) {
+    audienceHit.add(currentAudienceType)
+  }
+
+  const currentStoreIds = resolveMemberPriceStoreIds(current)
+  const otherStoreIds = resolveMemberPriceStoreIds(other)
+
+  const currentProductIds = resolveMemberPriceProductIds(current)
+  const otherProductIds = resolveMemberPriceProductIds(other)
+
+  const channelHit = new Set(conflict.channelIds)
+  const sceneHit = new Set(conflict.orderTypeIds)
+
+  const overlapTime = formatOverlapTime(current, other)
+  const audienceOverlapTokens: MemberPriceConflictToken[] = !needsMemberPriceTargets(currentAudienceType) && !needsMemberPriceTargets(otherAudienceType)
+    ? [{ id: currentAudienceType, label: getMemberPriceAudienceLabel(currentAudienceType), hit: true }]
+    : [...audienceHit].map((id) => ({
+        id,
+        label: needsMemberPriceTargets(otherAudienceType)
+          ? (formatMemberPriceTargetIds(otherAudienceType, [id]) || id)
+          : (formatMemberPriceTargetIds(currentAudienceType, [id]) || getMemberPriceAudienceLabel(currentAudienceType)),
+        hit: true,
+      }))
+
+  const cycleLabel = (a: MemberPriceActivityForm) => {
+    const cycle = a.cycleType === 'weekly' ? '每周' : a.cycleType === 'monthly' ? '每月' : '每天'
+    const slot = a.timeSlotType === 'specific' ? '指定时间段' : '全天'
+    return `${cycle} · ${slot}`
+  }
+  const cycleOverlap =
+    current.cycleType === other.cycleType && current.timeSlotType === other.timeSlotType
+      ? (current.timeSlotType === 'all_day' ? '全天重叠' : cycleLabel(current))
+      : '周期/时段有交集'
+
+  return [
+    {
+      key: 'time',
+      label: '参与时间',
+      step: 0,
+      currentSummary: `${current.startTime.slice(0, 10)} 至 ${current.endTime.slice(0, 10)}`,
+      otherSummary: `${other.startTime.slice(0, 10)} 至 ${other.endTime.slice(0, 10)}`,
+      currentTokens: [],
+      otherTokens: [],
+      overlapTokens: [],
+      overlapHint: overlapTime.replace(' ~ ', ' 至 '),
+    },
+    {
+      key: 'cycle',
+      label: '活动周期及子时段',
+      step: 0,
+      currentSummary: cycleLabel(current),
+      otherSummary: cycleLabel(other),
+      currentTokens: [],
+      otherTokens: [],
+      overlapTokens: [],
+      overlapHint: cycleOverlap,
+    },
+    {
+      key: 'channel',
+      label: '参与渠道',
+      step: 0,
+      currentSummary: getChannelSummary(current),
+      otherSummary: getChannelSummary(other),
+      currentTokens: [],
+      otherTokens: [],
+      overlapTokens: channelTokens(conflict.channelIds, channelHit).map((t) => ({ ...t, hit: true })),
+      overlapHint: '',
+    },
+    {
+      key: 'scene',
+      label: '业务场景',
+      step: 0,
+      currentSummary: current.orderTypes.map(orderTypeLabel).join('、') || '-',
+      otherSummary: other.orderTypes.map(orderTypeLabel).join('、') || '-',
+      currentTokens: [],
+      otherTokens: [],
+      overlapTokens: sceneTokens(conflict.orderTypeIds, sceneHit).map((t) => ({ ...t, hit: true })),
+      overlapHint: '',
+    },
+    {
+      key: 'audience',
+      label: '优惠会员',
+      step: 0,
+      currentSummary: needsMemberPriceTargets(currentAudienceType)
+        ? `${getMemberPriceAudienceLabel(currentAudienceType)} · ${formatMemberPriceTargetIds(currentAudienceType, currentAudienceIds)}`
+        : getMemberPriceAudienceLabel(currentAudienceType),
+      otherSummary: conflict.audienceHint
+        ? (needsMemberPriceTargets(otherAudienceType)
+          ? `${getMemberPriceAudienceLabel(otherAudienceType)} · ${conflict.audienceHint}`
+          : conflict.audienceHint)
+        : getMemberPriceAudienceLabel(otherAudienceType),
+      currentTokens: [],
+      otherTokens: [],
+      overlapTokens: audienceOverlapTokens,
+      overlapHint: '',
+    },
+    {
+      key: 'store',
+      label: '参与门店',
+      step: 1,
+      currentSummary: currentStoreIds.length >= stores.filter((s) => s.status === 'open').length
+        ? '全部门店'
+        : `共 ${currentStoreIds.length} 家`,
+      otherSummary: otherStoreIds.length >= stores.filter((s) => s.status === 'open').length
+        ? '全部门店'
+        : `共 ${otherStoreIds.length} 家`,
+      currentTokens: [],
+      otherTokens: [],
+      overlapTokens: [],
+      overlapHint: `共 ${conflict.storeIds.length} 家`,
+      listKind: 'store',
+    },
+    {
+      key: 'product',
+      label: '参与商品',
+      step: 2,
+      currentSummary: currentProductIds.length >= products.length ? '全部商品' : `共 ${currentProductIds.length} 个`,
+      otherSummary: otherProductIds.length >= products.length ? '全部商品' : `共 ${otherProductIds.length} 个`,
+      currentTokens: [],
+      otherTokens: [],
+      overlapTokens: [],
+      overlapHint: `共 ${conflict.productIds.length} 个`,
+      listKind: 'product',
+    },
+  ]
+}
+
 export function formatCreatorDisplay(activity: { creator: string; creatorPhone: string; creatorOrg: string }) {
   const phone = activity.creatorPhone || getCreatorProfile(activity.creator).phone
   const org = activity.creatorOrg || getCreatorProfile(activity.creator).org

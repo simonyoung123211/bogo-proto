@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { MemberPriceActivityPreview } from '../components/MemberPriceActivityPreview'
 import { MemberPriceAdvancedOptionsFields } from '../components/MemberPriceAdvancedOptionsFields'
 import { MemberPriceBasicInfoFields } from '../components/MemberPriceBasicInfoFields'
+import { MemberPriceConflictPanel } from '../components/MemberPriceConflictPanel'
 import { MemberPriceOfferStep } from '../components/MemberPriceOfferStep'
 import { MemberPricePhonePreview } from '../components/MemberPricePhonePreview'
 import { MemberPriceRuleLimitFields } from '../components/MemberPriceRuleLimitFields'
@@ -11,11 +12,13 @@ import type { MemberPriceActivityForm, WizardMode } from '../types'
 import {
   collectMemberPriceHealthIssues,
   collectMemberPriceStepIssues,
+  findMemberPriceConflicts,
   validateStep,
 } from '../utils/memberPriceActivity'
 
 interface MemberPriceActivityWizardProps {
   activity: MemberPriceActivityForm
+  activities: MemberPriceActivityForm[]
   mode: WizardMode
   onChange: (activity: MemberPriceActivityForm) => void
   onCancel: () => void
@@ -23,6 +26,7 @@ interface MemberPriceActivityWizardProps {
   onSave: () => void
   onSwitchToEdit?: () => void
   onToast?: (message: string) => void
+  onEditStockActivity?: (id: string, options?: { saveDraftFirst?: boolean }) => void
 }
 
 const STEPS = ['活动基础规则', '选择参与门店', '参与商品及优惠', '预览并保存']
@@ -30,6 +34,7 @@ const PREVIEW_STEP = STEPS.length - 1
 
 export function MemberPriceActivityWizard({
   activity,
+  activities,
   mode,
   onChange,
   onCancel,
@@ -37,6 +42,7 @@ export function MemberPriceActivityWizard({
   onSave,
   onSwitchToEdit,
   onToast,
+  onEditStockActivity,
 }: MemberPriceActivityWizardProps) {
   const isView = mode === 'view'
   const readOnly = isView
@@ -44,6 +50,7 @@ export function MemberPriceActivityWizard({
   const [error, setError] = useState<string | null>(null)
   const [previewGroupId, setPreviewGroupId] = useState(activity.groups?.[0]?.id ?? '')
   const errorRef = useRef<HTMLDivElement>(null)
+  const conflictRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (isView) setStep(PREVIEW_STEP)
@@ -61,6 +68,21 @@ export function MemberPriceActivityWizard({
 
   const healthIssues = collectMemberPriceHealthIssues(activity)
   const stepIssueCounts = [0, 1, 2].map((s) => collectMemberPriceStepIssues(activity, s).length)
+  const conflicts = findMemberPriceConflicts(activity, activities)
+  const hasConflicts = conflicts.length > 0
+
+  const handleSave = () => {
+    if (hasConflicts) {
+      setError('存在冲突，请先调整活动范围或排除冲突门店')
+      setStep(PREVIEW_STEP)
+      window.setTimeout(() => {
+        document.getElementById('mp-conflict-box')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 50)
+      onToast?.('存在冲突，请先调整活动范围')
+      return
+    }
+    onSave()
+  }
 
   const update = <K extends keyof MemberPriceActivityForm>(key: K, value: MemberPriceActivityForm[K]) => {
     onChange({ ...activity, [key]: value })
@@ -264,6 +286,17 @@ export function MemberPriceActivityWizard({
 
             {step === PREVIEW_STEP && (
               <div className="wizard-step wizard-step--animate">
+                <div ref={conflictRef}>
+                  <MemberPriceConflictPanel
+                    activity={activity}
+                    activities={activities}
+                    readOnly={readOnly}
+                    onChange={onChange}
+                    onGoStep={(target) => { setError(null); setStep(target) }}
+                    onToast={onToast}
+                    onEditStockActivity={onEditStockActivity}
+                  />
+                </div>
                 <MemberPriceActivityPreview
                   activity={activity}
                   showAnchorNav
@@ -285,7 +318,23 @@ export function MemberPriceActivityWizard({
         ) : (
           <>
             <div className="wizard-footer__health" aria-live="polite">
-              {healthIssues.length === 0 ? (
+              {hasConflicts ? (
+                <>
+                  <span className="wizard-footer__warn">冲突校验未通过：{conflicts.length} 个活动重叠</span>
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => {
+                      setStep(PREVIEW_STEP)
+                      window.setTimeout(() => {
+                        document.getElementById('mp-conflict-box')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                      }, 50)
+                    }}
+                  >
+                    查看冲突并处理
+                  </button>
+                </>
+              ) : healthIssues.length === 0 ? (
                 <span className="wizard-footer__ok">配置体检：已完成</span>
               ) : (
                 <>
@@ -310,8 +359,9 @@ export function MemberPriceActivityWizard({
                 <button
                   type="button"
                   className="btn btn--primary"
-                  disabled={healthIssues.length > 0}
-                  onClick={onSave}
+                  disabled={healthIssues.length > 0 || hasConflicts}
+                  title={hasConflicts ? '请先解除冲突后再保存' : undefined}
+                  onClick={handleSave}
                 >
                   保存
                 </button>
