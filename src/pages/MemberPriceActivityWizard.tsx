@@ -7,7 +7,8 @@ import { MemberPriceOfferStep } from '../components/MemberPriceOfferStep'
 import { MemberPricePhonePreview } from '../components/MemberPricePhonePreview'
 import { MemberPriceRuleLimitFields } from '../components/MemberPriceRuleLimitFields'
 import { StorePicker } from '../components/StorePicker'
-import { CHANNELS, ORDER_TYPES, STATUS_LABELS } from '../mockData'
+import { CHANNELS, STATUS_LABELS } from '../mockData'
+import { MEMBER_PRICE_ORDER_TYPES } from '../mockMemberPriceData'
 import type { MemberPriceActivityForm, WizardMode } from '../types'
 import {
   collectMemberPriceHealthIssues,
@@ -194,7 +195,7 @@ export function MemberPriceActivityWizard({
 
       <div className="wizard-body">
         <div className="promo-editor">
-          {!isView && step < PREVIEW_STEP && (
+          {!isView && step === 0 && (
             <MemberPricePhonePreview
               activity={activity}
               previewGroupId={previewGroupId}
@@ -228,7 +229,7 @@ export function MemberPriceActivityWizard({
                   </FormRow>
                   <FormRow label="参与业务场景" required>
                     <div className="choices">
-                      {ORDER_TYPES.map((ot) => (
+                      {MEMBER_PRICE_ORDER_TYPES.map((ot) => (
                         <button
                           key={ot.id}
                           type="button"

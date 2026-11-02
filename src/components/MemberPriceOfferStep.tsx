@@ -2,21 +2,21 @@ import { useEffect, useState } from 'react'
 import type { MemberPriceActivityForm, MemberPriceAudienceType, MemberPriceOfferGroup, MemberPriceProductCoreFields } from '../types'
 import { createEmptyMemberPriceOfferGroup } from '../mockMemberPriceData'
 import {
-  MAX_MEMBER_PRICE_GROUPS,
   MEMBER_PRICE_AUDIENCE_OPTIONS,
   applyProductCoreToGroup,
-  formatMemberPriceGroupTabSummary,
-  formatMemberPriceTargetIds,
-  getMemberPriceAllAudienceHint,
-  getMemberPriceOfferSchemeLabel,
+  copyMemberPriceGroupProducts,
+  getMemberPriceAudienceLabel,
+  getMemberPriceGroupLabel,
+  getMemberPriceGroupUnitLabel,
+  getMemberPriceMaxGroups,
   getMemberPriceTargetFieldLabel,
   getMemberPriceTargetOptions,
-  getTakenMemberPriceTargetIds,
   groupToProductCore,
   isMemberPriceGroupIncomplete,
-  needsMemberPriceTargets,
+  memberPriceGroupHasProductConfig,
   supportsMemberPriceMultiGroup,
   syncMemberPriceActivityMirrors,
+  syncMemberPriceGroupsWithTargets,
 } from '../utils/memberPriceActivity'
 import { MemberPriceProductConfig } from './MemberPriceProductConfig'
 
@@ -38,13 +38,25 @@ export function MemberPriceOfferStep({
   onToast,
 }: MemberPriceOfferStepProps) {
   const audienceType = activity.audienceType ?? 'specified_level'
+  const multi = supportsMemberPriceMultiGroup(audienceType)
   const groups = activity.groups?.length
     ? activity.groups
-    : [createEmptyMemberPriceOfferGroup({ targetIds: activity.memberLevels ?? [] })]
-  const multi = supportsMemberPriceMultiGroup(audienceType)
+    : multi
+      ? []
+      : [createEmptyMemberPriceOfferGroup({ targetIds: activity.memberLevels ?? [] })]
+  const options = getMemberPriceTargetOptions(audienceType)
+  const selectedTargetIds = groups.flatMap((g) => g.targetIds)
+  const unitLabel = getMemberPriceGroupUnitLabel(audienceType)
+  const maxGroups = getMemberPriceMaxGroups(audienceType)
+
   const [innerActiveId, setInnerActiveId] = useState(groups[0]?.id ?? '')
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string; summary: string } | null>(null)
   const [audienceTarget, setAudienceTarget] = useState<MemberPriceAudienceType | null>(null)
+  const [pendingUncheck, setPendingUncheck] = useState<{ id: string; label: string } | null>(null)
+  const [copyOpen, setCopyOpen] = useState(false)
+  /** push=当前推到目标；pull=从来源覆盖当前 */
+  const [copyMode, setCopyMode] = useState<'push' | 'pull'>('push')
+  const [copySourceId, setCopySourceId] = useState('')
+  const [copyTargets, setCopyTargets] = useState<string[]>([])
 
   const activeGroupId = controlledActiveId ?? innerActiveId
   const setActiveGroupId = (id: string) => {
@@ -64,95 +76,155 @@ export function MemberPriceOfferStep({
   }
 
   const applyAudienceChange = (nextType: MemberPriceAudienceType) => {
-    const first = groups[0] ?? createEmptyMemberPriceOfferGroup()
-    const resetGroup = createEmptyMemberPriceOfferGroup({
-      id: first.id,
-      priceMethod: first.priceMethod,
-      allProductsValue: first.allProductsValue,
-      targetIds: [],
-    })
+    const resetGroup = createEmptyMemberPriceOfferGroup()
     commit({
       ...activity,
       audienceType: nextType,
-      groups: [resetGroup],
+      groups: supportsMemberPriceMultiGroup(nextType) ? [] : [resetGroup],
     })
-    setActiveGroupId(resetGroup.id)
+    setActiveGroupId(supportsMemberPriceMultiGroup(nextType) ? '' : resetGroup.id)
     setAudienceTarget(null)
-    onToast?.('已切换优惠会员类型，商品与方案已重置为 1 个，请重新配置')
+    onToast?.(
+      supportsMemberPriceMultiGroup(nextType)
+        ? `已切换为「${getMemberPriceAudienceLabel(nextType)}」，请重新选择${getMemberPriceGroupUnitLabel(nextType)}`
+        : '已切换优惠会员类型，商品配置已重置，请重新配置',
+    )
   }
 
   const requestAudienceChange = (nextType: MemberPriceAudienceType) => {
     if (nextType === audienceType) return
-    if (groups.length > 1 || groups.some((g) => g.targetIds.length > 0 || g.productIds.length > 0)) {
+    if (groups.length > 0 || groups.some((g) => g.targetIds.length > 0 || g.productIds.length > 0)) {
       setAudienceTarget(nextType)
       return
     }
     applyAudienceChange(nextType)
   }
 
-  const updateGroups = (nextGroups: MemberPriceOfferGroup[]) => {
+  const updateGroups = (nextGroups: MemberPriceOfferGroup[], focusId?: string) => {
     commit({ ...activity, groups: nextGroups })
-  }
-
-  const updateGroup = (groupId: string, patch: Partial<MemberPriceOfferGroup>) => {
-    updateGroups(groups.map((g) => (g.id === groupId ? { ...g, ...patch } : g)))
+    if (focusId) setActiveGroupId(focusId)
+    else if (nextGroups.length && !nextGroups.some((g) => g.id === activeGroupId)) {
+      setActiveGroupId(nextGroups[0].id)
+    }
   }
 
   const updateGroupProducts = (groupId: string, core: MemberPriceProductCoreFields) => {
     updateGroups(groups.map((g) => (g.id === groupId ? applyProductCoreToGroup(g, core) : g)))
   }
 
-  const toggleTarget = (groupId: string, targetId: string) => {
-    const group = groups.find((g) => g.id === groupId)
-    if (!group) return
-    if (group.targetIds.includes(targetId)) {
-      updateGroup(groupId, { targetIds: group.targetIds.filter((id) => id !== targetId) })
-      return
-    }
-    const taken = getTakenMemberPriceTargetIds(groups, groupId)
-    if (taken.has(targetId)) {
-      onToast?.('该选项已在其他方案中使用，不可重复选择')
-      return
-    }
-    const allOptions = getMemberPriceTargetOptions(audienceType)
-    if (allOptions.length > 0 && group.targetIds.length + 1 >= allOptions.length) {
-      onToast?.(`不可全选，如需覆盖全部请改选「${getMemberPriceAllAudienceHint(audienceType)}」`)
-      return
-    }
-    updateGroup(groupId, { targetIds: [...group.targetIds, targetId] })
+  const applySelectedTargets = (nextIds: string[], focusId?: string) => {
+    const template = groups[0]
+    const nextGroups = syncMemberPriceGroupsWithTargets(
+      groups,
+      nextIds,
+      template
+        ? { priceMethod: template.priceMethod, allProductsValue: template.allProductsValue }
+        : undefined,
+    )
+    updateGroups(nextGroups, focusId)
   }
 
-  const addGroup = () => {
-    if (!multi || groups.length >= MAX_MEMBER_PRICE_GROUPS) return
-    const next = createEmptyMemberPriceOfferGroup()
-    updateGroups([...groups, next])
-    setActiveGroupId(next.id)
+  const toggleTarget = (targetId: string) => {
+    if (readOnly) return
+    const option = options.find((o) => o.id === targetId)
+    const checked = selectedTargetIds.includes(targetId)
+    if (checked) {
+      const group = groups.find((g) => g.targetIds[0] === targetId)
+      if (group && memberPriceGroupHasProductConfig(group)) {
+        setPendingUncheck({ id: targetId, label: option?.label ?? targetId })
+        return
+      }
+      applySelectedTargets(selectedTargetIds.filter((id) => id !== targetId))
+      return
+    }
+    if (selectedTargetIds.length >= maxGroups) {
+      onToast?.(`最多选择 ${maxGroups} 个${unitLabel}`)
+      return
+    }
+    const nextIds = [...selectedTargetIds, targetId]
+    const created = syncMemberPriceGroupsWithTargets(groups, nextIds).find((g) => g.targetIds[0] === targetId)
+    applySelectedTargets(nextIds, created?.id)
   }
 
-  const removeGroup = (groupId: string) => {
-    if (!multi || groups.length <= 1) return
-    const next = groups.filter((g) => g.id !== groupId)
-    updateGroups(next)
-    if (activeGroupId === groupId) setActiveGroupId(next[0]?.id ?? '')
-  }
-
-  const confirmRemoveGroup = () => {
-    if (!deleteTarget) return
-    removeGroup(deleteTarget.id)
-    setDeleteTarget(null)
+  const confirmUncheck = () => {
+    if (!pendingUncheck) return
+    applySelectedTargets(selectedTargetIds.filter((id) => id !== pendingUncheck.id))
+    setPendingUncheck(null)
   }
 
   const activeGroup = groups.find((g) => g.id === activeGroupId) ?? groups[0]
-  const options = getMemberPriceTargetOptions(audienceType)
-  const takenByOthers = activeGroup
-    ? getTakenMemberPriceTargetIds(groups, activeGroup.id)
-    : new Set<string>()
   const incompleteCount = groups.filter((g) =>
     isMemberPriceGroupIncomplete(audienceType, g, activity.orderTypes),
   ).length
   const audienceTargetLabel = audienceTarget
     ? MEMBER_PRICE_AUDIENCE_OPTIONS.find((o) => o.value === audienceTarget)?.label
     : ''
+  const currentHasProducts = Boolean(activeGroup && memberPriceGroupHasProductConfig(activeGroup))
+  const groupsWithProducts = groups.filter((g) => memberPriceGroupHasProductConfig(g))
+  const otherGroupsWithProducts = groupsWithProducts.filter((g) => g.id !== activeGroup?.id)
+  const emptyOtherGroups = groups.filter(
+    (g) => g.id !== activeGroup?.id && !memberPriceGroupHasProductConfig(g),
+  )
+  const canCopyProducts = Boolean(
+    activeGroup
+      && groups.length > 1
+      && !readOnly
+      && (currentHasProducts || otherGroupsWithProducts.length > 0),
+  )
+
+  const openCopyDialog = () => {
+    if (!activeGroup) return
+    if (!canCopyProducts) {
+      onToast?.(
+        currentHasProducts
+          ? `请先添加其他${unitLabel}组作为复用目标`
+          : `请先在任一${unitLabel}组配置参与商品，再复用到当前组`,
+      )
+      return
+    }
+    if (currentHasProducts) {
+      setCopyMode('push')
+      setCopySourceId(activeGroup.id)
+      setCopyTargets(emptyOtherGroups.map((g) => g.id))
+    } else {
+      setCopyMode('pull')
+      setCopySourceId(otherGroupsWithProducts[0]?.id ?? '')
+      setCopyTargets([activeGroup.id])
+    }
+    setCopyOpen(true)
+  }
+
+  const applyCopyProducts = () => {
+    if (!activeGroup) return
+    if (copyMode === 'pull') {
+      const source = groups.find((g) => g.id === copySourceId)
+      if (!source || !memberPriceGroupHasProductConfig(source)) {
+        onToast?.(`请先选择要从哪个${unitLabel}复用`)
+        return
+      }
+      updateGroups(groups.map((g) => (
+        g.id === activeGroup.id ? copyMemberPriceGroupProducts(source, g) : g
+      )))
+      setCopyOpen(false)
+      onToast?.(`已复用「${getMemberPriceGroupLabel(audienceType, source)}」的商品清单，请为本组填写优惠力度`)
+      return
+    }
+    const source = groups.find((g) => g.id === copySourceId) ?? activeGroup
+    if (!memberPriceGroupHasProductConfig(source)) {
+      onToast?.('当前还没有商品，请先选商品，或改用「从其他等级复用过来」')
+      return
+    }
+    if (copyTargets.length === 0) {
+      onToast?.(`请至少勾选一个要复用到的${unitLabel}`)
+      return
+    }
+    const targetSet = new Set(copyTargets)
+    updateGroups(groups.map((g) => (
+      targetSet.has(g.id) ? copyMemberPriceGroupProducts(source, g) : g
+    )))
+    setCopyOpen(false)
+    onToast?.(`已复用到 ${copyTargets.length} 个${unitLabel}，请到各组分别填写优惠力度`)
+  }
 
   return (
     <div className="mp-offer-step">
@@ -172,37 +244,63 @@ export function MemberPriceOfferStep({
         </div>
         {audienceType === 'paid_member_card_user' && (
           <p className="field-hint">
-            任意已购买付费会员的用户即可享受本活动优惠，无需指定卡模版；与「付费会员价」活动无关。
+            任意已购买付费会员的用户均可享受，无需指定卡模版。
           </p>
         )}
         {multi && (
           <p className="field-hint">
-            当前类型最多 {MAX_MEMBER_PRICE_GROUPS} 个方案；各方案会员子集不可重复、不可全选；方案间商品可重复。同一顾客同时命中多套方案时，点单页按对顾客更优的价格生效（示意口径，非结算试算）。
-          </p>
-        )}
-        {needsMemberPriceTargets(audienceType) && !multi && (
-          <p className="field-hint">
-            不可全选；如需覆盖全部请改选「{getMemberPriceAllAudienceHint(audienceType)}」。
+            先勾选{unitLabel}，系统按每个{unitLabel}自动拆成一组。商品清单可用「复用商品」快速对齐，优惠力度请在各组分别填写；同一顾客同时命中多组时，点单页按对顾客更优的价格生效（示意口径）。
           </p>
         )}
       </FormRow>
 
       {multi && (
+        <FormRow label={getMemberPriceTargetFieldLabel(audienceType)} required>
+          <div className="member-level-group">
+            <div className="choices choices--targets" role="group" aria-label={getMemberPriceTargetFieldLabel(audienceType)}>
+              {options.map((opt) => {
+                const checked = selectedTargetIds.includes(opt.id)
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    className={`choice box ${checked ? 'selected' : ''}`}
+                    disabled={Boolean(readOnly)}
+                    aria-pressed={checked}
+                    onClick={() => toggleTarget(opt.id)}
+                  >
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="field-hint">
+              已选 {selectedTargetIds.length}/{maxGroups} 个{unitLabel}
+              {selectedTargetIds.length === 0 ? `，请先选择后再配置商品优惠` : ''}
+            </p>
+          </div>
+        </FormRow>
+      )}
+
+      {multi && groups.length > 0 && (
         <>
           <div className="mp-scheme-overview">
-            <span>共 {groups.length} 个方案</span>
-            <span className={incompleteCount ? 'is-warn' : 'is-ok'}>
-              {incompleteCount ? `${incompleteCount} 个待完善` : '方案已配齐'}
-            </span>
-            <span className="mp-scheme-overview__current">
-              当前：{getMemberPriceOfferSchemeLabel(Math.max(0, groups.findIndex((g) => g.id === activeGroup?.id)))}
-            </span>
+            <div className="mp-scheme-overview__meta">
+              <span>共 {groups.length} 个{unitLabel}组</span>
+              <span className={incompleteCount ? 'is-warn' : 'is-ok'}>
+                {incompleteCount ? `${incompleteCount} 个待完善` : '各组已配齐'}
+              </span>
+              {activeGroup && (
+                <span className="mp-scheme-overview__current">
+                  当前：{getMemberPriceGroupLabel(audienceType, activeGroup)}
+                </span>
+              )}
+            </div>
           </div>
           <div className="mp-group-tabs">
             <div className="mp-group-tabs__list">
               {groups.map((g, index) => {
-                const schemeLabel = getMemberPriceOfferSchemeLabel(index)
-                const summary = formatMemberPriceGroupTabSummary(audienceType, g.targetIds)
+                const label = getMemberPriceGroupLabel(audienceType, g, index)
                 const incomplete = isMemberPriceGroupIncomplete(audienceType, g, activity.orderTypes)
                 return (
                   <div
@@ -213,96 +311,53 @@ export function MemberPriceOfferStep({
                       type="button"
                       className="mp-group-tabs__label"
                       onClick={() => setActiveGroupId(g.id)}
-                      title={formatMemberPriceTargetIds(audienceType, g.targetIds)}
+                      title={label}
                     >
                       <span className="mp-group-tabs__name">
-                        {schemeLabel}
+                        {label}
                         {incomplete && <em className="mp-group-tabs__badge">待完善</em>}
                       </span>
-                      {summary ? <span className="mp-group-tabs__summary">{summary}</span> : null}
                     </button>
-                    {!readOnly && groups.length > 1 && (
-                      <button
-                        type="button"
-                        className="mp-group-tabs__remove"
-                        aria-label={`删除${schemeLabel}`}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setDeleteTarget({
-                            id: g.id,
-                            label: schemeLabel,
-                            summary: formatMemberPriceTargetIds(audienceType, g.targetIds),
-                          })
-                        }}
-                      >
-                        ×
-                      </button>
-                    )}
                   </div>
                 )
               })}
             </div>
-            {!readOnly && (
-              <div className="mp-group-tabs__actions">
-                <button
-                  type="button"
-                  className="btn btn--default btn--sm"
-                  disabled={groups.length >= MAX_MEMBER_PRICE_GROUPS}
-                  onClick={addGroup}
-                >
-                  添加方案{groups.length >= MAX_MEMBER_PRICE_GROUPS ? `（已满${MAX_MEMBER_PRICE_GROUPS}）` : ''}
-                </button>
-              </div>
-            )}
           </div>
         </>
       )}
 
-      {activeGroup && (
+      {activeGroup && (!multi || groups.length > 0) && (
         <div className="mp-group-panel" key={activeGroup.id}>
           {multi && (
             <div className="mp-group-panel__title">
-              {getMemberPriceOfferSchemeLabel(Math.max(0, groups.findIndex((g) => g.id === activeGroup.id)))}
-              <span className="mp-group-panel__meta">
-                {activeGroup.targetIds.length
-                  ? formatMemberPriceTargetIds(audienceType, activeGroup.targetIds)
-                  : '尚未选择会员子集'}
-              </span>
+              <div className="mp-group-panel__title-main">
+                <span>{getMemberPriceGroupLabel(audienceType, activeGroup)}</span>
+                <span className="mp-group-panel__meta">仅配置本{unitLabel}的参与商品与优惠力度</span>
+              </div>
+              {!readOnly && (
+                <button
+                  type="button"
+                  className="btn btn--default btn--sm"
+                  disabled={!canCopyProducts}
+                  title={
+                    canCopyProducts
+                      ? currentHasProducts
+                        ? '可将当前组商品复用到其他组，或从其他组复用到当前'
+                        : '可从已配置商品的组复用到当前空组'
+                      : `至少两个${unitLabel}组，且其中一组已配置参与商品`
+                  }
+                  onClick={openCopyDialog}
+                >
+                  复用商品
+                </button>
+              )}
             </div>
           )}
 
           {multi && isMemberPriceGroupIncomplete(audienceType, activeGroup, activity.orderTypes) && (
             <div className="mp-group-panel__empty" role="status">
-              本方案尚未配齐必填项：请先选择会员范围，并完成商品与优惠设置。
+              本组尚未配齐必填项：请完成商品与优惠设置。优惠力度需按{unitLabel}分别填写。
             </div>
-          )}
-
-          {needsMemberPriceTargets(audienceType) && (
-            <FormRow label={getMemberPriceTargetFieldLabel(audienceType)} required>
-              <div className="member-level-group">
-                <div className="choices choices--targets" role="group" aria-label={getMemberPriceTargetFieldLabel(audienceType)}>
-                  {options.map((opt) => {
-                    const taken = takenByOthers.has(opt.id)
-                    const checked = activeGroup.targetIds.includes(opt.id)
-                    const disabled = Boolean(readOnly || (taken && !checked))
-                    return (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        className={`choice box ${checked ? 'selected' : ''} ${taken && !checked ? 'is-taken' : ''}`}
-                        disabled={disabled}
-                        aria-pressed={checked}
-                        title={taken && !checked ? '已在其他方案中使用' : undefined}
-                        onClick={() => toggleTarget(activeGroup.id, opt.id)}
-                      >
-                        {opt.label}
-                        {taken && !checked ? <span className="mp-target-taken">已占用</span> : null}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            </FormRow>
           )}
 
           <MemberPriceProductConfig
@@ -317,17 +372,135 @@ export function MemberPriceOfferStep({
         </div>
       )}
 
-      {deleteTarget && (
-        <div className="modal-overlay" onClick={() => setDeleteTarget(null)}>
+      {pendingUncheck && (
+        <div className="modal-overlay" onClick={() => setPendingUncheck(null)}>
           <div className="modal modal--sm" onClick={(e) => e.stopPropagation()}>
-            <div className="modal__header"><h3>确认删除{deleteTarget.label}？</h3></div>
+            <div className="modal__header"><h3>取消「{pendingUncheck.label}」？</h3></div>
             <div className="modal__body">
-              删除后该方案下的会员范围与商品优惠配置将一并清除，且不可恢复。
-              {deleteTarget.summary !== '未选择' ? `（当前适用：${deleteTarget.summary}）` : ''}
+              取消后将删除该{unitLabel}组下已配置的参与商品与优惠，且不可恢复。
             </div>
             <div className="modal__footer">
-              <button type="button" className="btn btn--default" onClick={() => setDeleteTarget(null)}>取消</button>
-              <button type="button" className="btn btn--danger" onClick={confirmRemoveGroup}>确认删除</button>
+              <button type="button" className="btn btn--default" onClick={() => setPendingUncheck(null)}>取消</button>
+              <button type="button" className="btn btn--danger" onClick={confirmUncheck}>确认取消勾选</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {copyOpen && activeGroup && (
+        <div className="modal-overlay" onClick={() => setCopyOpen(false)}>
+          <div className="modal modal--copy" onClick={(e) => e.stopPropagation()}>
+            <div className="modal__header">
+              <h3>复用参与商品</h3>
+            </div>
+            <div className="modal__body">
+              <div className="mp-copy-tip" role="note">
+                只复用<strong>参与商品清单</strong>，各组折扣 / 减价请自行填写，不会一并带过去。
+              </div>
+
+              {currentHasProducts && otherGroupsWithProducts.length > 0 && (
+                <div className="mp-copy-mode" role="radiogroup" aria-label="复用方向">
+                  <button
+                    type="button"
+                    className={`mp-copy-mode__card ${copyMode === 'push' ? 'is-active' : ''}`}
+                    onClick={() => {
+                      setCopyMode('push')
+                      setCopySourceId(activeGroup.id)
+                      setCopyTargets(emptyOtherGroups.map((g) => g.id))
+                    }}
+                  >
+                    <strong>复用到其他{unitLabel}</strong>
+                    <span>把「{getMemberPriceGroupLabel(audienceType, activeGroup)}」已选商品，复用到下方勾选的{unitLabel}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`mp-copy-mode__card ${copyMode === 'pull' ? 'is-active' : ''}`}
+                    onClick={() => {
+                      setCopyMode('pull')
+                      setCopySourceId(otherGroupsWithProducts[0]?.id ?? '')
+                      setCopyTargets([activeGroup.id])
+                    }}
+                  >
+                    <strong>从其他{unitLabel}复用过来</strong>
+                    <span>用已配好商品的{unitLabel}，覆盖「{getMemberPriceGroupLabel(audienceType, activeGroup)}」清单</span>
+                  </button>
+                </div>
+              )}
+
+              {copyMode === 'pull' ? (
+                <div className="mp-copy-section">
+                  <div className="mp-copy-section__head">
+                    <span>从哪个{unitLabel}复用？</span>
+                  </div>
+                  {otherGroupsWithProducts.length === 0 ? (
+                    <p className="field-hint">还没有其他已配商品的{unitLabel}，请先在任一{unitLabel}选好商品。</p>
+                  ) : (
+                    <div className="mp-copy-options">
+                      {otherGroupsWithProducts.map((g, index) => {
+                        const label = getMemberPriceGroupLabel(audienceType, g, index)
+                        const selected = copySourceId === g.id
+                        return (
+                          <button
+                            key={g.id}
+                            type="button"
+                            className={`mp-copy-option ${selected ? 'is-selected' : ''}`}
+                            onClick={() => setCopySourceId(g.id)}
+                          >
+                            <span className="mp-copy-option__name">{label}</span>
+                            <span className="mp-copy-option__tag is-ready">已有商品</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="mp-copy-section">
+                  <div className="mp-copy-section__head">
+                    <span>复用到哪些{unitLabel}？（可多选）</span>
+                    {emptyOtherGroups.length > 0 && (
+                      <button
+                        type="button"
+                        className="link-btn"
+                        onClick={() => setCopyTargets(emptyOtherGroups.map((g) => g.id))}
+                      >
+                        一键勾选未配商品的
+                      </button>
+                    )}
+                  </div>
+                  <div className="mp-copy-options">
+                    {groups.filter((g) => g.id !== activeGroup.id).map((g, index) => {
+                      const label = getMemberPriceGroupLabel(audienceType, g, index)
+                      const checked = copyTargets.includes(g.id)
+                      const hasProducts = memberPriceGroupHasProductConfig(g)
+                      return (
+                        <button
+                          key={g.id}
+                          type="button"
+                          className={`mp-copy-option ${checked ? 'is-selected' : ''}`}
+                          onClick={() => {
+                            setCopyTargets((prev) => (
+                              checked ? prev.filter((id) => id !== g.id) : [...prev, g.id]
+                            ))
+                          }}
+                        >
+                          <span className="mp-copy-option__check" aria-hidden>{checked ? '✓' : ''}</span>
+                          <span className="mp-copy-option__name">{label}</span>
+                          <span className={`mp-copy-option__tag ${hasProducts ? 'is-warn' : 'is-empty'}`}>
+                            {hasProducts ? '将覆盖已有商品' : '尚未选商品'}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="modal__footer">
+              <button type="button" className="btn btn--default" onClick={() => setCopyOpen(false)}>取消</button>
+              <button type="button" className="btn btn--primary" onClick={applyCopyProducts}>
+                {copyMode === 'pull' ? '复用到当前' : '确认复用'}
+              </button>
             </div>
           </div>
         </div>
@@ -338,7 +511,7 @@ export function MemberPriceOfferStep({
           <div className="modal modal--sm" onClick={(e) => e.stopPropagation()}>
             <div className="modal__header"><h3>切换优惠会员类型？</h3></div>
             <div className="modal__body">
-              切换为「{audienceTargetLabel}」将清空当前已配置的 {groups.length} 个方案（会员范围与商品优惠），并重置为 1 个空方案。此操作不可撤销。
+              切换为「{audienceTargetLabel}」将清空当前已配置的 {groups.length || 1} 组会员与商品优惠。此操作不可撤销。
             </div>
             <div className="modal__footer">
               <button type="button" className="btn btn--default" onClick={() => setAudienceTarget(null)}>取消</button>

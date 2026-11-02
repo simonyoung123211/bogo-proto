@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Toast } from './components/Toast'
+import { Toast, inferToastType, type ToastType } from './components/Toast'
 import { AdminLayout } from './layout/AdminLayout'
 import { ActivityList } from './pages/ActivityList'
 import { ActivityParticipationRecords } from './pages/ActivityParticipationRecords'
@@ -186,12 +186,14 @@ function App() {
   const [enterpriseDiscountDraft, setEnterpriseDiscountDraft] = useState<EnterpriseDiscountActivityForm | null>(null)
   const [bundlePriceDraft, setBundlePriceDraft] = useState<BundlePriceActivityForm | null>(null)
   const [limitDiscountDraft, setLimitDiscountDraft] = useState<LimitDiscountActivityForm | null>(null)
-  const [toast, setToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null)
   const [linkedConsumerActivityId, setLinkedConsumerActivityId] = useState<string | null>(() => getDemoBridgeSourceId())
   const [inboxMessages, setInboxMessages] = useState<InboxMessage[]>(() => loadInboxMessages())
   const [inboxOpen, setInboxOpen] = useState(false)
 
-  const showToast = useCallback((msg: string) => setToast(msg), [])
+  const showToast = useCallback((msg: string, type?: ToastType) => {
+    setToast({ message: msg, type: type ?? inferToastType(msg) })
+  }, [])
 
   useEffect(() => {
     const fromQuery = readActivityListQuery(window.location.search)
@@ -701,6 +703,11 @@ function App() {
   const handleMemberPricePublishFromList = (id: string) => {
     const activity = memberPriceActivities.find((a) => a.id === id)
     if (!activity) return
+    const conflicts = findMemberPriceConflicts(activity, memberPriceActivities)
+    if (conflicts.length > 0) {
+      showToast(`无法发布：${formatMemberPriceConflictSummary(conflicts)}`)
+      return
+    }
     upsertMemberPrice(appendMemberPriceLog(
       { ...activity, status: computeMemberPricePublishStatus(activity) },
       '发布活动',
@@ -978,6 +985,14 @@ function App() {
   const handleMemberPriceResume = (id: string) => {
     const activity = memberPriceActivities.find((a) => a.id === id)
     if (!activity) return
+    const conflicts = findMemberPriceConflicts(
+      { ...activity, status: 'in_progress' },
+      memberPriceActivities,
+    )
+    if (conflicts.length > 0) {
+      showToast(`无法恢复：${formatMemberPriceConflictSummary(conflicts)}`)
+      return
+    }
     const plan = buildResumePlan(activity, '会员专享价立即重新生效')
     upsertMemberPrice(appendMemberPriceLog(
       { ...activity, status: plan.status, pausedAt: plan.keepPausedAt ? activity.pausedAt : undefined },
@@ -2437,7 +2452,13 @@ function App() {
           onToast={showToast}
         />
       ) : null}
-      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </AdminLayout>
   )
 }

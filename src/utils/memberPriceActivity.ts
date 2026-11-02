@@ -14,12 +14,15 @@ import type {
 import {
   MEMBER_LEVEL_LABELS,
   MEMBER_PRICE_METHOD_LABELS,
+  MEMBER_PRICE_ORDER_TYPES,
   createEmptyMemberPriceActivity,
   createEmptyMemberPriceOfferGroup,
+  normalizeMemberPriceOrderTypes,
+  normalizeMemberPriceProductItem,
+  remapMemberPriceSceneValues,
 } from '../mockMemberPriceData'
 import {
   MEMBER_LEVELS,
-  ORDER_TYPES,
   PHYSICAL_CARDS,
   STORED_VALUE_LEVELS,
   getCreatorProfile,
@@ -46,6 +49,13 @@ export const MEMBER_PRICE_MULTI_GROUP_AUDIENCES: MemberPriceAudienceType[] = [
   'specified_physical_card',
 ]
 
+/** 指定类按枚举自动拆组，上限=可选枚举数量 */
+export function getMemberPriceMaxGroups(audienceType: MemberPriceAudienceType): number {
+  const count = getMemberPriceTargetOptions(audienceType).length
+  return count > 0 ? count : 1
+}
+
+/** @deprecated 指定类已改为按枚举拆组，保留常量供旧文案兼容 */
 export const MAX_MEMBER_PRICE_GROUPS = 10
 
 export function supportsMemberPriceMultiGroup(audienceType: MemberPriceAudienceType): boolean {
@@ -76,6 +86,11 @@ export function getMemberPriceTargetFieldLabel(audienceType: MemberPriceAudience
   return '选择对象'
 }
 
+export function getMemberPriceGroupUnitLabel(audienceType: MemberPriceAudienceType): string {
+  if (audienceType === 'specified_physical_card') return '实体卡'
+  return '等级'
+}
+
 export function formatMemberPriceTargetIds(
   audienceType: MemberPriceAudienceType,
   targetIds: string[],
@@ -88,23 +103,143 @@ export function formatMemberPriceTargetIds(
   return targetIds.map((id) => map.get(id) ?? id).join('、')
 }
 
-/** 多方案标签主文案：方案1 / 方案2 … */
-export function getMemberPriceOfferSchemeLabel(index: number): string {
-  return `方案${index + 1}`
+/** 组 Tab / 预览标题：优先展示等级或卡模版名称 */
+export function getMemberPriceGroupLabel(
+  audienceType: MemberPriceAudienceType,
+  group: MemberPriceOfferGroup,
+  fallbackIndex = 0,
+): string {
+  if (group.targetIds.length === 1) {
+    const map = new Map(getMemberPriceTargetOptions(audienceType).map((o) => [o.id, o.label]))
+    return map.get(group.targetIds[0]) ?? group.targetIds[0]
+  }
+  if (group.targetIds.length > 1) {
+    return formatMemberPriceTargetIds(audienceType, group.targetIds)
+  }
+  return `未命名${getMemberPriceGroupUnitLabel(audienceType)}${fallbackIndex + 1}`
 }
 
-/** 标签副文案：已选会员摘要（过长时截断） */
+/** @deprecated 改用 getMemberPriceGroupLabel */
+export function getMemberPriceOfferSchemeLabel(index: number): string {
+  return `组${index + 1}`
+}
+
+/** 标签副文案（旧多选组摘要；新模型一组一枚举时通常为空） */
 export function formatMemberPriceGroupTabSummary(
   audienceType: MemberPriceAudienceType,
   targetIds: string[],
   maxLabels = 2,
 ): string {
   if (!needsMemberPriceTargets(audienceType)) return ''
-  if (targetIds.length === 0) return '未选择'
+  if (targetIds.length <= 1) return ''
   const map = new Map(getMemberPriceTargetOptions(audienceType).map((o) => [o.id, o.label]))
   const labels = targetIds.map((id) => map.get(id) ?? id)
   if (labels.length <= maxLabels) return labels.join('、')
   return `${labels.slice(0, maxLabels).join('、')}等${labels.length}项`
+}
+
+/** 是否已配置参与/不参与商品（取消勾选时需二次确认） */
+export function memberPriceGroupHasProductConfig(group: MemberPriceOfferGroup): boolean {
+  if (group.productScope === 'all') return true
+  return group.productIds.length > 0 || group.productItems.some((item) => item.productId)
+}
+
+/**
+ * 按已选枚举同步拆组：一组对应一个等级/卡模版 ID。
+ * 已有组保留商品配置；新勾选项建空组；去掉的枚举丢弃对应组。
+ */
+export function syncMemberPriceGroupsWithTargets(
+  groups: MemberPriceOfferGroup[],
+  selectedTargetIds: string[],
+  template?: Pick<MemberPriceOfferGroup, 'priceMethod' | 'allProductsValue'>,
+): MemberPriceOfferGroup[] {
+  const byTarget = new Map<string, MemberPriceOfferGroup>()
+  for (const group of groups) {
+    const id = group.targetIds[0]
+    if (!id || byTarget.has(id)) continue
+    byTarget.set(id, { ...group, targetIds: [id] })
+  }
+  return selectedTargetIds.map((id) => {
+    const existing = byTarget.get(id)
+    if (existing) return existing
+    return createEmptyMemberPriceOfferGroup({
+      targetIds: [id],
+      priceMethod: template?.priceMethod ?? 'discount',
+      allProductsValue: template?.allProductsValue ?? defaultValueForMethod(template?.priceMethod ?? 'discount'),
+    })
+  })
+}
+
+/**
+ * 旧数据迁移：一组挂多个枚举时拆成多组，商品配置复制到每一组。
+ */
+export function expandMemberPriceGroupsByTarget(
+  audienceType: MemberPriceAudienceType,
+  groups: MemberPriceOfferGroup[],
+): MemberPriceOfferGroup[] {
+  if (!supportsMemberPriceMultiGroup(audienceType)) return groups
+  const result: MemberPriceOfferGroup[] = []
+  const seen = new Set<string>()
+  for (const group of groups) {
+    const ids = group.targetIds.length > 0 ? group.targetIds : []
+    if (ids.length === 0) {
+      result.push(group)
+      continue
+    }
+    if (ids.length === 1) {
+      if (seen.has(ids[0])) continue
+      seen.add(ids[0])
+      result.push({ ...group, targetIds: [ids[0]] })
+      continue
+    }
+    ids.forEach((id, index) => {
+      if (seen.has(id)) return
+      seen.add(id)
+      const next = createEmptyMemberPriceOfferGroup({
+        targetIds: [id],
+        priceMethod: group.priceMethod,
+        allProductsValue: group.allProductsValue,
+        valueMode: group.valueMode,
+        sceneValues: group.sceneValues ? { ...group.sceneValues } : {},
+        productScope: group.productScope,
+        productSelectionMode: group.productSelectionMode,
+        productIds: [...group.productIds],
+        productItems: group.productItems.map((item) => ({
+          productId: item.productId,
+          value: item.value,
+          sceneValues: item.sceneValues ? { ...item.sceneValues } : undefined,
+        })),
+      })
+      result.push(index === 0 ? { ...next, id: group.id } : next)
+    })
+  }
+  return result
+}
+
+/**
+ * 一键复制参与商品：只拷商品范围与清单结构，优惠力度重置为该优惠方式默认值。
+ */
+export function copyMemberPriceGroupProducts(
+  source: MemberPriceOfferGroup,
+  target: MemberPriceOfferGroup,
+): MemberPriceOfferGroup {
+  return {
+    ...target,
+    priceMethod: source.priceMethod,
+    productScope: source.productScope,
+    productSelectionMode: source.productSelectionMode,
+    productIds: [...source.productIds],
+    valueMode: source.valueMode ?? 'unified',
+    allProductsValue: defaultValueForMethod(source.priceMethod),
+    sceneValues: {},
+    productItems: source.productItems.map((item) => {
+      const salePrice = products.find((p) => p.id === item.productId)?.price
+      return {
+        productId: item.productId,
+        value: defaultValueForMethod(source.priceMethod, salePrice),
+      }
+    }),
+  }
 }
 
 /** 将 groups[0] 商品字段同步到活动顶层，供列表检索等复用 */
@@ -188,16 +323,13 @@ export function validateMemberPriceOfferGroup(
   orderTypes: string[],
 ): string | null {
   const prefix = supportsMemberPriceMultiGroup(audienceType)
-    ? `${getMemberPriceOfferSchemeLabel(groupIndex)}：`
+    ? `${getMemberPriceGroupLabel(audienceType, group, groupIndex)}：`
     : ''
   if (needsMemberPriceTargets(audienceType) && group.targetIds.length === 0) {
-    return `${prefix}请至少选择一个${getMemberPriceTargetFieldLabel(audienceType).replace('选择', '')}`
+    return `${prefix}请绑定一个${getMemberPriceGroupUnitLabel(audienceType)}`
   }
-  if (needsMemberPriceTargets(audienceType)) {
-    const allCount = getMemberPriceTargetOptions(audienceType).length
-    if (allCount > 0 && group.targetIds.length >= allCount) {
-      return `${prefix}不可全选，如需覆盖全部请改选「${getMemberPriceAllAudienceHint(audienceType)}」`
-    }
+  if (needsMemberPriceTargets(audienceType) && group.targetIds.length > 1) {
+    return `${prefix}每组仅对应一个${getMemberPriceGroupUnitLabel(audienceType)}`
   }
   const core = groupToProductCore(group)
   const isExclude = group.productSelectionMode === 'exclude'
@@ -222,7 +354,7 @@ export function validateMemberPriceOfferGroup(
   return null
 }
 
-/** 方案间会员子集不可重复 */
+/** 指定类各组枚举不可重复 */
 export function validateMemberPriceTargetExclusive(
   audienceType: MemberPriceAudienceType,
   groups: MemberPriceOfferGroup[],
@@ -234,7 +366,7 @@ export function validateMemberPriceTargetExclusive(
     for (const id of groups[i].targetIds) {
       const prev = seen.get(id)
       if (prev != null) {
-        return `「${labelMap.get(id) ?? id}」不可在多个方案中重复选择（已用于${getMemberPriceOfferSchemeLabel(prev)}与${getMemberPriceOfferSchemeLabel(i)}）`
+        return `「${labelMap.get(id) ?? id}」不可重复配置（已用于${getMemberPriceGroupLabel(audienceType, groups[prev], prev)}与${getMemberPriceGroupLabel(audienceType, groups[i], i)}）`
       }
       seen.set(id, i)
     }
@@ -259,7 +391,7 @@ export function isUniformPricing(activity: MemberPriceProductCoreFields): boolea
 }
 
 export function orderTypeLabel(sceneId: string): string {
-  return ORDER_TYPES.find((item) => item.id === sceneId)?.label ?? sceneId
+  return MEMBER_PRICE_ORDER_TYPES.find((item) => item.id === sceneId)?.label ?? sceneId
 }
 
 export function readMemberSceneValue(
@@ -425,8 +557,8 @@ export function getMemberLevelsSummary(activity: MemberPriceActivityForm): strin
     return formatMemberPriceTargetIds(audienceType, groups[0].targetIds)
   }
   return groups
-    .map((g, i) => `${getMemberPriceOfferSchemeLabel(i)}：${formatMemberPriceTargetIds(audienceType, g.targetIds)}`)
-    .join('；')
+    .map((g, i) => getMemberPriceGroupLabel(audienceType, g, i))
+    .join('、')
 }
 
 export function getMemberPriceGroupsSummary(activity: MemberPriceActivityForm): string {
@@ -437,12 +569,9 @@ export function getMemberPriceGroupsSummary(activity: MemberPriceActivityForm): 
     if (!g) return getMemberPriceAudienceLabel(audienceType)
     return `${getMemberPriceAudienceLabel(audienceType)} · ${formatRuleSummary(groupToProductCore(g))}`
   }
-  if (groups.length === 0) return '未配置方案'
+  if (groups.length === 0) return `未选择${getMemberPriceGroupUnitLabel(audienceType)}`
   return groups
-    .map((g, i) => {
-      const targets = formatMemberPriceTargetIds(audienceType, g.targetIds)
-      return `${getMemberPriceOfferSchemeLabel(i)}（${targets}）· ${formatRuleSummary(groupToProductCore(g))}`
-    })
+    .map((g, i) => `${getMemberPriceGroupLabel(audienceType, g, i)} · ${formatRuleSummary(groupToProductCore(g))}`)
     .join('；')
 }
 
@@ -948,10 +1077,21 @@ export function cloneActivity(activity: MemberPriceActivityForm): MemberPriceAct
   }
 }
 
-export function defaultValueForMethod(method: MemberPriceMethod): number {
-  if (method === 'discount') return 8
-  if (method === 'fixed_reduction') return 5
-  return 9.9
+/**
+ * 优惠方式预填默认值：
+ * - 折扣 9.9 折
+ * - 立减 0.01 元
+ * - 特价 = 商品售价；无售价时返回 NaN（表单展示为空，须手填）
+ */
+export function defaultValueForMethod(method: MemberPriceMethod, salePrice?: number): number {
+  if (method === 'discount') return 9.9
+  if (method === 'fixed_reduction') return 0.01
+  if (salePrice != null && Number.isFinite(salePrice) && salePrice >= 0) return salePrice
+  return Number.NaN
+}
+
+export function formatMemberPriceInputValue(value: number | null | undefined): string | number {
+  return value != null && Number.isFinite(value) ? value : ''
 }
 
 export function syncProductItems<T extends MemberPriceProductCoreFields>(
@@ -960,9 +1100,10 @@ export function syncProductItems<T extends MemberPriceProductCoreFields>(
   resetValues = false,
 ): T {
   const prev = new Map(activity.productItems.map((item) => [item.productId, item]))
-  const defaultVal = defaultValueForMethod(activity.priceMethod)
   const productItems = productIds.map((productId) => {
     const old = prev.get(productId)
+    const salePrice = products.find((p) => p.id === productId)?.price
+    const defaultVal = defaultValueForMethod(activity.priceMethod, salePrice)
     return {
       productId,
       value: resetValues ? defaultVal : (old?.value ?? defaultVal),
@@ -979,7 +1120,7 @@ export function validateProductItemValue(
 ): string | null {
   if (!Number.isFinite(value)) return '请填写有效的会员价'
   if (method === 'discount') {
-    if (value < 0.1 || value > 9.9) return '折扣须在0.1-9.9之间'
+    if (value < 0.1 || value > 9.9) return '折扣须在 0.1～9.9 折之间'
   } else if (method === 'fixed_reduction') {
     if (value <= 0) return '减价金额须大于0'
     if (originalPrice != null && value >= originalPrice) return '减价金额须小于商品原价'
@@ -988,6 +1129,32 @@ export function validateProductItemValue(
     if (originalPrice != null && value > originalPrice) return '固定价格不能高于商品原价'
   }
   return null
+}
+
+/** 折扣输入越界时钳到合法区间；金额类仅保证非负 */
+export function clampMemberPriceValue(method: MemberPriceMethod, value: number): number {
+  if (!Number.isFinite(value)) return value
+  if (method === 'discount') {
+    const rounded = Math.round(value * 10) / 10
+    return Math.min(9.9, Math.max(0.1, rounded))
+  }
+  return Math.max(0, value)
+}
+
+/**
+ * 解析优惠输入：空串返回 null；非法/越界返回钳制后的值并附带提示文案。
+ * 调用方应用返回值写入，并按需 toast 提示。
+ */
+export function normalizeMemberPriceInput(
+  method: MemberPriceMethod,
+  raw: string,
+): { value: number | null; warning?: string } {
+  if (raw.trim() === '') return { value: null }
+  const num = Number(raw)
+  if (!Number.isFinite(num)) return { value: null, warning: '请填写有效的会员价' }
+  const warning = validateProductItemValue(method, num) ?? undefined
+  if (!warning) return { value: num }
+  return { value: clampMemberPriceValue(method, num), warning }
 }
 
 function validateLimitFields(activity: MemberPriceActivityForm): string | null {
@@ -1042,11 +1209,18 @@ export function collectMemberPriceStepIssues(
     const audienceType = activity.audienceType ?? 'specified_level'
     const groups = activity.groups?.length
       ? activity.groups
-      : [createEmptyMemberPriceOfferGroup({ targetIds: activity.memberLevels ?? [] })]
-    if (supportsMemberPriceMultiGroup(audienceType) && groups.length > MAX_MEMBER_PRICE_GROUPS) {
-      issues.push(`方案最多${MAX_MEMBER_PRICE_GROUPS}个`)
+      : supportsMemberPriceMultiGroup(audienceType)
+        ? []
+        : [createEmptyMemberPriceOfferGroup({ targetIds: activity.memberLevels ?? [] })]
+    if (supportsMemberPriceMultiGroup(audienceType) && groups.length === 0) {
+      issues.push(`请至少选择一个${getMemberPriceGroupUnitLabel(audienceType)}`)
+    } else if (groups.length === 0) {
+      issues.push('请完成参与商品及优惠配置')
     }
-    if (groups.length === 0) issues.push('请至少配置一个方案')
+    const maxGroups = getMemberPriceMaxGroups(audienceType)
+    if (supportsMemberPriceMultiGroup(audienceType) && groups.length > maxGroups) {
+      issues.push(`${getMemberPriceGroupUnitLabel(audienceType)}组最多${maxGroups}个`)
+    }
     const exclusiveErr = validateMemberPriceTargetExclusive(audienceType, groups)
     if (exclusiveErr) issues.push(exclusiveErr)
     for (let i = 0; i < groups.length; i++) {
@@ -1224,15 +1398,28 @@ export function migrateMemberPriceActivity(raw: Record<string, unknown>): Member
   const audienceType =
     legacy.audienceType ??
     (memberLevels.length >= MEMBER_LEVELS.length ? 'all_level' : 'specified_level')
+  const orderTypes = normalizeMemberPriceOrderTypes(
+    (legacy.orderTypes as string[] | undefined) ?? defaults.orderTypes,
+  )
+  const migratedProductItems = productItems.map(normalizeMemberPriceProductItem)
+  const migratedGroups = expandMemberPriceGroupsByTarget(
+    audienceType,
+    groups.map((group) => ({
+      ...group,
+      productItems: (group.productItems ?? []).map(normalizeMemberPriceProductItem),
+      sceneValues: remapMemberPriceSceneValues(group.sceneValues) ?? group.sceneValues,
+    })),
+  )
   return syncMemberPriceActivityMirrors({
     ...defaults,
     ...legacy,
     audienceType,
-    groups,
+    orderTypes,
+    groups: migratedGroups,
     memberLevels,
     priceMethod,
     productIds,
-    productItems,
+    productItems: migratedProductItems,
     allProductsValue,
     productScope,
     memberPriceTagDisplay: legacy.memberPriceTagDisplay ?? defaults.memberPriceTagDisplay,

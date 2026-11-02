@@ -4,8 +4,10 @@ import { MEMBER_PRICE_METHOD_LABELS } from '../mockMemberPriceData'
 import type { MemberLevelId, MemberPriceMethod, MemberPriceProductCoreFields, MemberPriceProductItem } from '../types'
 import {
   defaultValueForMethod,
+  formatMemberPriceInputValue,
   isMemberSameAsDefault,
   memberSceneOverrides,
+  normalizeMemberPriceInput,
   orderTypeLabel,
   pruneMemberSameAsDefault,
   setMemberSceneOverride,
@@ -267,8 +269,8 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
       onToast?.('请输入有效的默认力度')
       return
     }
-    if (activity.priceMethod === 'discount' && (num < 0 || num > 9.9)) {
-      onToast?.('折扣须在 0～9.9 折之间')
+    if (activity.priceMethod === 'discount' && (num < 0.1 || num > 9.9)) {
+      onToast?.('折扣须在 0.1～9.9 折之间')
       return
     }
     if (activity.priceMethod !== 'discount' && num < 0) {
@@ -383,13 +385,17 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
                   style={{ width: 88 }}
                   disabled={readOnly}
                   aria-label="默认优惠"
-                  value={activity.allProductsValue}
+                  value={formatMemberPriceInputValue(activity.allProductsValue)}
                   step={activity.priceMethod === 'discount' ? 0.1 : 0.01}
-                  min={0}
+                  min={activity.priceMethod === 'discount' ? 0.1 : activity.priceMethod === 'fixed_reduction' ? 0.01 : 0}
                   max={activity.priceMethod === 'discount' ? 9.9 : undefined}
-                  onChange={(e) => onChange(writeUniformDiscount(activity, {
-                    value: e.target.value === '' ? activity.allProductsValue : Number(e.target.value),
-                  }))}
+                  placeholder={activity.priceMethod === 'special_price' ? '请填写' : undefined}
+                  onChange={(e) => {
+                    const next = normalizeMemberPriceInput(activity.priceMethod, e.target.value)
+                    if (next.warning) onToast?.(next.warning)
+                    if (next.value == null) return
+                    onChange(writeUniformDiscount(activity, { value: next.value }))
+                  }}
                 />
                 <span className="field-hint">{unitLabel}</span>
                 {(!readOnly || memberSceneOverrides(scenes, uniformItem).length > 0) && (
@@ -423,11 +429,17 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
                 type="number"
                 className="input input--num"
                 disabled={readOnly}
-                value={activity.allProductsValue}
+                value={formatMemberPriceInputValue(activity.allProductsValue)}
                 step={activity.priceMethod === 'discount' ? 0.1 : 0.01}
-                min={0}
+                min={activity.priceMethod === 'discount' ? 0.1 : activity.priceMethod === 'fixed_reduction' ? 0.01 : 0}
                 max={activity.priceMethod === 'discount' ? 9.9 : undefined}
-                onChange={(e) => update('allProductsValue', Number(e.target.value))}
+                placeholder={activity.priceMethod === 'special_price' ? '请填写' : undefined}
+                onChange={(e) => {
+                  const next = normalizeMemberPriceInput(activity.priceMethod, e.target.value)
+                  if (next.warning) onToast?.(next.warning)
+                  if (next.value == null) return
+                  update('allProductsValue', next.value)
+                }}
               />
               <span>{unitLabel}</span>
             </div>
@@ -619,6 +631,7 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
                           sceneEnabled={sceneEnabled}
                           scenes={scenes}
                           onValueChange={(value) => updateItemValue(p.id, value)}
+                          onToast={onToast}
                           onOpenScenes={() => setEditingProductId(p.id)}
                         />
                       </td>
@@ -671,6 +684,7 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
           scenes={scenes}
           readOnly={readOnly}
           onChangeItem={(next) => updateItem(next.productId, next)}
+          onToast={onToast}
           onClose={() => setEditingProductId(null)}
         />
       )}
@@ -682,6 +696,7 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
           readOnly={readOnly}
           onChangeItem={() => undefined}
           onActivity={(next) => onChange(next)}
+          onToast={onToast}
           onClose={() => setEditingUniform(false)}
         />
       )}
@@ -691,6 +706,7 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
           productIds={checkedTargets()}
           scenes={scenes}
           onApply={(items) => { update('productItems', items); setBatchScenes(false) }}
+          onToast={onToast}
           onClose={() => setBatchScenes(false)}
         />
       )}
@@ -712,12 +728,14 @@ function MemberBatchSceneDialog<T extends MemberPriceProductCoreFields>({
   productIds,
   scenes,
   onApply,
+  onToast,
   onClose,
 }: {
   activity: T
   productIds: string[]
   scenes: string[]
   onApply: (items: MemberPriceProductItem[]) => void
+  onToast?: (message: string) => void
   onClose: () => void
 }) {
   const [defaultValue, setDefaultValue] = useState('')
@@ -725,23 +743,36 @@ function MemberBatchSceneDialog<T extends MemberPriceProductCoreFields>({
   const [cleared, setCleared] = useState<Record<string, boolean>>({})
   const unitLabel = activity.priceMethod === 'discount' ? '折' : '元'
   const inputRange = {
-    min: 0,
+    min: activity.priceMethod === 'discount' ? 0.1 : activity.priceMethod === 'fixed_reduction' ? 0.01 : 0,
     max: activity.priceMethod === 'discount' ? 9.9 : undefined,
     step: activity.priceMethod === 'discount' ? 0.1 : 0.01,
   }
   const defaultNumber = defaultValue.trim() === '' ? null : Number(defaultValue)
   const apply = () => {
+    let warning: string | undefined
+    const defaultParsed = normalizeMemberPriceInput(activity.priceMethod, defaultValue)
+    if (defaultParsed.warning) warning = defaultParsed.warning
+    if (defaultValue.trim() && defaultParsed.value == null) {
+      onToast?.(warning ?? '请输入有效的默认力度')
+      return
+    }
+    const normalizedScenes: Record<string, number> = {}
+    for (const sceneId of scenes) {
+      const raw = sceneValues[sceneId]
+      if (!raw?.trim() || cleared[sceneId]) continue
+      const parsed = normalizeMemberPriceInput(activity.priceMethod, raw)
+      if (parsed.warning) warning = parsed.warning
+      if (parsed.value != null) normalizedScenes[sceneId] = parsed.value
+    }
+    if (warning) onToast?.(warning)
     const ids = new Set(productIds)
     onApply(activity.productItems.map((item) => {
       if (!ids.has(item.productId)) return item
       let next = item
-      if (defaultNumber != null && !Number.isNaN(defaultNumber)) next = { ...next, value: defaultNumber }
+      if (defaultParsed.value != null) next = { ...next, value: defaultParsed.value }
       scenes.forEach((sceneId) => {
         if (cleared[sceneId]) next = setMemberSceneOverride(next, sceneId, null)
-        else if (sceneValues[sceneId]?.trim()) {
-          const value = Number(sceneValues[sceneId])
-          if (!Number.isNaN(value)) next = setMemberSceneOverride(next, sceneId, value)
-        }
+        else if (sceneId in normalizedScenes) next = setMemberSceneOverride(next, sceneId, normalizedScenes[sceneId])
       })
       return pruneMemberSameAsDefault(next)
     }))
@@ -768,7 +799,12 @@ function MemberBatchSceneDialog<T extends MemberPriceProductCoreFields>({
               {...inputRange}
               placeholder="不修改"
               value={defaultValue}
-              onChange={(e) => setDefaultValue(e.target.value)}
+              onChange={(e) => {
+                const raw = e.target.value
+                const parsed = normalizeMemberPriceInput(activity.priceMethod, raw)
+                if (parsed.warning) onToast?.(parsed.warning)
+                setDefaultValue(parsed.value != null && parsed.warning ? String(parsed.value) : raw)
+              }}
             />
             <span className="field-hint">{unitLabel}</span>
             <span className="field-hint">填写后覆盖已选商品的默认力度</span>
@@ -808,7 +844,13 @@ function MemberBatchSceneDialog<T extends MemberPriceProductCoreFields>({
                         placeholder={isCleared ? '恢复默认' : '不修改'}
                         value={raw}
                         onChange={(e) => {
-                          setSceneValues((prev) => ({ ...prev, [sceneId]: e.target.value }))
+                          const raw = e.target.value
+                          const parsed = normalizeMemberPriceInput(activity.priceMethod, raw)
+                          if (parsed.warning) onToast?.(parsed.warning)
+                          setSceneValues((prev) => ({
+                            ...prev,
+                            [sceneId]: parsed.value != null && parsed.warning ? String(parsed.value) : raw,
+                          }))
                           setCleared((prev) => ({ ...prev, [sceneId]: false }))
                         }}
                       />
@@ -928,6 +970,7 @@ function ProductStrengthCell({
   sceneEnabled,
   scenes,
   onValueChange,
+  onToast,
   onOpenScenes,
 }: {
   productName: string
@@ -938,6 +981,7 @@ function ProductStrengthCell({
   sceneEnabled: boolean
   scenes: string[]
   onValueChange: (value: number) => void
+  onToast?: (message: string) => void
   onOpenScenes: () => void
 }) {
   const overrides = item ? memberSceneOverrides(scenes, item) : []
@@ -950,11 +994,17 @@ function ProductStrengthCell({
           style={{ width: 88 }}
           aria-label={`${productName}默认优惠`}
           disabled={readOnly}
-          value={item?.value ?? ''}
+          value={formatMemberPriceInputValue(item?.value)}
           step={priceMethod === 'discount' ? 0.1 : 0.01}
-          min={0}
+          min={priceMethod === 'discount' ? 0.1 : priceMethod === 'fixed_reduction' ? 0.01 : 0}
           max={priceMethod === 'discount' ? 9.9 : undefined}
-          onChange={(e) => onValueChange(Number(e.target.value))}
+          placeholder={priceMethod === 'special_price' ? '请填写' : undefined}
+          onChange={(e) => {
+            const parsed = normalizeMemberPriceInput(priceMethod, e.target.value)
+            if (parsed.warning) onToast?.(parsed.warning)
+            if (parsed.value == null) return
+            onValueChange(parsed.value)
+          }}
         />
         <span>{unitLabel}</span>
         {sceneEnabled && (!readOnly || overrides.length > 0) && (
@@ -984,6 +1034,7 @@ function MemberSceneDialog<T extends MemberPriceProductCoreFields>({
   readOnly,
   onChangeItem,
   onActivity,
+  onToast,
   onClose,
 }: {
   activity: T
@@ -993,6 +1044,7 @@ function MemberSceneDialog<T extends MemberPriceProductCoreFields>({
   readOnly?: boolean
   onChangeItem: (item: MemberPriceProductItem) => void
   onActivity?: (activity: T) => void
+  onToast?: (message: string) => void
   onClose: () => void
 }) {
   const item = uniform ? uniformDiscountItem(activity) : activity.productItems.find((row) => row.productId === productId)
@@ -1005,12 +1057,25 @@ function MemberSceneDialog<T extends MemberPriceProductCoreFields>({
   }
   const unitLabel = activity.priceMethod === 'discount' ? '折' : '元'
   const inputRange = {
-    min: 0,
+    min: activity.priceMethod === 'discount' ? 0.1 : activity.priceMethod === 'fixed_reduction' ? 0.01 : 0,
     max: activity.priceMethod === 'discount' ? 9.9 : undefined,
     step: activity.priceMethod === 'discount' ? 0.1 : 0.01,
   }
-  const setOverride = (sceneId: string, value: number | null) => {
-    commit(setMemberSceneOverride(item, sceneId, value))
+  const commitValue = (raw: string, fallback: number): number => {
+    const parsed = normalizeMemberPriceInput(activity.priceMethod, raw)
+    if (parsed.warning) onToast?.(parsed.warning)
+    if (parsed.value != null) return parsed.value
+    return Number.isFinite(fallback) ? fallback : defaultValueForMethod(activity.priceMethod, product?.price)
+  }
+  const setOverride = (sceneId: string, raw: string) => {
+    if (raw.trim() === '') {
+      commit(setMemberSceneOverride(item, sceneId, null))
+      return
+    }
+    const parsed = normalizeMemberPriceInput(activity.priceMethod, raw)
+    if (parsed.warning) onToast?.(parsed.warning)
+    if (parsed.value == null) return
+    commit(setMemberSceneOverride(item, sceneId, parsed.value))
   }
   const close = () => {
     if (!readOnly) commit(item, true)
@@ -1037,8 +1102,12 @@ function MemberSceneDialog<T extends MemberPriceProductCoreFields>({
               type="number"
               {...inputRange}
               disabled={readOnly}
-              value={item.value}
-              onChange={(e) => commit(pruneMemberSameAsDefault({ ...item, value: Number(e.target.value) }))}
+              value={formatMemberPriceInputValue(item.value)}
+              placeholder={activity.priceMethod === 'special_price' ? '请填写' : undefined}
+              onChange={(e) => commit(pruneMemberSameAsDefault({
+                ...item,
+                value: commitValue(e.target.value, item.value),
+              }))}
             />
             <span className="field-hint">{unitLabel}</span>
             <span className="field-hint">未单独设置的业务按默认力度执行</span>
@@ -1058,6 +1127,7 @@ function MemberSceneDialog<T extends MemberPriceProductCoreFields>({
                   const override = item.sceneValues?.[sceneId]
                   const isSet = override != null && !Number.isNaN(override)
                   const isSame = isMemberSameAsDefault(item, sceneId)
+                  const defaultText = Number.isFinite(item.value) ? String(item.value) : '默认'
                   return (
                     <div key={sceneId} className={`ld-scene-grid__item ${isSame ? 'is-same' : isSet ? 'is-set' : ''}`}>
                       <label className="ld-scene-grid__name" htmlFor={`mp-scene-${sceneId}`}>{orderTypeLabel(sceneId)}</label>
@@ -1068,13 +1138,13 @@ function MemberSceneDialog<T extends MemberPriceProductCoreFields>({
                         type="number"
                         {...inputRange}
                         disabled={readOnly}
-                        placeholder={`默认 ${item.value}`}
+                        placeholder={`默认 ${defaultText}`}
                         value={isSet ? override : ''}
-                        onChange={(e) => setOverride(sceneId, e.target.value === '' ? null : Number(e.target.value))}
+                        onChange={(e) => setOverride(sceneId, e.target.value)}
                       />
                       {isSet && !isSame && <span className="field-hint">{unitLabel}</span>}
                       {isSet && !isSame && !readOnly && (
-                        <button type="button" className="link-btn" onClick={() => setOverride(sceneId, null)}>恢复默认</button>
+                        <button type="button" className="link-btn" onClick={() => setOverride(sceneId, '')}>恢复默认</button>
                       )}
                       {isSame && !readOnly && <span className="ld-scene-grid__warn">与默认相同，无需单独设置</span>}
                     </div>

@@ -6,6 +6,15 @@ import { PaidMemberPriceBasicInfoFields } from '../components/PaidMemberPriceBas
 import { PaidMemberPriceCardBinding } from '../components/PaidMemberPriceCardBinding'
 import { PaidMemberPriceRuleLimitFields } from '../components/PaidMemberPriceRuleLimitFields'
 import { StorePicker } from '../components/StorePicker'
+import {
+  ChannelCornerChoices,
+  PromoFormRow,
+  PromoSection,
+  SceneTickChoices,
+  WizardFooterBar,
+  WizardStepCards,
+  countStepPendings,
+} from '../components/promoWizardUi'
 import { CHANNELS, ORDER_TYPES } from '../mockData'
 import { PAID_MEMBER_PRICE_STATUS_LABELS } from '../mockPaidMemberPriceData'
 import type {
@@ -168,165 +177,157 @@ export function PaidMemberPriceActivityWizard({
       )}
 
       {!isView && (
-        <div className="stepper">
-          {STEPS.map((label, i) => (
-            <button
-              key={label}
-              type="button"
-              className={`stepper__item ${i < step ? 'is-done' : ''} ${i === step ? 'is-active' : ''} ${i <= step ? 'is-clickable' : ''}`}
-              onClick={() => goToStep(i)}
-              disabled={i > step}
-            >
-              <div className="stepper__circle">{i < step ? '✓' : i + 1}</div>
-              <div className="stepper__label">{label}</div>
-              {i < STEPS.length - 1 && <div className="stepper__line" />}
-            </button>
-          ))}
-        </div>
+        <WizardStepCards
+          steps={STEPS}
+          step={step}
+          previewStep={PREVIEW_STEP}
+          pendingCounts={countStepPendings(PREVIEW_STEP, (s) => validateStep(activity, s, cards))}
+          onGoToStep={goToStep}
+        />
       )}
 
       <div className="wizard-body">
-        <div className={`wizard-content ${step === PREVIEW_STEP ? 'wizard-content--preview' : ''}`}>
-          {error && (
-            <div ref={errorRef} className="form-error" role="alert">{error}</div>
-          )}
+        <div className="promo-editor">
+          <div className={`wizard-content ${step === PREVIEW_STEP ? 'wizard-content--preview' : ''}`}>
+            {error && (
+              <div ref={errorRef} className="form-error" role="alert">{error}</div>
+            )}
 
-          {step === 0 && (
-            <div className="wizard-step wizard-step--animate">
-              <Section title="关联付费会员卡与权益">
-                <PaidMemberPriceCardBinding
+            {step === 0 && (
+              <div className="wizard-step wizard-step--animate">
+                <PromoSection title="关联付费会员卡与权益">
+                  <PaidMemberPriceCardBinding
+                    activity={activity}
+                    cards={cards}
+                    locked={bindingLocked}
+                    readOnly={readOnly}
+                    onChange={onChange}
+                    onGoToCards={onGoToCards}
+                  />
+                </PromoSection>
+              </div>
+            )}
+
+            {step === 1 && (
+              <div className="wizard-step wizard-step--animate">
+                <PromoSection title="适用渠道">
+                  <PromoFormRow label="参与渠道" required>
+                    <ChannelCornerChoices
+                      options={CHANNELS}
+                      selectedIds={activity.channels}
+                      disabled={readOnly || ruleLocked}
+                      onToggle={toggleChannel}
+                    />
+                  </PromoFormRow>
+                  <PromoFormRow label="参与业务场景" required>
+                    <SceneTickChoices
+                      options={ORDER_TYPES}
+                      selectedIds={activity.orderTypes}
+                      disabled={readOnly || ruleLocked}
+                      onToggle={toggleOrderType}
+                    />
+                  </PromoFormRow>
+                </PromoSection>
+
+                <PromoSection title="基础信息">
+                  <PaidMemberPriceBasicInfoFields activity={activity} readOnly={readOnly} ruleLocked={ruleLocked} onChange={onChange} />
+                </PromoSection>
+
+                <PromoSection title="活动规则">
+                  <PaidMemberPriceRuleLimitFields activity={activity} cards={cards} readOnly={readOnly} ruleLocked={ruleLocked} onChange={onChange} />
+                </PromoSection>
+
+                <PaidMemberPriceAdvancedOptionsFields activity={activity} readOnly={readOnly} ruleLocked={ruleLocked} onChange={onChange} />
+              </div>
+            )}
+
+            {step === 2 && (
+              <div className="wizard-step wizard-step--animate">
+                <PromoSection title="参与门店">
+                  <StorePicker
+                    scope={activity.storeScope}
+                    selectedIds={activity.storeIds}
+                    readOnly={readOnly || ruleLocked}
+                    onScopeChange={(scope) => update('storeScope', scope)}
+                    onChange={(ids) => update('storeIds', ids)}
+                  />
+                </PromoSection>
+              </div>
+            )}
+
+            {step === 3 && (
+              <div className="wizard-step wizard-step--animate">
+                <PromoSection title="参与商品及优惠">
+                  <MemberPriceProductConfig
+                    activity={activity}
+                    readOnly={readOnly || ruleLocked}
+                    showMemberLevels={false}
+                    onChange={onChange}
+                    onToast={onToast}
+                    sceneOrderTypes={activity.orderTypes}
+                  />
+                </PromoSection>
+              </div>
+            )}
+
+            {step === PREVIEW_STEP && (
+              <div className="wizard-step wizard-step--animate">
+                <PaidMemberPriceActivityPreview
                   activity={activity}
                   cards={cards}
-                  locked={bindingLocked}
-                  readOnly={readOnly}
-                  onChange={onChange}
-                  onGoToCards={onGoToCards}
+                  showAnchorNav
+                  showEditLinks={!isView}
+                  onEditSection={(target) => { setError(null); setStep(target) }}
                 />
-              </Section>
-            </div>
-          )}
-
-          {step === 1 && (
-            <div className="wizard-step wizard-step--animate">
-              <Section title="适用渠道">
-                <FormRow label="参与渠道">
-                  <div className="channel-group">
-                    {CHANNELS.map((ch) => (
-                      <button key={ch.id} type="button" disabled={readOnly || ruleLocked} className={`channel-btn ${activity.channels.includes(ch.id) ? 'is-active' : ''}`} onClick={() => toggleChannel(ch.id)}>
-                        <span className="channel-btn__icon">{ch.icon}</span>
-                        {ch.label}
-                      </button>
-                    ))}
-                  </div>
-                </FormRow>
-                <FormRow label="参与业务场景">
-                  <div className="checkbox-group">
-                    {ORDER_TYPES.map((ot) => (
-                      <label key={ot.id} className="checkbox">
-                        <input type="checkbox" disabled={readOnly || ruleLocked} checked={activity.orderTypes.includes(ot.id)} onChange={() => toggleOrderType(ot.id)} />
-                        {ot.label}
-                      </label>
-                    ))}
-                  </div>
-                </FormRow>
-              </Section>
-
-              <Section title="基础信息">
-                <PaidMemberPriceBasicInfoFields activity={activity} readOnly={readOnly} ruleLocked={ruleLocked} onChange={onChange} />
-              </Section>
-
-              <Section title="活动规则">
-                <PaidMemberPriceRuleLimitFields activity={activity} cards={cards} readOnly={readOnly} ruleLocked={ruleLocked} onChange={onChange} />
-              </Section>
-
-              <PaidMemberPriceAdvancedOptionsFields activity={activity} readOnly={readOnly} ruleLocked={ruleLocked} onChange={onChange} />
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="wizard-step wizard-step--animate">
-              <Section title="参与门店">
-                <StorePicker
-                  scope={activity.storeScope}
-                  selectedIds={activity.storeIds}
-                  readOnly={readOnly || ruleLocked}
-                  onScopeChange={(scope) => update('storeScope', scope)}
-                  onChange={(ids) => update('storeIds', ids)}
-                />
-              </Section>
-            </div>
-          )}
-
-          {step === 3 && (
-            <div className="wizard-step wizard-step--animate">
-              <Section title="参与商品及优惠">
-                <MemberPriceProductConfig
-                  activity={activity}
-                  readOnly={readOnly || ruleLocked}
-                  showMemberLevels={false}
-                  onChange={onChange}
-                  onToast={onToast}
-                  sceneOrderTypes={activity.orderTypes}
-                />
-              </Section>
-            </div>
-          )}
-
-          {step === PREVIEW_STEP && (
-            <div className="wizard-step wizard-step--animate">
-              <PaidMemberPriceActivityPreview
-                activity={activity}
-                cards={cards}
-                showAnchorNav
-                showEditLinks={!isView}
-                onEditSection={(target) => { setError(null); setStep(target) }}
-              />
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="wizard-footer">
-        {isView ? (
-          <>
-            <button type="button" className="btn btn--default" onClick={onCancel}>返回列表</button>
-            {onSwitchToEdit && activity.status !== 'voided' && (
-              <button type="button" className="btn btn--primary" onClick={onSwitchToEdit}>编辑活动</button>
-            )}
-          </>
-        ) : (
-          <>
-            <button type="button" className="btn btn--default" onClick={onCancel}>取消</button>
-            {step > 0 && <button type="button" className="btn btn--default" onClick={goPrev}>上一步</button>}
-            {canDraft && (
-              <button type="button" className="btn btn--default" onClick={onSaveDraft}>保存草稿</button>
-            )}
-            {step < PREVIEW_STEP ? (
-              <button type="button" className="btn btn--primary" onClick={goNext}>下一步</button>
-            ) : (
-              <button type="button" className="btn btn--primary" onClick={onSave}>{primaryActionLabel}</button>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="form-section">
-      <div className="form-section__title">{title}</div>
-      <div className="form-section__body">{children}</div>
-    </div>
-  )
-}
-
-function FormRow({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
-  return (
-    <div className="form-row">
-      <label className="form-label">{required && <span className="required">*</span>}{label}</label>
-      <div className="form-control">{children}</div>
+      <WizardFooterBar
+        isView={isView}
+        health={
+          !isView ? (
+            (() => {
+              const first = [0, 1, 2, 3].map((s) => ({ step: s, message: validateStep(activity, s, cards) })).find((x) => x.message)
+              return first?.message ? (
+                <>
+                  <span className="wizard-footer__warn">还有配置待完善</span>
+                  <button type="button" className="link-btn" onClick={() => { setError(null); setStep(first.step) }}>
+                    {first.message}
+                  </button>
+                </>
+              ) : (
+                <span className="wizard-footer__ok">配置体检：已完成</span>
+              )
+            })()
+          ) : undefined
+        }
+        actions={
+          isView ? (
+            <>
+              <button type="button" className="btn btn--default" onClick={onCancel}>返回列表</button>
+              {onSwitchToEdit && activity.status !== 'voided' && (
+                <button type="button" className="btn btn--primary" onClick={onSwitchToEdit}>编辑活动</button>
+              )}
+            </>
+          ) : (
+            <>
+              <button type="button" className="btn btn--default" onClick={onCancel}>取消</button>
+              {step > 0 && <button type="button" className="btn btn--default" onClick={goPrev}>上一步</button>}
+              {canDraft && (
+                <button type="button" className="btn btn--default" onClick={onSaveDraft}>保存草稿</button>
+              )}
+              {step < PREVIEW_STEP ? (
+                <button type="button" className="btn btn--primary" onClick={goNext}>下一步</button>
+              ) : (
+                <button type="button" className="btn btn--primary" onClick={onSave}>{primaryActionLabel}</button>
+              )}
+            </>
+          )
+        }
+      />
     </div>
   )
 }

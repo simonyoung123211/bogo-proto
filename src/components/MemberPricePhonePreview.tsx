@@ -1,4 +1,5 @@
-import { CHANNELS, ORDER_TYPES } from '../mockData'
+import { CHANNELS } from '../mockData'
+import { MEMBER_PRICE_ORDER_TYPES } from '../mockMemberPriceData'
 import { MEMBER_PRICE_METHOD_LABELS, createEmptyMemberPriceOfferGroup } from '../mockMemberPriceData'
 import type { MemberPriceActivityForm, MemberPriceOfferGroup } from '../types'
 import {
@@ -43,12 +44,17 @@ export function MemberPricePhonePreview({
     .filter(Boolean)
     .join('、') || '未选渠道'
   const sceneText = activity.orderTypes
-    .map((id) => ORDER_TYPES.find((o) => o.id === id)?.label)
+    .map((id) => MEMBER_PRICE_ORDER_TYPES.find((o) => o.id === id)?.label)
     .filter(Boolean)
     .slice(0, 3)
     .join('/') || '未选场景'
-  const pickupOn = activity.orderTypes.some((id) => id === 'dine_in' || id === 'pickup')
-  const takeawayOn = activity.orderTypes.some((id) => id.startsWith('takeaway'))
+  const pickupOn = activity.orderTypes.some((id) =>
+    id === 'dine_in' || id === 'pack' || id === 'delivery_pickup' || id === 'cake_pickup'
+    || id === 'group_dine_in' || id === 'group_pack',
+  )
+  const takeawayOn = activity.orderTypes.some((id) =>
+    id === 'delivery' || id === 'store_express' || id === 'cake_delivery' || id === 'group_delivery',
+  )
 
   return (
     <aside className="mp-aside" aria-label="点单页预览（示意）">
@@ -132,7 +138,7 @@ export function MemberPricePhonePreview({
         <div className="aside-line"><span>优惠会员</span><b>{getMemberPriceAudienceLabel(audienceType)}</b></div>
         {multi && (
           <div className="aside-line">
-            <span>当前方案</span>
+            <span>当前组</span>
             <b>{schemeFoot(activeGroup, audienceType)}</b>
           </div>
         )}

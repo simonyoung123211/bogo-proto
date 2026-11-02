@@ -160,7 +160,10 @@ export function loadMemberPriceActivities(): MemberPriceActivityForm[] {
   } catch {
     /* ignore */
   }
-  return [...initialMemberPriceActivities]
+  // 初始 mock 也走迁移：旧「一组多等级」自动拆成一组一枚举
+  return initialMemberPriceActivities.map((a) =>
+    migrateMemberPriceActivity(a as unknown as Record<string, unknown>),
+  )
 }
 
 export function saveMemberPriceActivities(activities: MemberPriceActivityForm[]): void {

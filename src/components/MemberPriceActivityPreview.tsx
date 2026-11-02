@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { formatMemberPriceAdvancedPreview } from './MemberPriceAdvancedOptionsFields'
 import { formatMemberPriceBasicPreview } from './MemberPriceBasicInfoFields'
 import { formatMemberPriceLimitsSummary } from './MemberPriceRuleLimitFields'
-import { CHANNELS, ORDER_TYPES, products } from '../mockData'
+import { CHANNELS, products } from '../mockData'
+import { MEMBER_PRICE_ORDER_TYPES } from '../mockMemberPriceData'
 import { MEMBER_PRICE_METHOD_LABELS, createEmptyMemberPriceOfferGroup } from '../mockMemberPriceData'
 import type { MemberPriceActivityForm } from '../types'
 import {
@@ -15,7 +16,7 @@ import {
   getMemberLevelsSummary,
   getMemberPriceAudienceLabel,
   getMemberPriceGroupsSummary,
-  getMemberPriceOfferSchemeLabel,
+  getMemberPriceGroupLabel,
   getProductScopeLabel,
   getStoreScopeLabel,
   getStoreSummary,
@@ -55,7 +56,7 @@ export function MemberPriceActivityPreview({
   const selectedStores = getActivityStores(activity)
   const summaryTags = [
     getMemberPriceAudienceLabel(audienceType),
-    supportsMemberPriceMultiGroup(audienceType) ? `${groups.length}个方案` : MEMBER_PRICE_METHOD_LABELS[groups[0]?.priceMethod ?? activity.priceMethod],
+    supportsMemberPriceMultiGroup(audienceType) ? `${groups.length}个等级/模版组` : MEMBER_PRICE_METHOD_LABELS[groups[0]?.priceMethod ?? activity.priceMethod],
     getMemberLevelsSummary(activity),
     getStoreSummary(activity),
     getChannelSummary(activity),
@@ -92,7 +93,7 @@ export function MemberPriceActivityPreview({
       <div className="preview-sections">
         <PreviewSection id="mp-preview-scope" title="适用范围" step={0} showEdit={showEditLinks} onEdit={onEditSection}>
           <PreviewItem label="参与渠道" value={activity.channels.map((c) => CHANNELS.find((x) => x.id === c)?.label).join('、') || '-'} />
-          <PreviewItem label="订单类型" value={activity.orderTypes.map((c) => ORDER_TYPES.find((x) => x.id === c)?.label).join('、') || '-'} />
+          <PreviewItem label="订单类型" value={activity.orderTypes.map((c) => MEMBER_PRICE_ORDER_TYPES.find((x) => x.id === c)?.label).join('、') || '-'} />
         </PreviewSection>
 
         <PreviewSection id="mp-preview-basic" title="基础信息" step={0} showEdit={showEditLinks} onEdit={onEditSection}>
@@ -135,7 +136,7 @@ export function MemberPriceActivityPreview({
         <PreviewSection id="mp-preview-products" title="参与商品及优惠" step={2} showEdit={showEditLinks} onEdit={onEditSection}>
           <PreviewItem label="优惠会员" value={getMemberPriceAudienceLabel(audienceType)} />
           {audienceType === 'paid_member_card_user' && (
-            <PreviewItem label="说明" value="任意已购付费会员用户；与付费会员价活动无关" />
+            <PreviewItem label="说明" value="任意已购买付费会员的用户均可享受，无需指定卡模版" />
           )}
           {groups.map((group, index) => {
             const core = groupToProductCore(group)
@@ -143,7 +144,7 @@ export function MemberPriceActivityPreview({
             return (
               <div key={group.id} className="mp-preview-group">
                 {supportsMemberPriceMultiGroup(audienceType) && (
-                  <div className="mp-preview-group__title">{getMemberPriceOfferSchemeLabel(index)}</div>
+                  <div className="mp-preview-group__title">{getMemberPriceGroupLabel(audienceType, group, index)}</div>
                 )}
                 {needsMemberPriceTargets(audienceType) && (
                   <PreviewItem

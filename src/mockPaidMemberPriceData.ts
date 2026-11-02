@@ -202,7 +202,7 @@ export function createEmptyPaidMemberPriceActivity(): PaidMemberPriceActivityFor
     orderTypes: ['dine_in', 'takeaway', 'pickup'],
     priceMethod: 'discount',
     productItems: [],
-    allProductsValue: 8,
+    allProductsValue: 9.9,
     toppingsDiscount: false,
     comboSurchargeDiscount: false,
     preparationSurchargeDiscount: false,

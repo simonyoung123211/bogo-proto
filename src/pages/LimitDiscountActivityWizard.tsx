@@ -2,6 +2,14 @@ import { useEffect, useState } from 'react'
 import { LimitDiscountGoodsFields } from '../components/LimitDiscountGoodsFields'
 import { SelectedProductPager, SelectedProductSearchBar } from '../components/SelectedProductTools'
 import { LimitDiscountRuleFields } from '../components/LimitDiscountRuleFields'
+import {
+  ChannelCornerChoices,
+  PromoFormRow,
+  PromoSection,
+  SceneTickChoices,
+  WizardFooterBar,
+  WizardStepCards,
+} from '../components/promoWizardUi'
 import { StorePicker } from '../components/StorePicker'
 import { LIMIT_DISCOUNT_CHANNELS, LIMIT_DISCOUNT_SCENES, LIMIT_DISCOUNT_STORE_TAGS } from '../mockLimitDiscountData'
 import { products, STATUS_LABELS, stores } from '../mockData'
@@ -35,12 +43,8 @@ interface LimitDiscountActivityWizardProps {
   onSwitchToEdit?: () => void
 }
 
-const STEPS = [
-  { title: '基础信息与规则', sub: '渠道 · 时间 · 规则' },
-  { title: '参与门店', sub: '未选门店' },
-  { title: '商品与优惠', sub: '选商品 · 设优惠' },
-  { title: '提交保存', sub: '审核材料并完成' },
-]
+const STEPS = ['基础信息与规则', '参与门店', '商品与优惠', '提交保存']
+const PREVIEW_STEP = STEPS.length - 1
 
 export function LimitDiscountActivityWizard({
   activity,
@@ -134,200 +138,209 @@ export function LimitDiscountActivityWizard({
       </div>
 
       {!isView && (
-        <div className="stepper">
-          {STEPS.map((item, index) => (
-            <button key={item.title} type="button" className={`stepper__item ${index < step ? 'is-done' : ''} ${index === step ? 'is-active' : ''}`} onClick={() => goTo(index)}>
-              <div className="stepper__circle">{index < step ? '✓' : index + 1}</div>
-              <div className="stepper__label">{item.title}</div>
-              {index < STEPS.length - 1 && <div className="stepper__line" />}
-            </button>
-          ))}
-        </div>
+        <WizardStepCards
+          steps={STEPS}
+          step={step}
+          previewStep={PREVIEW_STEP}
+          pendingCounts={[0, 1, 2].map((s) => collectStepErrors(activity, s).length)}
+          onGoToStep={goTo}
+        />
       )}
 
-      <div className="ld-editor">
-        <aside className="ld-phone" aria-label="点单页预览">
-          <div className="ld-phone__bar"><span>10:46</span><span>5G</span></div>
-          <div className="ld-phone__store">门店名称<span>距您 1.7km</span></div>
-          <div className="ld-phone__tabs">
-            <span className={activity.orderTypes.includes('delivery_pickup') || activity.orderTypes.includes('pack') ? 'is-on' : ''}>自取</span>
-            <span className={activity.orderTypes.includes('delivery') ? 'is-on' : ''}>外卖</span>
-          </div>
-          {activity.titleDisplay === 'show' && (activity.title || activity.name) && (
-            <div className="ld-phone__banner">{activity.title || activity.name || '限时优惠'}<em>点击查看</em></div>
-          )}
-          <div className="ld-phone__goods">
-            {previewProducts.map((product) => product && (
-              <div key={product.id} className="ld-phone__good">
-                <div>
-                  <strong>{product.name}</strong>
-                  {activity.goodsLabelDisplay === 'show' && activity.goodsLabel && <em>{activity.goodsLabel}</em>}
-                </div>
-                <span>¥{previewPrice(product, activity, activity.productItems.find((item) => item.productId === product.id))}</span>
+      <div className="wizard-body">
+        <div className="promo-editor">
+          {!isView && step === 0 && (
+            <aside className="ld-phone mp-aside" aria-label="点单页预览">
+              <div className="ld-phone__bar"><span>10:46</span><span>5G</span></div>
+              <div className="ld-phone__store">门店名称<span>距您 1.7km</span></div>
+              <div className="ld-phone__tabs">
+                <span className={activity.orderTypes.includes('delivery_pickup') || activity.orderTypes.includes('pack') ? 'is-on' : ''}>自取</span>
+                <span className={activity.orderTypes.includes('delivery') ? 'is-on' : ''}>外卖</span>
               </div>
-            ))}
+              {activity.titleDisplay === 'show' && (activity.title || activity.name) && (
+                <div className="ld-phone__banner">{activity.title || activity.name || '限时优惠'}<em>点击查看</em></div>
+              )}
+              <div className="ld-phone__goods">
+                {previewProducts.map((product) => product && (
+                  <div key={product.id} className="ld-phone__good">
+                    <div>
+                      <strong>{product.name}</strong>
+                      {activity.goodsLabelDisplay === 'show' && activity.goodsLabel && <em>{activity.goodsLabel}</em>}
+                    </div>
+                    <span>¥{previewPrice(product, activity, activity.productItems.find((item) => item.productId === product.id))}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="ld-phone__foot">
+                {sceneHint ? `${sceneHint} · ` : ''}
+                投放到 {channelSummary(activity)}
+              </p>
+            </aside>
+          )}
+
+          <div className="wizard-content">
+            {errors.length > 0 && (
+              <div className="form-error" role="alert">还有 {errors.length} 项必填没完成：{errors[0]}</div>
+            )}
+
+            {step === 0 && (
+              <div className="wizard-step wizard-step--animate">
+                <PromoSection title="适用渠道">
+                  <PromoFormRow label="参与渠道" required>
+                    <ChannelCornerChoices
+                      options={LIMIT_DISCOUNT_CHANNELS.map((c) => ({ id: c.id, label: c.label, icon: c.icon }))}
+                      selectedIds={activity.channels}
+                      disabled={readOnly}
+                      onToggle={(id) => toggleList('channels', id)}
+                    />
+                  </PromoFormRow>
+                  <PromoFormRow label="参与业务/场景" required>
+                    <SceneTickChoices
+                      options={LIMIT_DISCOUNT_SCENES.map((s) => ({ id: s.id, label: s.label }))}
+                      selectedIds={activity.orderTypes}
+                      disabled={readOnly}
+                      onToggle={(id) => toggleList('orderTypes', id)}
+                    />
+                  </PromoFormRow>
+                </PromoSection>
+                <PromoSection title="基础信息">
+                  <LimitDiscountRuleFields activity={activity} readOnly={readOnly} onChange={onChange} />
+                </PromoSection>
+              </div>
+            )}
+
+            {step === 1 && (
+              <div className="wizard-step wizard-step--animate">
+                <PromoSection title="参与门店">
+                  <p className="field-hint">若“门店管理-门店策略”中设置了门店且不适用业务设置了此类型活动，则门店策略中的门店不可参与此活动。</p>
+                  <PromoFormRow label="门店范围" required>
+                    <div className="radio-group">
+                      {([
+                        ['all', '全部门店'],
+                        ['include', '指定门店参与'],
+                        ['exclude', '指定门店不参与'],
+                        ['tag_include', '指定门店标签参与'],
+                        ['tag_exclude', '指定门店标签不参与'],
+                      ] as const).map(([value, label]) => (
+                        <label key={value} className="radio">
+                          <input type="radio" disabled={readOnly} checked={activity.storeMode === value} onChange={() => update('storeMode', value as LimitDiscountStoreMode)} />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  </PromoFormRow>
+                  {(activity.storeMode === 'include' || activity.storeMode === 'exclude') && (
+                    <StorePicker
+                      hideScopeRadios
+                      readOnly={readOnly}
+                      scope={activity.storeMode === 'exclude' ? 'partial_exclude' : 'partial_include'}
+                      selectedIds={activity.storeIds}
+                      onScopeChange={() => undefined}
+                      onChange={(ids) => update('storeIds', ids)}
+                    />
+                  )}
+                  {(activity.storeMode === 'tag_include' || activity.storeMode === 'tag_exclude') && (
+                    <SceneTickChoices
+                      options={LIMIT_DISCOUNT_STORE_TAGS.map((t) => ({ id: t.id, label: t.label }))}
+                      selectedIds={activity.storeTagIds}
+                      disabled={readOnly}
+                      onToggle={(id) => toggleList('storeTagIds', id)}
+                    />
+                  )}
+                  <div className="promo-card" style={{ marginTop: 16 }}>
+                    <div className="promo-card__head">生效门店核对</div>
+                    <div className="promo-card__body">
+                      <p>当前覆盖门店 {coverage.total} 家，其中策略门店 {coverage.strategy} 家，实际可参与门店 {coverage.actual} 家。</p>
+                      <p className="field-hint">计算口径：按当前门店范围 {coverage.total} 家 − 策略门店 {coverage.strategy} 家 = 实际参与 {coverage.actual} 家。演示环境策略门店按 0 家计。</p>
+                    </div>
+                  </div>
+                </PromoSection>
+              </div>
+            )}
+
+            {step === 2 && (
+              <div className="wizard-step wizard-step--animate">
+                <PromoSection title="参与商品及优惠">
+                  <LimitDiscountGoodsFields activity={activity} readOnly={readOnly} onChange={onChange} />
+                </PromoSection>
+              </div>
+            )}
+
+            {step === 3 && (
+              <div className="wizard-step wizard-step--animate">
+                <Review title="适用渠道与时间" rows={[
+                  ['参与渠道', channelSummary(activity)],
+                  ['业务场景', sceneSummary(activity)],
+                  ['活动名称', activity.name || '--'],
+                  ['活动时间', `${activity.startTime.slice(0, 16)} ~ ${activity.endTime.slice(0, 16)}`],
+                  ['活动标题', activity.title || '未填写'],
+                  ['商品促销标签', activity.goodsLabel || '未填写'],
+                ]} onEdit={!isView ? () => goTo(0) : undefined} />
+                <Review title="活动规则" rows={[
+                  ['门槛限制', activity.thresholdType === 'limited' ? `消费金额满 ${activity.thresholdAmount} 元` : '不限制'],
+                  ['加料 / 套餐加价 / 做法加价', `${activity.toppingDiscount === 'yes' ? '参与' : '不参与'} / ${activity.comboSurchargeDiscount === 'yes' ? '参与' : '不参与'} / ${activity.practiceSurchargeDiscount === 'yes' ? '参与' : '不参与'}`],
+                  ['优惠命中', activity.hitRule === 'lowest_price' ? '优惠售价低到高的商品' : '优惠售价高到低的商品'],
+                  ['共享互斥', activity.shareMutexRelation === 'share_all' ? '全部活动/券 共享' : '全部活动/券 互斥'],
+                  ['参与用户', participantLabel(activity)],
+                  ['打标签', memberTagLabels(activity.memberTagIds)],
+                ]} onEdit={!isView ? () => goTo(0) : undefined} />
+                <Review title="门店与商品" rows={[
+                  ['参与门店', `${storeModeLabel(activity)}${activity.storeTagIds.length ? `（${storeTagLabels(activity.storeTagIds)}）` : ''}`],
+                  ['参与商品', goodsScopeLabel(activity)],
+                  ['优惠力度', discountStrengthSummary(activity)],
+                  ['活动库存', activity.goodsScope === 'include' ? '按商品分别设置' : (activity.activityStock == null ? '不限量' : `${activity.activityStock} 件`)],
+                ]} onEdit={!isView ? () => goTo(1) : undefined}>
+                  <StoreDetail activity={activity} />
+                  <GoodsDetail activity={activity} />
+                </Review>
+                <p className="field-hint">保存后活动进入待发布。发布后到点自动开始，可在活动列表里暂停、作废或复制。</p>
+              </div>
+            )}
           </div>
-          <p className="ld-phone__foot">
-            {sceneHint ? `${sceneHint} · ` : ''}
-            投放到 {channelSummary(activity)}
-          </p>
-        </aside>
-
-        <div className="wizard-content">
-          {errors.length > 0 && (
-            <div className="form-error" role="alert">还有 {errors.length} 项必填没完成：{errors[0]}</div>
-          )}
-
-          {step === 0 && (
-            <div className="wizard-step wizard-step--animate">
-              <Section title="适用渠道">
-                <FormRow label="参与渠道" required>
-                  <div className="channel-group">
-                    {LIMIT_DISCOUNT_CHANNELS.map((channel) => (
-                      <button key={channel.id} type="button" disabled={readOnly} className={`channel-btn ${activity.channels.includes(channel.id) ? 'is-active' : ''}`} onClick={() => toggleList('channels', channel.id)}>
-                        <span className="channel-btn__icon">{channel.icon}</span>{channel.label}
-                      </button>
-                    ))}
-                  </div>
-                </FormRow>
-                <FormRow label="参与业务/场景" required>
-                  <div className="checkbox-group">
-                    {LIMIT_DISCOUNT_SCENES.map((scene) => (
-                      <label key={scene.id} className="checkbox">
-                        <input type="checkbox" disabled={readOnly} checked={activity.orderTypes.includes(scene.id)} onChange={() => toggleList('orderTypes', scene.id)} />
-                        {scene.label}
-                      </label>
-                    ))}
-                  </div>
-                </FormRow>
-              </Section>
-              <Section title="基础信息">
-                <LimitDiscountRuleFields activity={activity} readOnly={readOnly} onChange={onChange} />
-              </Section>
-            </div>
-          )}
-
-          {step === 1 && (
-            <div className="wizard-step wizard-step--animate">
-              <Section title="参与门店">
-                <p className="field-hint">若“门店管理-门店策略”中设置了门店且不适用业务设置了此类型活动，则门店策略中的门店不可参与此活动。</p>
-                <FormRow label="门店范围" required>
-                  <div className="radio-group">
-                    {([
-                      ['all', '全部门店'],
-                      ['include', '指定门店参与'],
-                      ['exclude', '指定门店不参与'],
-                      ['tag_include', '指定门店标签参与'],
-                      ['tag_exclude', '指定门店标签不参与'],
-                    ] as const).map(([value, label]) => (
-                      <label key={value} className="radio">
-                        <input type="radio" disabled={readOnly} checked={activity.storeMode === value} onChange={() => update('storeMode', value as LimitDiscountStoreMode)} />
-                        {label}
-                      </label>
-                    ))}
-                  </div>
-                </FormRow>
-                {(activity.storeMode === 'include' || activity.storeMode === 'exclude') && (
-                  <StorePicker
-                    hideScopeRadios
-                    readOnly={readOnly}
-                    scope={activity.storeMode === 'exclude' ? 'partial_exclude' : 'partial_include'}
-                    selectedIds={activity.storeIds}
-                    onScopeChange={() => undefined}
-                    onChange={(ids) => update('storeIds', ids)}
-                  />
-                )}
-                {(activity.storeMode === 'tag_include' || activity.storeMode === 'tag_exclude') && (
-                  <div className="checkbox-group">
-                    {LIMIT_DISCOUNT_STORE_TAGS.map((tag) => (
-                      <label key={tag.id} className="checkbox">
-                        <input type="checkbox" disabled={readOnly} checked={activity.storeTagIds.includes(tag.id)} onChange={() => toggleList('storeTagIds', tag.id)} />
-                        {tag.label}
-                      </label>
-                    ))}
-                  </div>
-                )}
-                <div className="form-section" style={{ marginTop: 16 }}>
-                  <div className="form-section__title">生效门店核对</div>
-                  <div className="form-section__body">
-                    <p>当前覆盖门店 {coverage.total} 家，其中策略门店 {coverage.strategy} 家，实际可参与门店 {coverage.actual} 家。</p>
-                    <p className="field-hint">计算口径：按当前门店范围 {coverage.total} 家 − 策略门店 {coverage.strategy} 家 = 实际参与 {coverage.actual} 家。演示环境策略门店按 0 家计。</p>
-                  </div>
-                </div>
-              </Section>
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="wizard-step wizard-step--animate">
-              <Section title="参与商品及优惠">
-                <LimitDiscountGoodsFields activity={activity} readOnly={readOnly} onChange={onChange} />
-              </Section>
-            </div>
-          )}
-
-          {step === 3 && (
-            <div className="wizard-step wizard-step--animate">
-              <Review title="适用渠道与时间" rows={[
-                ['参与渠道', channelSummary(activity)],
-                ['业务场景', sceneSummary(activity)],
-                ['活动名称', activity.name || '--'],
-                ['活动时间', `${activity.startTime.slice(0, 16)} ~ ${activity.endTime.slice(0, 16)}`],
-                ['活动标题', activity.title || '未填写'],
-                ['商品促销标签', activity.goodsLabel || '未填写'],
-              ]} onEdit={!isView ? () => goTo(0) : undefined} />
-              <Review title="活动规则" rows={[
-                ['门槛限制', activity.thresholdType === 'limited' ? `消费金额满 ${activity.thresholdAmount} 元` : '不限制'],
-                ['加料 / 套餐加价 / 做法加价', `${activity.toppingDiscount === 'yes' ? '参与' : '不参与'} / ${activity.comboSurchargeDiscount === 'yes' ? '参与' : '不参与'} / ${activity.practiceSurchargeDiscount === 'yes' ? '参与' : '不参与'}`],
-                ['优惠命中', activity.hitRule === 'lowest_price' ? '优惠售价低到高的商品' : '优惠售价高到低的商品'],
-                ['共享互斥', activity.shareMutexRelation === 'share_all' ? '全部活动/券 共享' : '全部活动/券 互斥'],
-                ['参与用户', participantLabel(activity)],
-                ['打标签', memberTagLabels(activity.memberTagIds)],
-              ]} onEdit={!isView ? () => goTo(0) : undefined} />
-              <Review title="门店与商品" rows={[
-                ['参与门店', `${storeModeLabel(activity)}${activity.storeTagIds.length ? `（${storeTagLabels(activity.storeTagIds)}）` : ''}`],
-                ['参与商品', goodsScopeLabel(activity)],
-                ['优惠力度', discountStrengthSummary(activity)],
-                ['活动库存', activity.goodsScope === 'include' ? '按商品分别设置' : (activity.activityStock == null ? '不限量' : `${activity.activityStock} 件`)],
-              ]} onEdit={!isView ? () => goTo(1) : undefined}>
-                <StoreDetail activity={activity} />
-                <GoodsDetail activity={activity} />
-              </Review>
-              <p className="field-hint">保存后活动进入待发布。发布后到点自动开始，可在活动列表里暂停、作废或复制。</p>
-            </div>
-          )}
         </div>
       </div>
 
-      <div className="wizard-footer">
-        {isView ? (
-          <>
-            <button type="button" className="btn btn--default" onClick={onCancel}>返回列表</button>
-            {onSwitchToEdit && <button type="button" className="btn btn--primary" onClick={onSwitchToEdit}>编辑活动</button>}
-          </>
-        ) : (
-          <>
-            <button type="button" className="btn btn--default" onClick={onCancel}>取消</button>
-            {step > 0 && <button type="button" className="btn btn--default" onClick={goPrev}>上一步</button>}
-            <button type="button" className="btn btn--default" onClick={onSaveDraft}>保存至草稿</button>
-            {step < 3 ? (
-              <button type="button" className="btn btn--primary" onClick={goNext}>下一步</button>
-            ) : (
-              <button type="button" className="btn btn--primary" onClick={handleSave}>保存</button>
-            )}
-          </>
-        )}
-      </div>
+      <WizardFooterBar
+        isView={isView}
+        health={
+          !isView ? (
+            (() => {
+              const first = [0, 1, 2].flatMap((s) => collectStepErrors(activity, s).map((message) => ({ step: s, message })))[0]
+              return first ? (
+                <>
+                  <span className="wizard-footer__warn">还有配置待完善</span>
+                  <button type="button" className="link-btn" onClick={() => { setErrors([]); setStep(first.step) }}>
+                    {first.message}
+                  </button>
+                </>
+              ) : (
+                <span className="wizard-footer__ok">配置体检：已完成</span>
+              )
+            })()
+          ) : undefined
+        }
+        actions={
+          isView ? (
+            <>
+              <button type="button" className="btn btn--default" onClick={onCancel}>返回列表</button>
+              {onSwitchToEdit && <button type="button" className="btn btn--primary" onClick={onSwitchToEdit}>编辑活动</button>}
+            </>
+          ) : (
+            <>
+              <button type="button" className="btn btn--default" onClick={onCancel}>取消</button>
+              {step > 0 && <button type="button" className="btn btn--default" onClick={goPrev}>上一步</button>}
+              <button type="button" className="btn btn--default" onClick={onSaveDraft}>保存至草稿</button>
+              {step < PREVIEW_STEP ? (
+                <button type="button" className="btn btn--primary" onClick={goNext}>下一步</button>
+              ) : (
+                <button type="button" className="btn btn--primary" onClick={handleSave}>保存</button>
+              )}
+            </>
+          )
+        }
+      />
     </div>
   )
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return <div className="form-section"><div className="form-section__title">{title}</div><div className="form-section__body">{children}</div></div>
-}
-
-function FormRow({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
-  return <div className="form-row"><label className="form-label">{required && <span className="required">*</span>}{label}</label><div className="form-control">{children}</div></div>
 }
 
 const REVIEW_PAGE_SIZE = 10
@@ -501,12 +514,12 @@ function DetailTable<T>({ rows, filtering, rowKey, emptyText, columns, renderRow
 
 function Review({ title, rows, onEdit, children }: { title: string; rows: [string, string][]; onEdit?: () => void; children?: React.ReactNode }) {
   return (
-    <div className="form-section">
-      <div className="form-section__title" style={{ display: 'flex', justifyContent: 'space-between' }}>
+    <div className="promo-card">
+      <div className="promo-card__head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span>{title}</span>
         {onEdit && <button type="button" className="link-btn" onClick={onEdit}>修改</button>}
       </div>
-      <div className="form-section__body">
+      <div className="promo-card__body">
         {rows.map(([label, value]) => (
           <div key={label} className="form-row">
             <label className="form-label">{label}</label>

@@ -10,6 +10,15 @@ import { ProductPicker } from '../components/ProductPicker'
 import { RuleLimitFields } from '../components/RuleLimitFields'
 import { SelectedProductTable } from '../components/SelectedProductTable'
 import { StorePicker } from '../components/StorePicker'
+import {
+  ChannelCornerChoices,
+  PromoFormRow,
+  PromoSection,
+  SceneTickChoices,
+  WizardFooterBar,
+  WizardStepCards,
+  countStepPendings,
+} from '../components/promoWizardUi'
 import { CHANNELS, ORDER_TYPES, STATUS_LABELS, createEmptyCouponGift, createEmptyGiftGroup, DEFAULT_PHYSICAL_GIFT_DISPLAY_TITLE, DEFAULT_STORAGE_COUPON_DISPLAY_TITLE } from '../mockData'
 import type { ActivityForm, WizardMode } from '../types'
 import { validateStep, withClampedMaxDiscountItemsPerOrder } from '../utils/activity'
@@ -146,25 +155,18 @@ export function ActivityWizard({
       </div>
 
       {!isView && (
-        <div className="stepper">
-          {STEPS.map((label, i) => (
-            <button
-              key={label}
-              type="button"
-              className={`stepper__item ${i < step ? 'is-done' : ''} ${i === step ? 'is-active' : ''} ${i <= step ? 'is-clickable' : ''}`}
-              onClick={() => goToStep(i)}
-              disabled={i > step}
-            >
-              <div className="stepper__circle">{i < step ? '✓' : i + 1}</div>
-              <div className="stepper__label">{label}</div>
-              {i < STEPS.length - 1 && <div className="stepper__line" />}
-            </button>
-          ))}
-        </div>
+        <WizardStepCards
+          steps={STEPS}
+          step={step}
+          previewStep={PREVIEW_STEP}
+          pendingCounts={countStepPendings(PREVIEW_STEP, (s) => validateStep(activity, s))}
+          onGoToStep={goToStep}
+        />
       )}
 
       <div className="wizard-body">
-        <div className={`wizard-content ${showPreviewLayout ? 'wizard-content--preview' : ''}`}>
+        <div className="promo-editor">
+          <div className={`wizard-content ${showPreviewLayout ? 'wizard-content--preview' : ''}`}>
           {error && (
             <div ref={errorRef} className="form-error" role="alert">
               {error}
@@ -173,50 +175,35 @@ export function ActivityWizard({
 
           {step === 0 && (
             <div className="wizard-step wizard-step--animate">
-              <Section title="适用渠道">
-                <FormRow label="参与渠道">
-                  <div className="channel-group">
-                    {CHANNELS.map((ch) => (
-                      <button
-                        key={ch.id}
-                        type="button"
-                        disabled={readOnly}
-                        className={`channel-btn ${activity.channels.includes(ch.id) ? 'is-active' : ''}`}
-                        onClick={() => toggleChannel(ch.id)}
-                      >
-                        <span className="channel-btn__icon">{ch.icon}</span>
-                        {ch.label}
-                      </button>
-                    ))}
-                  </div>
-                </FormRow>
-                <FormRow label="参与订单类型">
-                  <div className="checkbox-group">
-                    {ORDER_TYPES.map((ot) => (
-                      <label key={ot.id} className="checkbox">
-                        <input
-                          type="checkbox"
-                          disabled={readOnly}
-                          checked={activity.orderTypes.includes(ot.id)}
-                          onChange={() => toggleOrderType(ot.id)}
-                        />
-                        {ot.label}
-                      </label>
-                    ))}
-                  </div>
-                </FormRow>
-              </Section>
+              <PromoSection title="适用渠道">
+                <PromoFormRow label="参与渠道">
+                  <ChannelCornerChoices
+                    options={CHANNELS}
+                    selectedIds={activity.channels}
+                    disabled={readOnly}
+                    onToggle={toggleChannel}
+                  />
+                </PromoFormRow>
+                <PromoFormRow label="参与订单类型">
+                  <SceneTickChoices
+                    options={ORDER_TYPES}
+                    selectedIds={activity.orderTypes}
+                    disabled={readOnly}
+                    onToggle={toggleOrderType}
+                  />
+                </PromoFormRow>
+              </PromoSection>
 
-              <Section title="基础信息">
+              <PromoSection title="基础信息">
                 <BasicInfoFields
                   activity={activity}
                   readOnly={readOnly}
                   onChange={onChange}
                 />
-              </Section>
+              </PromoSection>
 
-              <Section title="赠送规则">
-                <FormRow label="规则类型">
+              <PromoSection title="赠送规则">
+                <PromoFormRow label="规则类型">
                   <div>
                     <RadioGroup
                       disabled={readOnly}
@@ -233,7 +220,7 @@ export function ActivityWizard({
                         : '买A送B：赠品与活动商品不同，同一活动 SKU 无论购买多少件，最多赠送 2 件赠品。'}
                     </p>
                   </div>
-                </FormRow>
+                </PromoFormRow>
                 {activity.ruleType === 'buyA_getA' && (
                   <div className="form-row form-row--top">
                     <label className="form-label">赠品配置</label>
@@ -343,7 +330,7 @@ export function ActivityWizard({
                   readOnly={readOnly}
                   onChange={onChange}
                 />
-              </Section>
+              </PromoSection>
 
               <AdvancedOptionsFields
                 activity={activity}
@@ -355,7 +342,7 @@ export function ActivityWizard({
 
           {step === 1 && (
             <div className="wizard-step wizard-step--animate">
-              <Section title="参与门店">
+              <PromoSection title="参与门店">
                 <StorePicker
                   scope={activity.storeScope}
                   selectedIds={activity.storeIds}
@@ -363,14 +350,14 @@ export function ActivityWizard({
                   onScopeChange={(scope) => update('storeScope', scope)}
                   onChange={(ids) => update('storeIds', ids)}
                 />
-              </Section>
+              </PromoSection>
             </div>
           )}
 
           {step === 2 && (
             <div className="wizard-step wizard-step--animate">
-              <Section title="参与商品">
-                <FormRow label="商品范围">
+              <PromoSection title="参与商品">
+                <PromoFormRow label="商品范围">
                   <RadioGroup
                     disabled={readOnly}
                     value={activity.productScope}
@@ -380,7 +367,7 @@ export function ActivityWizard({
                     ]}
                     onChange={(v) => update('productScope', v as ActivityForm['productScope'])}
                   />
-                </FormRow>
+                </PromoFormRow>
                 {activity.productScope === 'partial' && !readOnly && (
                   <div className="section-toolbar">
                     <button type="button" className="btn btn--primary" onClick={() => setShowProductPicker(true)}>
@@ -414,7 +401,7 @@ export function ActivityWizard({
                     ]}
                   />
                 )}
-              </Section>
+              </PromoSection>
             </div>
           )}
 
@@ -428,30 +415,51 @@ export function ActivityWizard({
               />
             </div>
           )}
+          </div>
         </div>
       </div>
 
-      <div className="wizard-footer">
-        {isView ? (
-          <>
-            <button type="button" className="btn btn--default" onClick={onCancel}>返回列表</button>
-            {onSwitchToEdit && (
-              <button type="button" className="btn btn--primary" onClick={onSwitchToEdit}>编辑活动</button>
-            )}
-          </>
-        ) : (
-          <>
-            <button type="button" className="btn btn--default" onClick={onCancel}>取消</button>
-            {step > 0 && <button type="button" className="btn btn--default" onClick={goPrev}>上一步</button>}
-            <button type="button" className="btn btn--default" onClick={onSaveDraft}>保存草稿</button>
-            {step < PREVIEW_STEP ? (
-              <button type="button" className="btn btn--primary" onClick={goNext}>下一步</button>
-            ) : (
-              <button type="button" className="btn btn--primary" onClick={onSave}>保存</button>
-            )}
-          </>
-        )}
-      </div>
+      <WizardFooterBar
+        isView={isView}
+        health={
+          !isView ? (
+            (() => {
+              const first = [0, 1, 2].map((s) => ({ step: s, message: validateStep(activity, s) })).find((x) => x.message)
+              return first?.message ? (
+                <>
+                  <span className="wizard-footer__warn">还有配置待完善</span>
+                  <button type="button" className="link-btn" onClick={() => { setError(null); setStep(first.step) }}>
+                    {first.message}
+                  </button>
+                </>
+              ) : (
+                <span className="wizard-footer__ok">配置体检：已完成</span>
+              )
+            })()
+          ) : undefined
+        }
+        actions={
+          isView ? (
+            <>
+              <button type="button" className="btn btn--default" onClick={onCancel}>返回列表</button>
+              {onSwitchToEdit && (
+                <button type="button" className="btn btn--primary" onClick={onSwitchToEdit}>编辑活动</button>
+              )}
+            </>
+          ) : (
+            <>
+              <button type="button" className="btn btn--default" onClick={onCancel}>取消</button>
+              {step > 0 && <button type="button" className="btn btn--default" onClick={goPrev}>上一步</button>}
+              <button type="button" className="btn btn--default" onClick={onSaveDraft}>保存草稿</button>
+              {step < PREVIEW_STEP ? (
+                <button type="button" className="btn btn--primary" onClick={goNext}>下一步</button>
+              ) : (
+                <button type="button" className="btn btn--primary" onClick={onSave}>保存</button>
+              )}
+            </>
+          )
+        }
+      />
 
       {showProductPicker && (
         <ProductPicker
@@ -474,27 +482,6 @@ export function ActivityWizard({
           onClose={() => setShowGiftProductPicker(false)}
         />
       )}
-    </div>
-  )
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="form-section">
-      <div className="form-section__title">{title}</div>
-      <div className="form-section__body">{children}</div>
-    </div>
-  )
-}
-
-function FormRow({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
-  return (
-    <div className="form-row">
-      <label className="form-label">
-        {required && <span className="required">*</span>}
-        {label}
-      </label>
-      <div className="form-control">{children}</div>
     </div>
   )
 }
