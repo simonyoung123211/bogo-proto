@@ -733,6 +733,12 @@ export type MemberPriceAudienceType =
   | 'specified_physical_card'
   | 'paid_member_card_user'
 
+/** 实体卡受众下的支付方式限制 */
+export type MemberPricePaymentLimitType = 'unlimited' | 'limited'
+
+/** 实体卡受众下的支付金额限制 */
+export type MemberPricePaymentAmountLimit = 'any' | 'full_order'
+
 /** 逐商品会员价配置 */
 export interface MemberPriceProductItem {
   productId: string
@@ -795,6 +801,15 @@ export interface MemberPriceActivityForm {
   orderTypes: string[]
   /** 优惠会员类型（活动级） */
   audienceType: MemberPriceAudienceType
+  /**
+   * 实体卡受众（任意 / 指定）下的支付方式限制。
+   * unlimited=不限；limited=须用指定支付方式。
+   */
+  paymentLimitType: MemberPricePaymentLimitType
+  /** 限制时勾选的支付方式 id，如礼品卡-储值实体卡 */
+  paymentMethodIds: string[]
+  /** 实体卡受众下的支付金额限制：任意金额 / 整单金额 */
+  paymentAmountLimit: MemberPricePaymentAmountLimit
   /** 商品与优惠组；指定类 1～10 组，其余固定 1 组 */
   groups: MemberPriceOfferGroup[]
   /**

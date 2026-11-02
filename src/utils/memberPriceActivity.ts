@@ -49,6 +49,44 @@ export const MEMBER_PRICE_MULTI_GROUP_AUDIENCES: MemberPriceAudienceType[] = [
   'specified_physical_card',
 ]
 
+export const MEMBER_PRICE_PHYSICAL_CARD_AUDIENCES: MemberPriceAudienceType[] = [
+  'any_physical_card',
+  'specified_physical_card',
+]
+
+/** 实体卡支付方式可选项（Demo） */
+export const MEMBER_PRICE_PAYMENT_METHOD_OPTIONS = [
+  { id: 'gift_stored_physical_card', label: '礼品卡-储值实体卡' },
+] as const
+
+export const DEFAULT_MEMBER_PRICE_PAYMENT = {
+  paymentLimitType: 'limited' as const,
+  paymentMethodIds: ['gift_stored_physical_card'] as string[],
+  paymentAmountLimit: 'any' as const,
+}
+
+export function isMemberPricePhysicalCardAudience(audienceType: MemberPriceAudienceType): boolean {
+  return MEMBER_PRICE_PHYSICAL_CARD_AUDIENCES.includes(audienceType)
+}
+
+export function getMemberPricePaymentMethodLabel(id: string): string {
+  return MEMBER_PRICE_PAYMENT_METHOD_OPTIONS.find((o) => o.id === id)?.label ?? id
+}
+
+export function formatMemberPricePaymentLimit(activity: MemberPriceActivityForm): string {
+  if (!isMemberPricePhysicalCardAudience(activity.audienceType)) return '-'
+  if (activity.paymentLimitType !== 'limited') return '不限'
+  const methods = (activity.paymentMethodIds ?? [])
+    .map(getMemberPricePaymentMethodLabel)
+    .join('、')
+  return methods ? `限制：${methods}` : '限制（未选支付方式）'
+}
+
+export function formatMemberPricePaymentAmountLimit(activity: MemberPriceActivityForm): string {
+  if (!isMemberPricePhysicalCardAudience(activity.audienceType)) return '-'
+  return activity.paymentAmountLimit === 'full_order' ? '整单支付金额' : '任意支付金额'
+}
+
 /** 指定类按枚举自动拆组，上限=可选枚举数量 */
 export function getMemberPriceMaxGroups(audienceType: MemberPriceAudienceType): number {
   const count = getMemberPriceTargetOptions(audienceType).length
@@ -1217,6 +1255,13 @@ export function collectMemberPriceStepIssues(
     } else if (groups.length === 0) {
       issues.push('请完成参与商品及优惠配置')
     }
+    if (
+      isMemberPricePhysicalCardAudience(audienceType)
+      && (activity.paymentLimitType ?? 'limited') === 'limited'
+      && !(activity.paymentMethodIds ?? []).length
+    ) {
+      issues.push('请至少勾选一种支付方式')
+    }
     const maxGroups = getMemberPriceMaxGroups(audienceType)
     if (supportsMemberPriceMultiGroup(audienceType) && groups.length > maxGroups) {
       issues.push(`${getMemberPriceGroupUnitLabel(audienceType)}组最多${maxGroups}个`)
@@ -1401,6 +1446,15 @@ export function migrateMemberPriceActivity(raw: Record<string, unknown>): Member
   const orderTypes = normalizeMemberPriceOrderTypes(
     (legacy.orderTypes as string[] | undefined) ?? defaults.orderTypes,
   )
+  // 实体卡受众：支付方式固定限制「礼品卡-储值实体卡」，不随历史数据放开
+  const paymentLimitType = isMemberPricePhysicalCardAudience(audienceType)
+    ? DEFAULT_MEMBER_PRICE_PAYMENT.paymentLimitType
+    : (legacy.paymentLimitType ?? DEFAULT_MEMBER_PRICE_PAYMENT.paymentLimitType)
+  const paymentMethodIds = isMemberPricePhysicalCardAudience(audienceType)
+    ? [...DEFAULT_MEMBER_PRICE_PAYMENT.paymentMethodIds]
+    : (legacy.paymentMethodIds ?? [...DEFAULT_MEMBER_PRICE_PAYMENT.paymentMethodIds])
+  const paymentAmountLimit =
+    legacy.paymentAmountLimit ?? DEFAULT_MEMBER_PRICE_PAYMENT.paymentAmountLimit
   const migratedProductItems = productItems.map(normalizeMemberPriceProductItem)
   const migratedGroups = expandMemberPriceGroupsByTarget(
     audienceType,
@@ -1414,6 +1468,9 @@ export function migrateMemberPriceActivity(raw: Record<string, unknown>): Member
     ...defaults,
     ...legacy,
     audienceType,
+    paymentLimitType,
+    paymentMethodIds,
+    paymentAmountLimit,
     orderTypes,
     groups: migratedGroups,
     memberLevels,

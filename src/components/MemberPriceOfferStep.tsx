@@ -1,7 +1,14 @@
 import { useEffect, useState } from 'react'
-import type { MemberPriceActivityForm, MemberPriceAudienceType, MemberPriceOfferGroup, MemberPriceProductCoreFields } from '../types'
+import type {
+  MemberPriceActivityForm,
+  MemberPriceAudienceType,
+  MemberPriceOfferGroup,
+  MemberPricePaymentAmountLimit,
+  MemberPriceProductCoreFields,
+} from '../types'
 import { createEmptyMemberPriceOfferGroup } from '../mockMemberPriceData'
 import {
+  DEFAULT_MEMBER_PRICE_PAYMENT,
   MEMBER_PRICE_AUDIENCE_OPTIONS,
   applyProductCoreToGroup,
   copyMemberPriceGroupProducts,
@@ -13,6 +20,7 @@ import {
   getMemberPriceTargetOptions,
   groupToProductCore,
   isMemberPriceGroupIncomplete,
+  isMemberPricePhysicalCardAudience,
   memberPriceGroupHasProductConfig,
   supportsMemberPriceMultiGroup,
   syncMemberPriceActivityMirrors,
@@ -75,13 +83,45 @@ export function MemberPriceOfferStep({
     onChange(syncMemberPriceActivityMirrors(next))
   }
 
+  /** 实体卡受众：支付方式固定为限制「礼品卡-储值实体卡」，界面不开放改 */
+  const withFixedPhysicalCardPayment = (
+    next: MemberPriceActivityForm,
+  ): MemberPriceActivityForm => ({
+    ...next,
+    ...DEFAULT_MEMBER_PRICE_PAYMENT,
+    paymentAmountLimit: next.paymentAmountLimit ?? DEFAULT_MEMBER_PRICE_PAYMENT.paymentAmountLimit,
+  })
+
+  const paymentAmountLimit: MemberPricePaymentAmountLimit =
+    activity.paymentAmountLimit ?? DEFAULT_MEMBER_PRICE_PAYMENT.paymentAmountLimit
+  const showPhysicalCardPayment = isMemberPricePhysicalCardAudience(audienceType)
+
+  useEffect(() => {
+    if (!showPhysicalCardPayment || readOnly) return
+    const limitOk = activity.paymentLimitType === DEFAULT_MEMBER_PRICE_PAYMENT.paymentLimitType
+    const methodsOk =
+      JSON.stringify(activity.paymentMethodIds ?? [])
+      === JSON.stringify(DEFAULT_MEMBER_PRICE_PAYMENT.paymentMethodIds)
+    if (limitOk && methodsOk) return
+    commit(withFixedPhysicalCardPayment(activity))
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- only lock payment method when audience is physical card
+  }, [showPhysicalCardPayment, activity.paymentLimitType, activity.paymentMethodIds?.join(','), readOnly])
+
   const applyAudienceChange = (nextType: MemberPriceAudienceType) => {
     const resetGroup = createEmptyMemberPriceOfferGroup()
-    commit({
+    const nextActivity: MemberPriceActivityForm = {
       ...activity,
       audienceType: nextType,
       groups: supportsMemberPriceMultiGroup(nextType) ? [] : [resetGroup],
-    })
+    }
+    commit(
+      isMemberPricePhysicalCardAudience(nextType)
+        ? withFixedPhysicalCardPayment({
+            ...nextActivity,
+            paymentAmountLimit: DEFAULT_MEMBER_PRICE_PAYMENT.paymentAmountLimit,
+          })
+        : nextActivity,
+    )
     setActiveGroupId(supportsMemberPriceMultiGroup(nextType) ? '' : resetGroup.id)
     setAudienceTarget(null)
     onToast?.(
@@ -277,6 +317,37 @@ export function MemberPriceOfferStep({
             <p className="field-hint">
               已选 {selectedTargetIds.length}/{maxGroups} 个{unitLabel}
               {selectedTargetIds.length === 0 ? `，请先选择后再配置商品优惠` : ''}
+            </p>
+          </div>
+        </FormRow>
+      )}
+
+      {showPhysicalCardPayment && (
+        <FormRow label="支付金额限制" required>
+          <div className="radio-group radio-group--vertical">
+            <label className="radio">
+              <input
+                type="radio"
+                disabled={readOnly}
+                checked={paymentAmountLimit === 'any'}
+                onChange={() => commit(withFixedPhysicalCardPayment({ ...activity, paymentAmountLimit: 'any' }))}
+              />
+              任意支付金额
+            </label>
+            <p className="field-hint" style={{ marginTop: 0, marginBottom: 8 }}>
+              使用指定的支付方式，支付大于 0.01 元的金额，即可享受
+            </p>
+            <label className="radio">
+              <input
+                type="radio"
+                disabled={readOnly}
+                checked={paymentAmountLimit === 'full_order'}
+                onChange={() => commit(withFixedPhysicalCardPayment({ ...activity, paymentAmountLimit: 'full_order' }))}
+              />
+              整单支付金额
+            </label>
+            <p className="field-hint" style={{ marginTop: 0 }}>
+              使用指定的支付方式，支付整单参与当前活动的金额，即可享受
             </p>
           </div>
         </FormRow>

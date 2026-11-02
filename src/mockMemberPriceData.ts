@@ -128,6 +128,9 @@ export function createEmptyMemberPriceActivity(): MemberPriceActivityForm {
     channels: ['wechat', 'alipay'],
     orderTypes: ['dine_in', 'pack', 'delivery', 'delivery_pickup'],
     audienceType: 'specified_level',
+    paymentLimitType: 'limited',
+    paymentMethodIds: ['gift_stored_physical_card'],
+    paymentAmountLimit: 'any',
     groups: [
       createEmptyMemberPriceOfferGroup({
         targetIds: [],

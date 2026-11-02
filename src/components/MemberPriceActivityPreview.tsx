@@ -8,6 +8,8 @@ import { MEMBER_PRICE_METHOD_LABELS, createEmptyMemberPriceOfferGroup } from '..
 import type { MemberPriceActivityForm } from '../types'
 import {
   formatConfiguredStrength,
+  formatMemberPricePaymentAmountLimit,
+  formatMemberPricePaymentLimit,
   formatMemberPriceTargetIds,
   formatUniformStrength,
   getActivityProducts,
@@ -21,6 +23,7 @@ import {
   getStoreScopeLabel,
   getStoreSummary,
   groupToProductCore,
+  isMemberPricePhysicalCardAudience,
   isUniformPricing,
   needsMemberPriceTargets,
   supportsMemberPriceMultiGroup,
@@ -108,6 +111,12 @@ export function MemberPriceActivityPreview({
 
         <PreviewSection id="mp-preview-rules" title="活动规则" step={0} showEdit={showEditLinks} onEdit={onEditSection}>
           <PreviewItem label="优惠会员" value={getMemberPriceAudienceLabel(audienceType)} />
+          {isMemberPricePhysicalCardAudience(audienceType) && (
+            <>
+              <PreviewItem label="支付限制" value={formatMemberPricePaymentLimit(activity)} />
+              <PreviewItem label="支付金额限制" value={formatMemberPricePaymentAmountLimit(activity)} />
+            </>
+          )}
           <PreviewItem label="商品与优惠" value={getMemberPriceGroupsSummary(activity)} />
           <PreviewItem label="加料费用" value={limits.toppings} />
           <PreviewItem label="套餐加价" value={limits.combo} />
@@ -137,6 +146,12 @@ export function MemberPriceActivityPreview({
           <PreviewItem label="优惠会员" value={getMemberPriceAudienceLabel(audienceType)} />
           {audienceType === 'paid_member_card_user' && (
             <PreviewItem label="说明" value="任意已购买付费会员的用户均可享受，无需指定卡模版" />
+          )}
+          {isMemberPricePhysicalCardAudience(audienceType) && (
+            <>
+              <PreviewItem label="支付限制" value={formatMemberPricePaymentLimit(activity)} />
+              <PreviewItem label="支付金额限制" value={formatMemberPricePaymentAmountLimit(activity)} />
+            </>
           )}
           {groups.map((group, index) => {
             const core = groupToProductCore(group)
