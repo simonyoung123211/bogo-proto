@@ -23,7 +23,6 @@ import {
   getStoreScopeLabel,
   getStoreSummary,
   groupToProductCore,
-  isMemberPricePhysicalCardAudience,
   isUniformPricing,
   needsMemberPriceTargets,
   supportsMemberPriceMultiGroup,
@@ -59,7 +58,7 @@ export function MemberPriceActivityPreview({
   const selectedStores = getActivityStores(activity)
   const summaryTags = [
     getMemberPriceAudienceLabel(audienceType),
-    supportsMemberPriceMultiGroup(audienceType) ? `${groups.length}个等级/模版组` : MEMBER_PRICE_METHOD_LABELS[groups[0]?.priceMethod ?? activity.priceMethod],
+    supportsMemberPriceMultiGroup(audienceType) ? `${groups.length}个等级组` : MEMBER_PRICE_METHOD_LABELS[groups[0]?.priceMethod ?? activity.priceMethod],
     getMemberLevelsSummary(activity),
     getStoreSummary(activity),
     getChannelSummary(activity),
@@ -111,12 +110,6 @@ export function MemberPriceActivityPreview({
 
         <PreviewSection id="mp-preview-rules" title="活动规则" step={0} showEdit={showEditLinks} onEdit={onEditSection}>
           <PreviewItem label="优惠会员" value={getMemberPriceAudienceLabel(audienceType)} />
-          {isMemberPricePhysicalCardAudience(audienceType) && (
-            <>
-              <PreviewItem label="支付限制" value={formatMemberPricePaymentLimit(activity)} />
-              <PreviewItem label="支付金额限制" value={formatMemberPricePaymentAmountLimit(activity)} />
-            </>
-          )}
           <PreviewItem label="商品与优惠" value={getMemberPriceGroupsSummary(activity)} />
           <PreviewItem label="加料费用" value={limits.toppings} />
           <PreviewItem label="套餐加价" value={limits.combo} />
@@ -147,11 +140,9 @@ export function MemberPriceActivityPreview({
           {audienceType === 'paid_member_card_user' && (
             <PreviewItem label="说明" value="任意已购买付费会员的用户均可享受，无需指定卡模版" />
           )}
-          {isMemberPricePhysicalCardAudience(audienceType) && (
-            <>
-              <PreviewItem label="支付限制" value={formatMemberPricePaymentLimit(activity)} />
-              <PreviewItem label="支付金额限制" value={formatMemberPricePaymentAmountLimit(activity)} />
-            </>
+          <PreviewItem label="支付限制" value={formatMemberPricePaymentLimit(activity)} />
+          {(activity.paymentLimitType ?? 'unlimited') === 'limited' && (
+            <PreviewItem label="支付金额限制" value={formatMemberPricePaymentAmountLimit(activity)} />
           )}
           {groups.map((group, index) => {
             const core = groupToProductCore(group)

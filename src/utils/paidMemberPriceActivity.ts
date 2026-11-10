@@ -1,3 +1,4 @@
+import { matchesActivityProductFilters } from './activityProductSearch'
 import type {
   PaidMemberCardStatus,
   PaidMemberCardTemplate,
@@ -350,20 +351,6 @@ export function resolvePublishStatus(
 
 /* ================= 列表筛选 ================= */
 
-function matchesProductName(activity: PaidMemberPriceActivityForm, keyword: string): boolean {
-  const kw = keyword.trim().toLowerCase()
-  if (!kw) return true
-  return getActivityProducts(activity).some((p) => p.name.toLowerCase().includes(kw))
-}
-
-function matchesProductId(activity: PaidMemberPriceActivityForm, keyword: string): boolean {
-  const kw = keyword.trim().toLowerCase()
-  if (!kw) return true
-  return getActivityProducts(activity).some(
-    (p) => p.id.toLowerCase().includes(kw) || p.skuId.toLowerCase().includes(kw),
-  )
-}
-
 export function matchesFilters(
   activity: PaidMemberPriceActivityForm,
   filters: PaidMemberPriceListFilters,
@@ -382,8 +369,7 @@ export function matchesFilters(
     const kw = filters.keyword.toLowerCase()
     if (!activity.name.toLowerCase().includes(kw) && !activity.id.toLowerCase().includes(kw)) return false
   }
-  if (filters.productName && !matchesProductName(activity, filters.productName)) return false
-  if (filters.productId && !matchesProductId(activity, filters.productId)) return false
+  if (!matchesActivityProductFilters(getActivityProducts(activity), filters)) return false
   if (filters.activityCode) {
     const code = filters.activityCode.toLowerCase()
     if (!activity.activityCode.toLowerCase().includes(code)) return false

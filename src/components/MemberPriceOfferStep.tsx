@@ -4,6 +4,7 @@ import type {
   MemberPriceAudienceType,
   MemberPriceOfferGroup,
   MemberPricePaymentAmountLimit,
+  MemberPricePaymentLimitType,
   MemberPriceProductCoreFields,
 } from '../types'
 import { createEmptyMemberPriceOfferGroup } from '../mockMemberPriceData'
@@ -16,12 +17,16 @@ import {
   getMemberPriceGroupLabel,
   getMemberPriceGroupUnitLabel,
   getMemberPriceMaxGroups,
+  getMemberPricePaymentDefaultsForAudience,
+  getMemberPricePaymentMethodOptionsForAudience,
   getMemberPriceTargetFieldLabel,
   getMemberPriceTargetOptions,
   groupToProductCore,
   isMemberPriceGroupIncomplete,
   isMemberPricePhysicalCardAudience,
+  isMemberPriceStoredValueAudience,
   memberPriceGroupHasProductConfig,
+  needsMemberPriceTargets,
   supportsMemberPriceMultiGroup,
   syncMemberPriceActivityMirrors,
   syncMemberPriceGroupsWithTargets,
@@ -47,6 +52,7 @@ export function MemberPriceOfferStep({
 }: MemberPriceOfferStepProps) {
   const audienceType = activity.audienceType ?? 'specified_level'
   const multi = supportsMemberPriceMultiGroup(audienceType)
+  const needsTargets = needsMemberPriceTargets(audienceType)
   const groups = activity.groups?.length
     ? activity.groups
     : multi
@@ -83,52 +89,118 @@ export function MemberPriceOfferStep({
     onChange(syncMemberPriceActivityMirrors(next))
   }
 
-  /** 实体卡受众：支付方式固定为限制「礼品卡-储值实体卡」，界面不开放改 */
+  const isPhysicalCardAudience = isMemberPricePhysicalCardAudience(audienceType)
+  const isStoredValueAudience = isMemberPriceStoredValueAudience(audienceType)
+  const paymentLimitType: MemberPricePaymentLimitType = activity.paymentLimitType ?? 'unlimited'
+  const paymentMethodIds = activity.paymentMethodIds ?? []
+  const paymentAmountLimit: MemberPricePaymentAmountLimit = activity.paymentAmountLimit ?? 'any'
+  const paymentLimited = paymentLimitType === 'limited'
+  const paymentMethodOptions = getMemberPricePaymentMethodOptionsForAudience(audienceType)
+  const allowedPaymentMethodIds = new Set(paymentMethodOptions.map((o) => o.id))
+
+  /** 实体卡：支付方式固定「限制 · 实体卡」，不可改 */
   const withFixedPhysicalCardPayment = (
     next: MemberPriceActivityForm,
   ): MemberPriceActivityForm => ({
     ...next,
-    ...DEFAULT_MEMBER_PRICE_PAYMENT,
+    paymentLimitType: DEFAULT_MEMBER_PRICE_PAYMENT.paymentLimitType,
+    paymentMethodIds: [...DEFAULT_MEMBER_PRICE_PAYMENT.paymentMethodIds],
     paymentAmountLimit: next.paymentAmountLimit ?? DEFAULT_MEMBER_PRICE_PAYMENT.paymentAmountLimit,
   })
 
-  const paymentAmountLimit: MemberPricePaymentAmountLimit =
-    activity.paymentAmountLimit ?? DEFAULT_MEMBER_PRICE_PAYMENT.paymentAmountLimit
-  const showPhysicalCardPayment = isMemberPricePhysicalCardAudience(audienceType)
-
   useEffect(() => {
-    if (!showPhysicalCardPayment || readOnly) return
-    const limitOk = activity.paymentLimitType === DEFAULT_MEMBER_PRICE_PAYMENT.paymentLimitType
-    const methodsOk =
-      JSON.stringify(activity.paymentMethodIds ?? [])
-      === JSON.stringify(DEFAULT_MEMBER_PRICE_PAYMENT.paymentMethodIds)
-    if (limitOk && methodsOk) return
-    commit(withFixedPhysicalCardPayment(activity))
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- only lock payment method when audience is physical card
-  }, [showPhysicalCardPayment, activity.paymentLimitType, activity.paymentMethodIds?.join(','), readOnly])
+    if (readOnly) return
+    if (isPhysicalCardAudience) {
+      const limitOk = activity.paymentLimitType === DEFAULT_MEMBER_PRICE_PAYMENT.paymentLimitType
+      const methodsOk =
+        JSON.stringify(activity.paymentMethodIds ?? [])
+        === JSON.stringify(DEFAULT_MEMBER_PRICE_PAYMENT.paymentMethodIds)
+      if (limitOk && methodsOk) return
+      commit(withFixedPhysicalCardPayment(activity))
+      return
+    }
+    // 储值会员开启限制后：唯一枚举「储值余额」必须勾选
+    if (isStoredValueAudience && paymentLimited) {
+      const locked = ['stored_balance']
+      if (JSON.stringify(activity.paymentMethodIds ?? []) === JSON.stringify(locked)) return
+      commit({ ...activity, paymentMethodIds: locked })
+      return
+    }
+    // 其他受众：剔除掉当前不允许的支付方式（如储值场景下的「实体卡」）
+    const currentIds = activity.paymentMethodIds ?? []
+    const nextIds = currentIds.filter((id) => allowedPaymentMethodIds.has(id))
+    if (nextIds.length === currentIds.length) return
+    commit({
+      ...activity,
+      paymentMethodIds: nextIds.length
+        ? nextIds
+        : (paymentLimited ? [paymentMethodOptions[0]?.id].filter(Boolean) as string[] : []),
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- sync payment methods with audience constraints
+  }, [
+    isPhysicalCardAudience,
+    isStoredValueAudience,
+    audienceType,
+    activity.paymentLimitType,
+    activity.paymentMethodIds?.join(','),
+    readOnly,
+  ])
 
   const applyAudienceChange = (nextType: MemberPriceAudienceType) => {
     const resetGroup = createEmptyMemberPriceOfferGroup()
-    const nextActivity: MemberPriceActivityForm = {
+    const nextMulti = supportsMemberPriceMultiGroup(nextType)
+    const nextNeedsTargets = needsMemberPriceTargets(nextType)
+    const paymentDefaults = getMemberPricePaymentDefaultsForAudience(nextType)
+    commit({
       ...activity,
       audienceType: nextType,
-      groups: supportsMemberPriceMultiGroup(nextType) ? [] : [resetGroup],
-    }
-    commit(
-      isMemberPricePhysicalCardAudience(nextType)
-        ? withFixedPhysicalCardPayment({
-            ...nextActivity,
-            paymentAmountLimit: DEFAULT_MEMBER_PRICE_PAYMENT.paymentAmountLimit,
-          })
-        : nextActivity,
-    )
-    setActiveGroupId(supportsMemberPriceMultiGroup(nextType) ? '' : resetGroup.id)
+      groups: nextMulti ? [] : [resetGroup],
+      ...paymentDefaults,
+    })
+    setActiveGroupId(nextMulti ? '' : resetGroup.id)
     setAudienceTarget(null)
+    const label = getMemberPriceAudienceLabel(nextType)
+    const nextUnit = getMemberPriceGroupUnitLabel(nextType)
     onToast?.(
-      supportsMemberPriceMultiGroup(nextType)
-        ? `已切换为「${getMemberPriceAudienceLabel(nextType)}」，请重新选择${getMemberPriceGroupUnitLabel(nextType)}`
-        : '已切换优惠会员类型，商品配置已重置，请重新配置',
+      nextMulti
+        ? `已切换为「${label}」，请重新选择${nextUnit}`
+        : nextNeedsTargets
+          ? `已切换为「${label}」，请选择${nextUnit}后配置商品`
+          : '已切换优惠会员类型，商品配置已重置，请重新配置',
     )
+  }
+
+  const setPaymentLimitType = (next: MemberPricePaymentLimitType) => {
+    if (isPhysicalCardAudience) return
+    if (next === 'unlimited') {
+      commit({
+        ...activity,
+        paymentLimitType: 'unlimited',
+        paymentMethodIds: [],
+        paymentAmountLimit: 'any',
+      })
+      return
+    }
+    commit({
+      ...activity,
+      paymentLimitType: 'limited',
+      // 储值会员仅一个枚举，开启限制后强制勾选
+      paymentMethodIds: isStoredValueAudience
+        ? ['stored_balance']
+        : (paymentMethodIds.length ? paymentMethodIds : ['stored_balance']),
+      paymentAmountLimit: activity.paymentAmountLimit ?? 'any',
+    })
+  }
+
+  const togglePaymentMethod = (methodId: string) => {
+    if (isPhysicalCardAudience) return
+    // 储值会员限制态下唯一枚举不可取消
+    if (isStoredValueAudience && paymentLimited) return
+    const checked = paymentMethodIds.includes(methodId)
+    const nextIds = checked
+      ? paymentMethodIds.filter((id) => id !== methodId)
+      : [...paymentMethodIds, methodId]
+    commit({ ...activity, paymentMethodIds: nextIds })
   }
 
   const requestAudienceChange = (nextType: MemberPriceAudienceType) => {
@@ -164,8 +236,27 @@ export function MemberPriceOfferStep({
     updateGroups(nextGroups, focusId)
   }
 
+  /** 指定实体卡：多选挂在同一组，不拆组 */
+  const toggleSharedTargets = (targetId: string) => {
+    const group = groups[0] ?? createEmptyMemberPriceOfferGroup()
+    const checked = group.targetIds.includes(targetId)
+    if (checked) {
+      updateGroups([{ ...group, targetIds: group.targetIds.filter((id) => id !== targetId) }], group.id)
+      return
+    }
+    if (group.targetIds.length >= maxGroups) {
+      onToast?.(`最多选择 ${maxGroups} 个${unitLabel}`)
+      return
+    }
+    updateGroups([{ ...group, targetIds: [...group.targetIds, targetId] }], group.id)
+  }
+
   const toggleTarget = (targetId: string) => {
     if (readOnly) return
+    if (!multi) {
+      toggleSharedTargets(targetId)
+      return
+    }
     const option = options.find((o) => o.id === targetId)
     const checked = selectedTargetIds.includes(targetId)
     if (checked) {
@@ -242,11 +333,14 @@ export function MemberPriceOfferStep({
         onToast?.(`请先选择要从哪个${unitLabel}复用`)
         return
       }
-      updateGroups(groups.map((g) => (
-        g.id === activeGroup.id ? copyMemberPriceGroupProducts(source, g) : g
-      )))
+      const result = copyMemberPriceGroupProducts(source, activeGroup)
+      updateGroups(groups.map((g) => (g.id === activeGroup.id ? result.group : g)))
       setCopyOpen(false)
-      onToast?.(`已复用「${getMemberPriceGroupLabel(audienceType, source)}」的商品清单，请为本组填写优惠力度`)
+      onToast?.(
+        result.modeMismatch
+          ? '已同步商品，本组正选/反选与优惠方式不变'
+          : `已复用「${getMemberPriceGroupLabel(audienceType, source)}」的商品，请确认优惠力度`,
+      )
       return
     }
     const source = groups.find((g) => g.id === copySourceId) ?? activeGroup
@@ -259,11 +353,19 @@ export function MemberPriceOfferStep({
       return
     }
     const targetSet = new Set(copyTargets)
-    updateGroups(groups.map((g) => (
-      targetSet.has(g.id) ? copyMemberPriceGroupProducts(source, g) : g
-    )))
+    let modeMismatch = false
+    updateGroups(groups.map((g) => {
+      if (!targetSet.has(g.id)) return g
+      const result = copyMemberPriceGroupProducts(source, g)
+      if (result.modeMismatch) modeMismatch = true
+      return result.group
+    }))
     setCopyOpen(false)
-    onToast?.(`已复用到 ${copyTargets.length} 个${unitLabel}，请到各组分别填写优惠力度`)
+    onToast?.(
+      modeMismatch
+        ? `已同步到 ${copyTargets.length} 个${unitLabel}，各组正选/反选与优惠方式不变`
+        : `已复用到 ${copyTargets.length} 个${unitLabel}，请到各组确认优惠力度`,
+    )
   }
 
   return (
@@ -292,9 +394,14 @@ export function MemberPriceOfferStep({
             先勾选{unitLabel}，系统按每个{unitLabel}自动拆成一组。商品清单可用「复用商品」快速对齐，优惠力度请在各组分别填写；同一顾客同时命中多组时，点单页按对顾客更优的价格生效（示意口径）。
           </p>
         )}
+        {needsTargets && !multi && (
+          <p className="field-hint">
+            可多选{unitLabel}，共用一套商品与优惠，不再按卡模版拆组。
+          </p>
+        )}
       </FormRow>
 
-      {multi && (
+      {needsTargets && (
         <FormRow label={getMemberPriceTargetFieldLabel(audienceType)} required>
           <div className="member-level-group">
             <div className="choices choices--targets" role="group" aria-label={getMemberPriceTargetFieldLabel(audienceType)}>
@@ -316,13 +423,89 @@ export function MemberPriceOfferStep({
             </div>
             <p className="field-hint">
               已选 {selectedTargetIds.length}/{maxGroups} 个{unitLabel}
-              {selectedTargetIds.length === 0 ? `，请先选择后再配置商品优惠` : ''}
+              {selectedTargetIds.length === 0
+                ? `，请先选择后再配置商品优惠`
+                : multi
+                  ? ''
+                  : '，所选共用下方同一套规则'}
             </p>
           </div>
         </FormRow>
       )}
 
-      {showPhysicalCardPayment && (
+      <FormRow label="支付限制" required>
+        <div>
+          {isPhysicalCardAudience ? (
+            <>
+              <div className="radio-group">
+                <label className="radio">
+                  <input type="radio" checked disabled readOnly />
+                  限制
+                </label>
+              </div>
+              <div className="checkbox-group checkbox-group--wrap" style={{ marginTop: 10 }}>
+                <label className="checkbox">
+                  <input type="checkbox" checked disabled readOnly />
+                  实体卡
+                </label>
+              </div>
+              <p className="field-hint">
+                实体卡付款用户固定限制使用「实体卡」支付，不可改为不限或其他支付方式。
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="radio-group">
+                <label className="radio">
+                  <input
+                    type="radio"
+                    disabled={readOnly}
+                    checked={!paymentLimited}
+                    onChange={() => setPaymentLimitType('unlimited')}
+                  />
+                  不限
+                </label>
+                <label className="radio">
+                  <input
+                    type="radio"
+                    disabled={readOnly}
+                    checked={paymentLimited}
+                    onChange={() => setPaymentLimitType('limited')}
+                  />
+                  限制
+                </label>
+              </div>
+              {paymentLimited && (
+                <div className="checkbox-group checkbox-group--wrap" style={{ marginTop: 10 }}>
+                  {paymentMethodOptions.map((opt) => {
+                    const lockedOnlyOption = isStoredValueAudience && paymentMethodOptions.length === 1
+                    return (
+                      <label key={opt.id} className="checkbox">
+                        <input
+                          type="checkbox"
+                          disabled={readOnly || lockedOnlyOption}
+                          checked={lockedOnlyOption || paymentMethodIds.includes(opt.id)}
+                          onChange={() => togglePaymentMethod(opt.id)}
+                        />
+                        {opt.label}
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+              <p className="field-hint">
+                {paymentLimited
+                  ? isStoredValueAudience
+                    ? '储值会员开启限制后固定使用「储值余额」，不可取消。小程序下单须使用储值余额支付，且需同时满足订单优惠后价格与储值可用余额条件（如充10送10规则）。'
+                    : '限制后，小程序下单须使用勾选的支付方式之一才可参与。勾选储值余额时，还需同时满足订单优惠后价格与储值可用余额条件（如充10送10规则）。'
+                  : '不限制支付方式，顾客使用任意支付方式均可享受会员价。'}
+              </p>
+            </>
+          )}
+        </div>
+      </FormRow>
+
+      {(isPhysicalCardAudience || paymentLimited) && (
         <FormRow label="支付金额限制" required>
           <div className="radio-group radio-group--vertical">
             <label className="radio">
@@ -330,7 +513,11 @@ export function MemberPriceOfferStep({
                 type="radio"
                 disabled={readOnly}
                 checked={paymentAmountLimit === 'any'}
-                onChange={() => commit(withFixedPhysicalCardPayment({ ...activity, paymentAmountLimit: 'any' }))}
+                onChange={() => commit(
+                  isPhysicalCardAudience
+                    ? withFixedPhysicalCardPayment({ ...activity, paymentAmountLimit: 'any' })
+                    : { ...activity, paymentAmountLimit: 'any' },
+                )}
               />
               任意支付金额
             </label>
@@ -342,7 +529,11 @@ export function MemberPriceOfferStep({
                 type="radio"
                 disabled={readOnly}
                 checked={paymentAmountLimit === 'full_order'}
-                onChange={() => commit(withFixedPhysicalCardPayment({ ...activity, paymentAmountLimit: 'full_order' }))}
+                onChange={() => commit(
+                  isPhysicalCardAudience
+                    ? withFixedPhysicalCardPayment({ ...activity, paymentAmountLimit: 'full_order' })
+                    : { ...activity, paymentAmountLimit: 'full_order' },
+                )}
               />
               整单支付金额
             </label>
@@ -397,7 +588,7 @@ export function MemberPriceOfferStep({
         </>
       )}
 
-      {activeGroup && (!multi || groups.length > 0) && (
+      {activeGroup && (!needsTargets || selectedTargetIds.length > 0) && (
         <div className="mp-group-panel" key={activeGroup.id}>
           {multi && (
             <div className="mp-group-panel__title">
@@ -466,7 +657,7 @@ export function MemberPriceOfferStep({
             </div>
             <div className="modal__body">
               <div className="mp-copy-tip" role="note">
-                只复用<strong>参与商品清单</strong>，各组折扣 / 减价请自行填写，不会一并带过去。
+                只同步<strong>商品清单</strong>，不带入优惠方式与正选/反选；各组力度请自行确认。
               </div>
 
               {currentHasProducts && otherGroupsWithProducts.length > 0 && (

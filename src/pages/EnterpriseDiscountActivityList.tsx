@@ -1,3 +1,5 @@
+import { ActivityListSearchPanel } from '../components/ActivityListSearchPanel'
+import { createAdvancedSearchChips } from '../utils/activitySearchChips'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ActivityOperationLogModal } from '../components/ActivityOperationLogModal'
 import { PauseConfirmModal, PauseDemoGroup, ResumeConfirmModal } from '../components/ActivityPauseControls'
@@ -40,6 +42,8 @@ interface EnterpriseDiscountActivityListProps {
 
 const EMPTY_FILTERS: EnterpriseDiscountListFilters = {
   keyword: '',
+  productName: '',
+  productId: '',
   status: 'all',
   startDate: '',
   endDate: '',
@@ -141,20 +145,18 @@ export function EnterpriseDiscountActivityList({
           </StatusMoreMenu>
         </div>
 
-        <div className="list-toolbar">
-          <div className="list-toolbar__fields">
-            <div className="filter-item">
-              <label>活动名称/企业</label>
-              <input
-                className="input"
-                placeholder="请输入活动名称、ID 或企业名称"
-                value={filters.keyword}
-                onChange={(event) => setFilters((current) => ({ ...current, keyword: event.target.value }))}
-              />
-            </div>
-          </div>
-          <button type="button" className="btn btn--default" onClick={() => setFilters(EMPTY_FILTERS)}>重置</button>
-        </div>
+        <ActivityListSearchPanel
+          values={filters}
+          resultCount={filtered.length}
+          onChange={(field, value) => setFilters((current) => ({ ...current, [field]: value }))}
+          onReset={() => setFilters(EMPTY_FILTERS)}
+          advancedFilters={createAdvancedSearchChips(filters, EMPTY_FILTERS, [{ key: 'startDate', label: '开始日期' }, { key: 'endDate', label: '结束日期' }], (patch) => setFilters((current) => ({ ...current, ...patch })))}
+          keywordLabel="活动名称 / ID / 企业"
+          keywordPlaceholder="搜索活动名称、ID 或企业名称"
+          advancedFields={<>
+            <div className="filter-item activity-search-panel__dates"><label>活动时间</label><div className="date-range"><input aria-label="活动开始日期" type="date" className="input input--filter" value={filters.startDate} onChange={(event) => setFilters((current) => ({ ...current, startDate: event.target.value }))} /><span>至</span><input aria-label="活动结束日期" type="date" className="input input--filter" value={filters.endDate} onChange={(event) => setFilters((current) => ({ ...current, endDate: event.target.value }))} /></div></div>
+          </>}
+        />
       </div>
 
       <div className="table-wrap">

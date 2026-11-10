@@ -1,3 +1,4 @@
+import { matchesActivityProductFilters, resolveActivityProducts } from './activityProductSearch'
 import type {
   ActivityOperationLog,
   ActivityStatus,
@@ -322,26 +323,6 @@ export function validateStep(activity: MultiItemActivityForm, step: number): str
   return null
 }
 
-function matchesProductName(activity: MultiItemActivityForm, keyword: string): boolean {
-  const kw = keyword.trim().toLowerCase()
-  if (!kw) return true
-  const candidates = activity.productScope === 'all'
-    ? products
-    : getActivityProducts(activity)
-  return candidates.some((p) => p.name.toLowerCase().includes(kw))
-}
-
-function matchesProductId(activity: MultiItemActivityForm, keyword: string): boolean {
-  const kw = keyword.trim().toLowerCase()
-  if (!kw) return true
-  const candidates = activity.productScope === 'all'
-    ? products
-    : getActivityProducts(activity)
-  return candidates.some((p) =>
-    p.id.toLowerCase().includes(kw) || p.skuId.toLowerCase().includes(kw),
-  )
-}
-
 export function matchesFilters(activity: MultiItemActivityForm, filters: MultiItemListFilters): boolean {
   if (filters.status !== 'all' && activity.status !== filters.status) return false
   if (filters.ruleType !== 'all' && activity.ruleType !== filters.ruleType) return false
@@ -350,8 +331,7 @@ export function matchesFilters(activity: MultiItemActivityForm, filters: MultiIt
     const kw = filters.keyword.toLowerCase()
     if (!activity.name.toLowerCase().includes(kw) && !activity.id.toLowerCase().includes(kw)) return false
   }
-  if (filters.productName && !matchesProductName(activity, filters.productName)) return false
-  if (filters.productId && !matchesProductId(activity, filters.productId)) return false
+  if (!matchesActivityProductFilters(resolveActivityProducts(activity), filters)) return false
   if (filters.activityCode) {
     const code = filters.activityCode.toLowerCase()
     if (!activity.activityCode.toLowerCase().includes(code)) return false

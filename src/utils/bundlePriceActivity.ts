@@ -1,3 +1,4 @@
+import { matchesActivityProductFilters, resolveActivityProducts } from './activityProductSearch'
 import type {
   ActivityOperationLog,
   ActivityStatus,
@@ -239,8 +240,7 @@ export function matchesFilters(
     const kw = filters.keyword.toLowerCase()
     if (!activity.name.toLowerCase().includes(kw) && !activity.id.toLowerCase().includes(kw)) return false
   }
-  if (filters.productName && !matchesProductName(activity, filters.productName)) return false
-  if (filters.productId && !matchesProductId(activity, filters.productId)) return false
+  if (!matchesActivityProductFilters(resolveActivityProducts(activity), filters)) return false
   if (filters.activityCode) {
     const code = filters.activityCode.toLowerCase()
     if (!activity.activityCode.toLowerCase().includes(code)) return false
@@ -258,24 +258,6 @@ export function matchesFilters(
     if (!activity.storeIds.includes(filters.storeId)) return false
   }
   return true
-}
-
-function getActivityProductCandidates(activity: BundlePriceActivityForm) {
-  return activity.productScope === 'all' ? products : getActivityProducts(activity)
-}
-
-function matchesProductName(activity: BundlePriceActivityForm, keyword: string): boolean {
-  const kw = keyword.trim().toLowerCase()
-  if (!kw) return true
-  return getActivityProductCandidates(activity).some((p) => p.name.toLowerCase().includes(kw))
-}
-
-function matchesProductId(activity: BundlePriceActivityForm, keyword: string): boolean {
-  const kw = keyword.trim().toLowerCase()
-  if (!kw) return true
-  return getActivityProductCandidates(activity).some((p) =>
-    p.id.toLowerCase().includes(kw) || p.skuId.toLowerCase().includes(kw),
-  )
 }
 
 export function countActivitiesByStatus(

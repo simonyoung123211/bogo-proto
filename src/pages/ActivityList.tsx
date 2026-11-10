@@ -1,3 +1,5 @@
+import { ActivityListSearchPanel } from '../components/ActivityListSearchPanel'
+import { createAdvancedSearchChips } from '../utils/activitySearchChips'
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { ActivityOperationLogModal } from '../components/ActivityOperationLogModal'
 import { ActivityScopeSnapshotModal, type ActivityScopeSnapshotType } from '../components/ActivityScopeSnapshotModal'
@@ -92,7 +94,6 @@ export function ActivityList({
   const [voidTarget, setVoidTarget] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [closureDemoOpen, setClosureDemoOpen] = useState(false)
-  const [filterExpanded, setFilterExpanded] = useState(false)
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [statusMoreOpen, setStatusMoreOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -149,7 +150,6 @@ export function ActivityList({
 
   const resetFilters = () => {
     setFilters(EMPTY_FILTERS)
-    setFilterExpanded(false)
   }
 
   const copyActivityId = async (id: string, e: ReactMouseEvent) => {
@@ -261,128 +261,56 @@ export function ActivityList({
           </StatusMoreMenu>
         </div>
 
-        <div className="list-toolbar">
-          <div className="list-toolbar__fields">
+        <ActivityListSearchPanel
+          values={filters}
+          resultCount={filtered.length}
+          onChange={(field, value) => setFilters((current) => ({ ...current, [field]: value }))}
+          onReset={resetFilters}
+          advancedFilters={createAdvancedSearchChips(filters, EMPTY_FILTERS, [
+            { key: 'ruleType', label: '规则类型', options: { buyA_getA: '买A送A', buyA_getB: '买A送B' } },
+            { key: 'startDate', label: '开始日期' },
+            { key: 'endDate', label: '结束日期' },
+            { key: 'activityCode', label: '活动编码' },
+            { key: 'participantUser', label: '参与用户类型', options: Object.fromEntries(PARTICIPANT_USER_OPTIONS.map((option) => [option.value, option.label])) },
+            { key: 'storeId', label: '参与门店', options: Object.fromEntries(stores.map((store) => [store.id, store.name])) },
+          ], (patch) => setFilters((current) => ({ ...current, ...patch })))}
+          advancedFields={<>
             <div className="filter-item">
-              <label>活动名称/ID</label>
-              <input
-                className="input input--filter"
-                value={filters.keyword}
-                onChange={(e) => setFilters((f) => ({ ...f, keyword: e.target.value }))}
-                placeholder="请输入活动名称或 ID"
-              />
-            </div>
-            <div className="filter-item">
-              <label>规则类型</label>
-              <select
-                className="input input--filter"
-                value={filters.ruleType}
-                onChange={(e) => setFilters((f) => ({
-                  ...f,
-                  ruleType: e.target.value as ListFilters['ruleType'],
-                }))}
-              >
+              <label htmlFor="bogo-rule-filter">规则类型</label>
+              <select id="bogo-rule-filter" className="input input--filter" value={filters.ruleType} onChange={(event) => setFilters((current) => ({ ...current, ruleType: event.target.value as ListFilters['ruleType'] }))}>
                 <option value="all">全部</option>
                 <option value="buyA_getA">买A送A</option>
                 <option value="buyA_getB">买A送B</option>
               </select>
             </div>
-            <div className="filter-item">
+            <div className="filter-item activity-search-panel__dates">
               <label>活动时间</label>
               <div className="date-range">
-                <input
-                  type="date"
-                  className="input input--filter"
-                  value={filters.startDate}
-                  onChange={(e) => setFilters((f) => ({ ...f, startDate: e.target.value }))}
-                />
+                <input aria-label="活动开始日期" type="date" className="input input--filter" value={filters.startDate} onChange={(event) => setFilters((current) => ({ ...current, startDate: event.target.value }))} />
                 <span>至</span>
-                <input
-                  type="date"
-                  className="input input--filter"
-                  value={filters.endDate}
-                  onChange={(e) => setFilters((f) => ({ ...f, endDate: e.target.value }))}
-                />
+                <input aria-label="活动结束日期" type="date" className="input input--filter" value={filters.endDate} onChange={(event) => setFilters((current) => ({ ...current, endDate: event.target.value }))} />
               </div>
             </div>
-            {filterExpanded && (
-              <>
-                <div className="filter-item">
-                  <label>活动商品名称</label>
-                  <input
-                    className="input input--filter"
-                    value={filters.productName}
-                    onChange={(e) => setFilters((f) => ({ ...f, productName: e.target.value }))}
-                    placeholder="请输入活动商品名称"
-                  />
-                </div>
-                <div className="filter-item">
-                  <label>活动商品 ID</label>
-                  <input
-                    className="input input--filter"
-                    value={filters.productId}
-                    onChange={(e) => setFilters((f) => ({ ...f, productId: e.target.value }))}
-                    placeholder="请输入商品 ID 或 SKU ID"
-                  />
-                </div>
-                <div className="filter-item">
-                  <label>活动编码</label>
-                  <input
-                    className="input input--filter"
-                    value={filters.activityCode}
-                    onChange={(e) => setFilters((f) => ({ ...f, activityCode: e.target.value }))}
-                    placeholder="请输入活动编码"
-                  />
-                </div>
-                <div className="filter-item">
-                  <label>参与用户类型</label>
-                  <select
-                    className="input input--filter"
-                    value={filters.participantUser}
-                    onChange={(e) => setFilters((f) => ({
-                      ...f,
-                      participantUser: e.target.value as ListFilters['participantUser'],
-                    }))}
-                  >
-                    <option value="all">全部</option>
-                    {PARTICIPANT_USER_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="filter-item">
-                  <label>参与门店</label>
-                  <select
-                    className="input input--filter"
-                    value={filters.storeId}
-                    onChange={(e) => setFilters((f) => ({ ...f, storeId: e.target.value }))}
-                  >
-                    <option value="all">全部</option>
-                    {stores.slice(0, 8).map((s) => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </>
-            )}
-          </div>
-          <div className="list-toolbar__actions">
-            <span className="list-toolbar__hint">筛选即时生效</span>
-            <button type="button" className="btn btn--default btn--icon btn--sm" onClick={resetFilters}>
-              <IconReset />
-              重置
-            </button>
-            <button
-              type="button"
-              className={`list-toolbar__toggle ${filterExpanded ? 'is-expanded' : ''}`}
-              onClick={() => setFilterExpanded((v) => !v)}
-            >
-              <IconFilter />
-              更多筛选
-              <IconChevron />
-            </button>
-          </div>
-        </div>
+            <div className="filter-item">
+              <label htmlFor="bogo-code-filter">活动编码</label>
+              <input id="bogo-code-filter" className="input input--filter" value={filters.activityCode} onChange={(event) => setFilters((current) => ({ ...current, activityCode: event.target.value }))} placeholder="请输入活动编码" />
+            </div>
+            <div className="filter-item">
+              <label htmlFor="bogo-user-filter">参与用户类型</label>
+              <select id="bogo-user-filter" className="input input--filter" value={filters.participantUser} onChange={(event) => setFilters((current) => ({ ...current, participantUser: event.target.value as ListFilters['participantUser'] }))}>
+                <option value="all">全部</option>
+                {PARTICIPANT_USER_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </div>
+            <div className="filter-item">
+              <label htmlFor="bogo-store-filter">参与门店</label>
+              <select id="bogo-store-filter" className="input input--filter" value={filters.storeId} onChange={(event) => setFilters((current) => ({ ...current, storeId: event.target.value }))}>
+                <option value="all">全部</option>
+                {stores.slice(0, 8).map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
+              </select>
+            </div>
+          </>}
+        />
       </div>
 
       <div className="table-wrap table-wrap--list">
@@ -915,23 +843,6 @@ function IconSettings() {
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
       <circle cx="8" cy="8" r="2" />
       <path d="M8 2v1.5M8 12.5V14M2 8h1.5M12.5 8H14M4 4l1 1M11 11l1 1M12 4l-1 1M5 11l-1 1" />
-    </svg>
-  )
-}
-
-function IconFilter() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
-      <path d="M2 4h12M4 8h8M6 12h4" />
-    </svg>
-  )
-}
-
-function IconReset() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
-      <path d="M3 8a5 5 0 019-2M13 8a5 5 0 01-9 2" />
-      <path d="M12 3v3h-3M4 13v-3h3" />
     </svg>
   )
 }

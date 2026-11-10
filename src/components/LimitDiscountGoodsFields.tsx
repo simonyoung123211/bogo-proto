@@ -3,6 +3,7 @@ import { products } from '../mockData'
 import type { LimitDiscountActivityForm, LimitDiscountMethod, LimitDiscountProductItem } from '../types'
 import { applyDiscountMethod, discountUnit, discountValueLabel, isProductDiscountSet, isSameAsDefault, pruneSameAsDefault, sceneLabel, sceneOverrides, setSceneOverride, sharedDiscountItem, syncProductItems, writeSharedDiscount } from '../utils/limitDiscountActivity'
 import { ProductPicker } from './ProductPicker'
+import { matchesProductKeyword } from '../utils/productSearch'
 
 interface LimitDiscountGoodsFieldsProps {
   activity: LimitDiscountActivityForm
@@ -26,10 +27,14 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
   const sharedItem = sharedDiscountItem(activity)
 
   const rows = useMemo(() => {
-    const kw = keyword.trim()
+    const kw = keyword.trim().toLowerCase()
     return activity.productItems
       .map((item) => ({ item, product: products.find((p) => p.id === item.productId) }))
-      .filter((row) => row.product && (!kw || row.product.name.includes(kw) || row.product.identifier.includes(kw) || row.product.barcode.includes(kw)))
+      .filter((row) => row.product && (
+        matchesProductKeyword(row.product, kw)
+        || row.product.identifier.toLowerCase().includes(kw)
+        || row.product.barcode.toLowerCase().includes(kw)
+      ))
   }, [activity.productItems, keyword])
 
   const setCount = activity.productItems.filter((item) => isProductDiscountSet(activity, item)).length
@@ -200,7 +205,7 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
             </div>
           )}
           <div className="list-toolbar" style={{ marginBottom: 8 }}>
-            <input className="input input--filter" placeholder="搜索商品名称、标识或条码" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
+            <input className="input input--filter" placeholder="搜索商品名称、ID、编码、标识或条码" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
           </div>
           <div className="table-wrap">
             <table className="table">

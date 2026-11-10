@@ -1,3 +1,4 @@
+import { matchesActivityProductFilters, resolveActivityProducts } from './activityProductSearch'
 import type { ActivityForm, ActivityOperationLog, ActivityStatus, CouponGiftConfig, GiftGroup, ListFilters } from '../types'
 import { PARTICIPANT_USER_OPTIONS, createEmptyActivity, createEmptyCouponGift, createEmptyGiftGroup, DEFAULT_PHYSICAL_GIFT_DISPLAY_TITLE, DEFAULT_STORAGE_COUPON_DISPLAY_TITLE, getCreatorProfile, products, stores } from '../mockData'
 
@@ -55,24 +56,6 @@ export function getChannelSummary(activity: ActivityForm): string {
 
 export function getActivityProducts(activity: ActivityForm) {
   return products.filter((p) => activity.productIds.includes(p.id))
-}
-
-function getActivityProductCandidates(activity: ActivityForm) {
-  return activity.productScope === 'all' ? products : getActivityProducts(activity)
-}
-
-function matchesProductName(activity: ActivityForm, keyword: string): boolean {
-  const kw = keyword.trim().toLowerCase()
-  if (!kw) return true
-  return getActivityProductCandidates(activity).some((p) => p.name.toLowerCase().includes(kw))
-}
-
-function matchesProductId(activity: ActivityForm, keyword: string): boolean {
-  const kw = keyword.trim().toLowerCase()
-  if (!kw) return true
-  return getActivityProductCandidates(activity).some((p) =>
-    p.id.toLowerCase().includes(kw) || p.skuId.toLowerCase().includes(kw),
-  )
 }
 
 export function getActivityGiftProducts(activity: ActivityForm) {
@@ -287,8 +270,7 @@ export function matchesFilters(activity: ActivityForm, filters: ListFilters): bo
     const kw = filters.keyword.toLowerCase()
     if (!activity.name.toLowerCase().includes(kw) && !activity.id.toLowerCase().includes(kw)) return false
   }
-  if (filters.productName && !matchesProductName(activity, filters.productName)) return false
-  if (filters.productId && !matchesProductId(activity, filters.productId)) return false
+  if (!matchesActivityProductFilters(resolveActivityProducts(activity), filters)) return false
   if (filters.activityCode) {
     const code = filters.activityCode.toLowerCase()
     if (!activity.activityCode.toLowerCase().includes(code)) return false

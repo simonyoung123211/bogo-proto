@@ -14,7 +14,7 @@ type ActivityListLink = {
 
 const ACTIVITY_LIST_LINKS: ActivityListLink[] = [
   { type: 'bogo', navKey: 'bogo', aliases: ['买1送1', '买一送一'], view: { type: 'list' } },
-  { type: 'nth-item', navKey: 'half_item', aliases: ['half-item', 'half_item', '第n件优惠', '第N件优惠'], view: { type: 'multi-item-list' } },
+  { type: 'nth-item', navKey: 'half_item', aliases: ['half-item', 'half_item', '第n件优惠', '第N件优惠', '第2件半价'], view: { type: 'multi-item-list' } },
   { type: 'bundle-price', navKey: 'bundle_price', aliases: ['bundle_price', '一口价'], view: { type: 'bundle-price-list' } },
   { type: 'limit-discount', navKey: 'limit_discount', aliases: ['limit_discount', '限时折扣'], view: { type: 'limit-discount-list' } },
   { type: 'full-reduction', navKey: 'full_reduction', aliases: ['full_reduction', '满减', '满减折', '满减/折'], view: { type: 'full-reduction-list' } },

@@ -1927,12 +1927,12 @@ function App() {
       ? ['会员管理', '运营体系', '付费权益卡']
     : isPaidMemberPriceModule
       ? view.type === 'paid-member-price-list'
-        ? ['营销管理', '促销活动', '付费会员价']
+        ? ['营销管理', '会员管理', '付费会员价']
         : view.type === 'paid-member-price-participation' && paidMemberPriceParticipationActivity
-          ? ['营销管理', '促销活动', '付费会员价', '参与记录']
+          ? ['营销管理', '会员管理', '付费会员价', '参与记录']
           : view.type === 'paid-member-price-wizard'
-            ? ['营销管理', '促销活动', '付费会员价', view.mode === 'create' ? '新建活动' : view.mode === 'view' ? '查看活动' : '编辑活动']
-            : ['营销管理', '促销活动', '付费会员价']
+            ? ['营销管理', '会员管理', '付费会员价', view.mode === 'create' ? '新建活动' : view.mode === 'view' ? '查看活动' : '编辑活动']
+            : ['营销管理', '会员管理', '付费会员价']
     : isMemberPriceModule
       ? view.type === 'member-price-list'
         ? ['营销管理', '促销活动', '会员价']
@@ -1991,12 +1991,12 @@ function App() {
             : ['营销管理', '促销活动', '减配送费']
       : isMultiItemModule
         ? view.type === 'multi-item-list'
-          ? ['营销管理', '促销活动', '第N件优惠']
+          ? ['营销管理', '促销活动', '第2件半价']
           : view.type === 'multi-item-participation' && multiItemParticipationActivity
-            ? ['营销管理', '促销活动', '第N件优惠', '参与记录']
+            ? ['营销管理', '促销活动', '第2件半价', '参与记录']
             : view.type === 'multi-item-wizard'
-              ? ['营销管理', '促销活动', '第N件优惠', view.mode === 'create' ? '新建活动' : view.mode === 'view' ? '查看活动' : '编辑活动']
-              : ['营销管理', '促销活动', '第N件优惠']
+              ? ['营销管理', '促销活动', '第2件半价', view.mode === 'create' ? '新建活动' : view.mode === 'view' ? '查看活动' : '编辑活动']
+              : ['营销管理', '促销活动', '第2件半价']
         : isBogoParticipation
           ? ['营销管理', '促销活动', '买1送1', '参与记录']
           : view.type === 'list'

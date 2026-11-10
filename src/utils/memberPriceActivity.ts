@@ -1,3 +1,4 @@
+import { matchesActivityProductFilters } from './activityProductSearch'
 import type {
   ActivityOperationLog,
   ActivityStatus,
@@ -43,10 +44,20 @@ export const MEMBER_PRICE_AUDIENCE_OPTIONS: { value: MemberPriceAudienceType; la
   { value: 'paid_member_card_user', label: '付费会员卡用户' },
 ]
 
-export const MEMBER_PRICE_MULTI_GROUP_AUDIENCES: MemberPriceAudienceType[] = [
+/** 需要勾选具体对象（等级 / 储值等级 / 实体卡）的受众 */
+export const MEMBER_PRICE_TARGET_AUDIENCES: MemberPriceAudienceType[] = [
   'specified_level',
   'specified_stored_value',
   'specified_physical_card',
+]
+
+/**
+ * 按枚举自动拆组的受众（一组对应一个等级）。
+ * 指定实体卡不在此列：多选卡共用一套商品与优惠。
+ */
+export const MEMBER_PRICE_MULTI_GROUP_AUDIENCES: MemberPriceAudienceType[] = [
+  'specified_level',
+  'specified_stored_value',
 ]
 
 export const MEMBER_PRICE_PHYSICAL_CARD_AUDIENCES: MemberPriceAudienceType[] = [
@@ -54,11 +65,25 @@ export const MEMBER_PRICE_PHYSICAL_CARD_AUDIENCES: MemberPriceAudienceType[] = [
   'specified_physical_card',
 ]
 
-/** 实体卡支付方式可选项（Demo） */
+export const MEMBER_PRICE_STORED_VALUE_AUDIENCES: MemberPriceAudienceType[] = [
+  'all_stored_value',
+  'specified_stored_value',
+]
+
+/** 支付方式可选项（Demo） */
 export const MEMBER_PRICE_PAYMENT_METHOD_OPTIONS = [
-  { id: 'gift_stored_physical_card', label: '礼品卡-储值实体卡' },
+  { id: 'stored_balance', label: '储值余额' },
+  { id: 'gift_stored_physical_card', label: '实体卡' },
 ] as const
 
+/** 非实体卡受众：默认关闭支付限制 */
+export const DEFAULT_MEMBER_PRICE_PAYMENT_OFF = {
+  paymentLimitType: 'unlimited' as const,
+  paymentMethodIds: [] as string[],
+  paymentAmountLimit: 'any' as const,
+}
+
+/** 实体卡受众：默认限制「实体卡」支付 */
 export const DEFAULT_MEMBER_PRICE_PAYMENT = {
   paymentLimitType: 'limited' as const,
   paymentMethodIds: ['gift_stored_physical_card'] as string[],
@@ -69,21 +94,48 @@ export function isMemberPricePhysicalCardAudience(audienceType: MemberPriceAudie
   return MEMBER_PRICE_PHYSICAL_CARD_AUDIENCES.includes(audienceType)
 }
 
+export function isMemberPriceStoredValueAudience(audienceType: MemberPriceAudienceType): boolean {
+  return MEMBER_PRICE_STORED_VALUE_AUDIENCES.includes(audienceType)
+}
+
+/** 按优惠会员过滤可选支付方式：储值会员仅「储值余额」；实体卡仅「实体卡」 */
+export function getMemberPricePaymentMethodOptionsForAudience(
+  audienceType: MemberPriceAudienceType,
+): readonly { id: string; label: string }[] {
+  if (isMemberPricePhysicalCardAudience(audienceType)) {
+    return MEMBER_PRICE_PAYMENT_METHOD_OPTIONS.filter((o) => o.id === 'gift_stored_physical_card')
+  }
+  if (isMemberPriceStoredValueAudience(audienceType)) {
+    return MEMBER_PRICE_PAYMENT_METHOD_OPTIONS.filter((o) => o.id === 'stored_balance')
+  }
+  return MEMBER_PRICE_PAYMENT_METHOD_OPTIONS
+}
+
+/** 切换优惠会员时的支付限制默认值：实体卡开启限制，其余关闭 */
+export function getMemberPricePaymentDefaultsForAudience(audienceType: MemberPriceAudienceType) {
+  return isMemberPricePhysicalCardAudience(audienceType)
+    ? { ...DEFAULT_MEMBER_PRICE_PAYMENT, paymentMethodIds: [...DEFAULT_MEMBER_PRICE_PAYMENT.paymentMethodIds] }
+    : { ...DEFAULT_MEMBER_PRICE_PAYMENT_OFF, paymentMethodIds: [] as string[] }
+}
+
 export function getMemberPricePaymentMethodLabel(id: string): string {
   return MEMBER_PRICE_PAYMENT_METHOD_OPTIONS.find((o) => o.id === id)?.label ?? id
 }
 
 export function formatMemberPricePaymentLimit(activity: MemberPriceActivityForm): string {
-  if (!isMemberPricePhysicalCardAudience(activity.audienceType)) return '-'
   if (activity.paymentLimitType !== 'limited') return '不限'
+  const allowed = new Set(
+    getMemberPricePaymentMethodOptionsForAudience(activity.audienceType ?? 'specified_level').map((o) => o.id),
+  )
   const methods = (activity.paymentMethodIds ?? [])
+    .filter((id) => allowed.has(id))
     .map(getMemberPricePaymentMethodLabel)
     .join('、')
   return methods ? `限制：${methods}` : '限制（未选支付方式）'
 }
 
 export function formatMemberPricePaymentAmountLimit(activity: MemberPriceActivityForm): string {
-  if (!isMemberPricePhysicalCardAudience(activity.audienceType)) return '-'
+  if (activity.paymentLimitType !== 'limited') return '-'
   return activity.paymentAmountLimit === 'full_order' ? '整单支付金额' : '任意支付金额'
 }
 
@@ -101,7 +153,7 @@ export function supportsMemberPriceMultiGroup(audienceType: MemberPriceAudienceT
 }
 
 export function needsMemberPriceTargets(audienceType: MemberPriceAudienceType): boolean {
-  return supportsMemberPriceMultiGroup(audienceType)
+  return MEMBER_PRICE_TARGET_AUDIENCES.includes(audienceType)
 }
 
 export function getMemberPriceAudienceLabel(audienceType: MemberPriceAudienceType): string {
@@ -210,6 +262,7 @@ export function syncMemberPriceGroupsWithTargets(
 
 /**
  * 旧数据迁移：一组挂多个枚举时拆成多组，商品配置复制到每一组。
+ * 仅用于仍支持按枚举拆组的受众（指定等级 / 指定储值）。
  */
 export function expandMemberPriceGroupsByTarget(
   audienceType: MemberPriceAudienceType,
@@ -255,28 +308,86 @@ export function expandMemberPriceGroupsByTarget(
 }
 
 /**
- * 一键复制参与商品：只拷商品范围与清单结构，优惠力度重置为该优惠方式默认值。
+ * 指定实体卡：历史「按卡模版拆组」数据合并为单组，多卡共用一套商品与优惠。
+ * 优先保留已配置商品的那一组作为商品底稿。
+ */
+export function collapseMemberPricePhysicalCardGroups(
+  groups: MemberPriceOfferGroup[],
+): MemberPriceOfferGroup[] {
+  if (groups.length === 0) return groups
+  const primary = groups.find((g) => memberPriceGroupHasProductConfig(g)) ?? groups[0]
+  const allTargets = [...new Set(groups.flatMap((g) => g.targetIds))]
+  return [{ ...primary, targetIds: allTargets }]
+}
+
+/** 按受众规范化 groups：指定等级/储值拆组；指定实体卡合并为单组 */
+export function normalizeMemberPriceGroupsByAudience(
+  audienceType: MemberPriceAudienceType,
+  groups: MemberPriceOfferGroup[],
+): MemberPriceOfferGroup[] {
+  if (audienceType === 'specified_physical_card') {
+    return collapseMemberPricePhysicalCardGroups(groups)
+  }
+  return expandMemberPriceGroupsByTarget(audienceType, groups)
+}
+
+export interface CopyMemberPriceProductsResult {
+  group: MemberPriceOfferGroup
+  /** 来源与目标的正选/反选不一致 */
+  modeMismatch: boolean
+}
+
+/**
+ * 一键复用参与商品：只带商品身份清单，不带优惠方式与正选/反选。
+ * 优惠值按目标组当前优惠方式重置为默认值。
  */
 export function copyMemberPriceGroupProducts(
   source: MemberPriceOfferGroup,
   target: MemberPriceOfferGroup,
-): MemberPriceOfferGroup {
+): CopyMemberPriceProductsResult {
+  const modeMismatch = source.productSelectionMode !== target.productSelectionMode
+  const method = target.priceMethod
+  const sourceIds = [...source.productIds]
+
+  let productScope = target.productScope
+  let productIds = sourceIds
+
+  if (target.productSelectionMode === 'exclude') {
+    // 反选始终是「部分商品」黑名单；来源若是「全部商品」则没有可写入的 ID
+    productScope = 'partial'
+    productIds = source.productScope === 'all' && source.productSelectionMode === 'include'
+      ? [...target.productIds]
+      : sourceIds
+  } else if (source.productScope === 'all' && source.productSelectionMode === 'include') {
+    productScope = 'all'
+    productIds = []
+  } else {
+    productScope = 'partial'
+    productIds = sourceIds
+  }
+
+  const productItems = productIds.map((productId) => {
+    const salePrice = products.find((p) => p.id === productId)?.price
+    return {
+      productId,
+      value: defaultValueForMethod(method, salePrice),
+    }
+  })
+
   return {
-    ...target,
-    priceMethod: source.priceMethod,
-    productScope: source.productScope,
-    productSelectionMode: source.productSelectionMode,
-    productIds: [...source.productIds],
-    valueMode: source.valueMode ?? 'unified',
-    allProductsValue: defaultValueForMethod(source.priceMethod),
-    sceneValues: {},
-    productItems: source.productItems.map((item) => {
-      const salePrice = products.find((p) => p.id === item.productId)?.price
-      return {
-        productId: item.productId,
-        value: defaultValueForMethod(source.priceMethod, salePrice),
-      }
-    }),
+    modeMismatch,
+    group: {
+      ...target,
+      // 只改商品清单；优惠方式、正选/反选、已填统一力度均保留目标组
+      productScope,
+      productIds,
+      productItems,
+      priceMethod: method,
+      productSelectionMode: target.productSelectionMode,
+      valueMode: target.valueMode ?? 'unified',
+      allProductsValue: target.allProductsValue,
+      sceneValues: target.sceneValues ? { ...target.sceneValues } : {},
+    },
   }
 }
 
@@ -364,9 +475,9 @@ export function validateMemberPriceOfferGroup(
     ? `${getMemberPriceGroupLabel(audienceType, group, groupIndex)}：`
     : ''
   if (needsMemberPriceTargets(audienceType) && group.targetIds.length === 0) {
-    return `${prefix}请绑定一个${getMemberPriceGroupUnitLabel(audienceType)}`
+    return `${prefix}请至少选择一个${getMemberPriceGroupUnitLabel(audienceType)}`
   }
-  if (needsMemberPriceTargets(audienceType) && group.targetIds.length > 1) {
+  if (supportsMemberPriceMultiGroup(audienceType) && group.targetIds.length > 1) {
     return `${prefix}每组仅对应一个${getMemberPriceGroupUnitLabel(audienceType)}`
   }
   const core = groupToProductCore(group)
@@ -584,19 +695,49 @@ export function formatRuleSummary(activity: MemberPriceProductCoreFields): strin
   return `${methodLabel} · ${count}`
 }
 
+/** 列表「会员类型」列用的短受众名 */
+export function getMemberPriceAudienceShortLabel(audienceType: MemberPriceAudienceType): string {
+  switch (audienceType) {
+    case 'all_level':
+      return '全部等级'
+    case 'specified_level':
+      return '指定等级'
+    case 'all_stored_value':
+      return '全部储值'
+    case 'specified_stored_value':
+      return '指定储值'
+    case 'any_physical_card':
+      return '任意实体卡'
+    case 'specified_physical_card':
+      return '指定实体卡'
+    case 'paid_member_card_user':
+      return '付费会员'
+    default:
+      return getMemberPriceAudienceLabel(audienceType)
+  }
+}
+
+/** 列表展示用的具体对象名称（等级 / 储值等级 / 实体卡） */
+export function getMemberPriceAudienceTargetLabels(activity: MemberPriceActivityForm): string[] {
+  const audienceType = activity.audienceType ?? 'specified_level'
+  if (!needsMemberPriceTargets(audienceType)) return []
+  const groups = activity.groups?.length ? activity.groups : []
+  if (groups.length === 0) return []
+  if (supportsMemberPriceMultiGroup(audienceType)) {
+    return groups.map((g, i) => getMemberPriceGroupLabel(audienceType, g, i))
+  }
+  const map = new Map(getMemberPriceTargetOptions(audienceType).map((o) => [o.id, o.label]))
+  return (groups[0]?.targetIds ?? []).map((id) => map.get(id) ?? id)
+}
+
 export function getMemberLevelsSummary(activity: MemberPriceActivityForm): string {
   const audienceType = activity.audienceType ?? 'specified_level'
   if (!needsMemberPriceTargets(audienceType)) {
     return getMemberPriceAudienceLabel(audienceType)
   }
-  const groups = activity.groups?.length ? activity.groups : []
-  if (groups.length === 0) return '未选择'
-  if (groups.length === 1) {
-    return formatMemberPriceTargetIds(audienceType, groups[0].targetIds)
-  }
-  return groups
-    .map((g, i) => getMemberPriceGroupLabel(audienceType, g, i))
-    .join('、')
+  const labels = getMemberPriceAudienceTargetLabels(activity)
+  if (labels.length === 0) return '未选择'
+  return labels.join('、')
 }
 
 export function getMemberPriceGroupsSummary(activity: MemberPriceActivityForm): string {
@@ -1256,8 +1397,7 @@ export function collectMemberPriceStepIssues(
       issues.push('请完成参与商品及优惠配置')
     }
     if (
-      isMemberPricePhysicalCardAudience(audienceType)
-      && (activity.paymentLimitType ?? 'limited') === 'limited'
+      (activity.paymentLimitType ?? 'unlimited') === 'limited'
       && !(activity.paymentMethodIds ?? []).length
     ) {
       issues.push('请至少勾选一种支付方式')
@@ -1318,32 +1458,6 @@ export function previewMemberSamplePrice(
   return Math.round(value * 100) / 100
 }
 
-function matchesProductName(activity: MemberPriceProductCoreFields, keyword: string): boolean {
-  const kw = keyword.trim().toLowerCase()
-  if (!kw) return true
-  return getActivityProducts(activity).some((p) => p.name.toLowerCase().includes(kw))
-}
-
-function matchesProductId(activity: MemberPriceProductCoreFields, keyword: string): boolean {
-  const kw = keyword.trim().toLowerCase()
-  if (!kw) return true
-  return getActivityProducts(activity).some((p) =>
-    p.id.toLowerCase().includes(kw) || p.skuId.toLowerCase().includes(kw),
-  )
-}
-
-function matchesProductNameAcrossGroups(activity: MemberPriceActivityForm, keyword: string): boolean {
-  const groups = activity.groups?.length ? activity.groups : [groupToProductCore(activity as unknown as MemberPriceOfferGroup)]
-  if (groups.length === 0) return matchesProductName(activity, keyword)
-  return groups.some((g) => matchesProductName(groupToProductCore(g as MemberPriceOfferGroup), keyword))
-}
-
-function matchesProductIdAcrossGroups(activity: MemberPriceActivityForm, keyword: string): boolean {
-  const groups = activity.groups?.length ? activity.groups : null
-  if (!groups?.length) return matchesProductId(activity, keyword)
-  return groups.some((g) => matchesProductId(groupToProductCore(g), keyword))
-}
-
 export function matchesFilters(activity: MemberPriceActivityForm, filters: MemberPriceListFilters): boolean {
   if (filters.status !== 'all' && activity.status !== filters.status) return false
   const groupMethods = (activity.groups?.length ? activity.groups : [{ priceMethod: activity.priceMethod }])
@@ -1366,8 +1480,7 @@ export function matchesFilters(activity: MemberPriceActivityForm, filters: Membe
     const kw = filters.keyword.toLowerCase()
     if (!activity.name.toLowerCase().includes(kw) && !activity.id.toLowerCase().includes(kw)) return false
   }
-  if (filters.productName && !matchesProductNameAcrossGroups(activity, filters.productName)) return false
-  if (filters.productId && !matchesProductIdAcrossGroups(activity, filters.productId)) return false
+  if (!matchesActivityProductFilters((activity.groups?.length ? activity.groups.flatMap((group) => getActivityProducts(groupToProductCore(group))) : getActivityProducts(activity)), filters)) return false
   if (filters.activityCode) {
     const code = filters.activityCode.toLowerCase()
     if (!activity.activityCode.toLowerCase().includes(code)) return false
@@ -1446,17 +1559,14 @@ export function migrateMemberPriceActivity(raw: Record<string, unknown>): Member
   const orderTypes = normalizeMemberPriceOrderTypes(
     (legacy.orderTypes as string[] | undefined) ?? defaults.orderTypes,
   )
-  // 实体卡受众：支付方式固定限制「礼品卡-储值实体卡」，不随历史数据放开
-  const paymentLimitType = isMemberPricePhysicalCardAudience(audienceType)
-    ? DEFAULT_MEMBER_PRICE_PAYMENT.paymentLimitType
-    : (legacy.paymentLimitType ?? DEFAULT_MEMBER_PRICE_PAYMENT.paymentLimitType)
-  const paymentMethodIds = isMemberPricePhysicalCardAudience(audienceType)
-    ? [...DEFAULT_MEMBER_PRICE_PAYMENT.paymentMethodIds]
-    : (legacy.paymentMethodIds ?? [...DEFAULT_MEMBER_PRICE_PAYMENT.paymentMethodIds])
-  const paymentAmountLimit =
-    legacy.paymentAmountLimit ?? DEFAULT_MEMBER_PRICE_PAYMENT.paymentAmountLimit
+  const paymentDefaults = getMemberPricePaymentDefaultsForAudience(audienceType)
+  const paymentLimitType = legacy.paymentLimitType ?? paymentDefaults.paymentLimitType
+  const paymentMethodIds = legacy.paymentMethodIds
+    ? [...legacy.paymentMethodIds]
+    : [...paymentDefaults.paymentMethodIds]
+  const paymentAmountLimit = legacy.paymentAmountLimit ?? paymentDefaults.paymentAmountLimit
   const migratedProductItems = productItems.map(normalizeMemberPriceProductItem)
-  const migratedGroups = expandMemberPriceGroupsByTarget(
+  const migratedGroups = normalizeMemberPriceGroupsByAudience(
     audienceType,
     groups.map((group) => ({
       ...group,

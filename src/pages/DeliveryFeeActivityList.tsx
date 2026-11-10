@@ -1,3 +1,5 @@
+import { ActivityListSearchPanel } from '../components/ActivityListSearchPanel'
+import { createAdvancedSearchChips } from '../utils/activitySearchChips'
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { ActivityOperationLogModal } from '../components/ActivityOperationLogModal'
 import { CHANNELS, MORE_STATUS_TABS, PRIMARY_STATUS_TABS, STATUS_LABELS } from '../mockData'
@@ -28,6 +30,8 @@ interface DeliveryFeeActivityListProps {
 
 const EMPTY_FILTERS: DeliveryFeeListFilters = {
   keyword: '',
+  productName: '',
+  productId: '',
   status: 'all',
   ruleMode: 'all',
   startDate: '',
@@ -58,7 +62,6 @@ export function DeliveryFeeActivityList({
   const [filters, setFilters] = useState<DeliveryFeeListFilters>(EMPTY_FILTERS)
   const [voidTarget, setVoidTarget] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
-  const [filterExpanded, setFilterExpanded] = useState(false)
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [statusMoreOpen, setStatusMoreOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -99,7 +102,6 @@ export function DeliveryFeeActivityList({
 
   const resetFilters = () => {
     setFilters(EMPTY_FILTERS)
-    setFilterExpanded(false)
   }
 
   const copyActivityId = async (id: string, e: ReactMouseEvent) => {
@@ -165,20 +167,16 @@ export function DeliveryFeeActivityList({
           </StatusMoreMenu>
         </div>
 
-        <div className="list-toolbar">
-          <div className="list-toolbar__fields">
-            <div className="filter-item">
-              <label>活动名称/ID</label>
-              <input
-                className="input input--filter"
-                value={filters.keyword}
-                onChange={(e) => setFilters((f) => ({ ...f, keyword: e.target.value }))}
-                placeholder="请输入活动名称或 ID"
-              />
-            </div>
+        <ActivityListSearchPanel
+          values={filters}
+          resultCount={filtered.length}
+          onChange={(field, value) => setFilters((current) => ({ ...current, [field]: value }))}
+          onReset={resetFilters}
+          advancedFilters={createAdvancedSearchChips(filters, EMPTY_FILTERS, [{ key: 'ruleMode', label: '收货城市', options: Object.fromEntries(RULE_MODE_OPTIONS.map((option) => [option.value, option.label])) }, { key: 'startDate', label: '开始日期' }, { key: 'endDate', label: '结束日期' }, { key: 'activityCode', label: '活动编码' }], (patch) => setFilters((current) => ({ ...current, ...patch })))}
+          advancedFields={<>
             <div className="filter-item">
               <label>收货城市</label>
-              <select
+              <select aria-label="收货城市"
                 className="input input--filter"
                 value={filters.ruleMode}
                 onChange={(e) => setFilters((f) => ({ ...f, ruleMode: e.target.value as DeliveryFeeListFilters['ruleMode'] }))}
@@ -190,39 +188,25 @@ export function DeliveryFeeActivityList({
                 ))}
               </select>
             </div>
-            <div className="filter-item">
+            <div className="filter-item activity-search-panel__dates">
               <label>活动时间</label>
               <div className="date-range">
-                <input type="date" className="input input--filter" value={filters.startDate} onChange={(e) => setFilters((f) => ({ ...f, startDate: e.target.value }))} />
+                <input aria-label="活动开始日期" type="date" className="input input--filter" value={filters.startDate} onChange={(e) => setFilters((f) => ({ ...f, startDate: e.target.value }))} />
                 <span>至</span>
-                <input type="date" className="input input--filter" value={filters.endDate} onChange={(e) => setFilters((f) => ({ ...f, endDate: e.target.value }))} />
+                <input aria-label="活动结束日期" type="date" className="input input--filter" value={filters.endDate} onChange={(e) => setFilters((f) => ({ ...f, endDate: e.target.value }))} />
               </div>
             </div>
-          </div>
-          <div className="list-toolbar__actions">
-            <span className="list-toolbar__hint">筛选即时生效</span>
-            <button type="button" className="btn btn--default btn--icon btn--sm" onClick={resetFilters}><IconReset />重置</button>
-            <button type="button" className={`list-toolbar__toggle ${filterExpanded ? 'is-expanded' : ''}`} onClick={() => setFilterExpanded((v) => !v)}>
-              <IconFilter />更多筛选<IconChevron />
-            </button>
-          </div>
-        </div>
-
-        {filterExpanded && (
-          <div className="list-toolbar list-toolbar--expanded">
-            <div className="list-toolbar__fields">
-              <div className="filter-item">
+            <div className="filter-item">
                 <label>活动编码</label>
-                <input
+                <input aria-label="活动编码"
                   className="input input--filter"
                   value={filters.activityCode}
                   onChange={(e) => setFilters((f) => ({ ...f, activityCode: e.target.value }))}
                   placeholder="请输入活动编码"
                 />
               </div>
-            </div>
-          </div>
-        )}
+          </>}
+        />
       </div>
 
       <div className="table-wrap table-wrap--list">
@@ -446,7 +430,5 @@ function RowActionMenu({ open, onToggle, onClose, children }: { open: boolean; o
 
 function IconChevron() { return <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M3 4.5l3 3 3-3" /></svg> }
 function IconPlus() { return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><path d="M8 3v10M3 8h10" /></svg> }
-function IconFilter() { return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden><path d="M2 4h12M4 8h8M6 12h4" /></svg> }
-function IconReset() { return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden><path d="M3 8a5 5 0 019-2M13 8a5 5 0 01-9 2" /><path d="M12 3v3h-3M4 13v-3h3" /></svg> }
 function IconView() { return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden><circle cx="8" cy="8" r="2.5" /><path d="M2 8s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4z" /></svg> }
 function IconHelp() { return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden><circle cx="8" cy="8" r="6" /><path d="M6.2 6a2 2 0 013.5 1.5c0 1.5-2 1.5-2 3M8 12h.01" /></svg> }

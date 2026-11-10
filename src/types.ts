@@ -704,6 +704,8 @@ export interface DeliveryFeeActivityForm {
 
 export interface DeliveryFeeListFilters {
   keyword: string
+  productName: string
+  productId: string
   status: ActivityStatus | 'all'
   ruleMode: DeliveryFeeRuleMode | 'all'
   startDate: string
@@ -722,7 +724,7 @@ export type MemberPriceValueMode = 'unified' | 'by_scene'
 
 /**
  * 会员价 · 优惠会员（活动级单选）。
- * 仅「指定等级 / 指定储值 / 指定实体卡」支持活动内多组（≤10）。
+ * 「指定等级 / 指定储值」按枚举自动拆组；「指定实体卡」多选卡共用单组规则。
  */
 export type MemberPriceAudienceType =
   | 'all_level'
@@ -750,11 +752,11 @@ export interface MemberPriceProductItem {
 
 /**
  * 会员价活动内的一组「会员子集 + 商品 + 优惠」。
- * 单套优惠会员类型下 groups 固定为 1 条；指定类最多 10 条。
+ * 单套优惠会员类型（含指定实体卡）下 groups 固定 1 条；指定等级/储值按枚举各 1 条。
  */
 export interface MemberPriceOfferGroup {
   id: string
-  /** 等级 / 储值等级 / 实体卡 id；「全部* / 任意实体卡 / 付费会员卡用户」可为空 */
+  /** 等级 / 储值等级 / 实体卡 id；指定实体卡可多选挂在同一组；「全部* / 任意实体卡 / 付费会员卡用户」可为空 */
   targetIds: string[]
   priceMethod: MemberPriceMethod
   productItems: MemberPriceProductItem[]
@@ -802,15 +804,16 @@ export interface MemberPriceActivityForm {
   /** 优惠会员类型（活动级） */
   audienceType: MemberPriceAudienceType
   /**
-   * 实体卡受众（任意 / 指定）下的支付方式限制。
+   * 支付方式限制（配置在「参与商品及优惠」）。
    * unlimited=不限；limited=须用指定支付方式。
+   * 实体卡受众默认限制；其他优惠会员默认不限。
    */
   paymentLimitType: MemberPricePaymentLimitType
-  /** 限制时勾选的支付方式 id，如礼品卡-储值实体卡 */
+  /** 限制时勾选的支付方式 id，如储值余额、实体卡 */
   paymentMethodIds: string[]
-  /** 实体卡受众下的支付金额限制：任意金额 / 整单金额 */
+  /** 限制支付方式时的金额门槛：任意金额 / 整单金额 */
   paymentAmountLimit: MemberPricePaymentAmountLimit
-  /** 商品与优惠组；指定类 1～10 组，其余固定 1 组 */
+  /** 商品与优惠组；指定等级/储值按枚举拆组，指定实体卡与其余受众固定 1 组 */
   groups: MemberPriceOfferGroup[]
   /**
    * 以下商品/优惠字段与 groups[0] 保持同步，供列表检索、旧预览辅助与共有工具复用。
@@ -1192,6 +1195,8 @@ export interface EnterpriseDiscountActivityForm {
 
 export interface EnterpriseDiscountListFilters {
   keyword: string
+  productName: string
+  productId: string
   status: ActivityStatus | 'all'
   startDate: string
   endDate: string
@@ -1384,6 +1389,8 @@ export interface LimitDiscountActivityForm {
 
 export interface LimitDiscountListFilters {
   keyword: string
+  productName: string
+  productId: string
   status: ActivityStatus | 'all'
   startDate: string
   endDate: string

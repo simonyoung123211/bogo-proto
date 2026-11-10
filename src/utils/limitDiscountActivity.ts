@@ -16,6 +16,7 @@ import {
 } from '../mockLimitDiscountData'
 import { MEMBER_TAG_OPTIONS, getCreatorProfile, products, stores } from '../mockData'
 import { createOperationLog, formatActivityDateTime, maskPhone } from './activity'
+import { matchesActivityProductFilters, resolveActivityProducts } from './activityProductSearch'
 
 const CHANNEL_IDS = new Set<string>(LIMIT_DISCOUNT_CHANNELS.map((item) => item.id))
 const SCENE_IDS = new Set<string>(LIMIT_DISCOUNT_SCENES.map((item) => item.id))
@@ -458,6 +459,11 @@ export function collectStepErrors(activity: LimitDiscountActivityForm, step: num
 
 export function matchesFilters(activity: LimitDiscountActivityForm, filters: LimitDiscountListFilters): boolean {
   if (filters.status !== 'all' && activity.status !== filters.status) return false
+  if (!matchesActivityProductFilters(resolveActivityProducts({
+    productScope: activity.goodsScope === 'all' ? 'all' : 'partial',
+    productSelectionMode: activity.goodsScope === 'exclude' ? 'exclude' : 'include',
+    productIds: activity.productItems.map((item) => item.productId),
+  }), filters)) return false
   if (filters.keyword) {
     const kw = filters.keyword.trim().toLowerCase()
     if (!activity.name.toLowerCase().includes(kw) && !activity.id.toLowerCase().includes(kw)) return false

@@ -39,7 +39,7 @@ export function SelectedProductSearchBar({
         <input
           className="input selected-product-search__input"
           value={keyword}
-          placeholder={placeholder ?? `在已选${itemLabel}中查找：名称 / 编码 / 商品ID`}
+          placeholder={placeholder ?? `在已选${itemLabel}中查找：名称 / 编码 / 商品 ID / SKU ID`}
           onChange={(e) => onChange(e.target.value)}
         />
         <span className="selected-product-search__count">

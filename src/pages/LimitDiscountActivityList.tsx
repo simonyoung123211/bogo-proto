@@ -1,3 +1,5 @@
+import { ActivityListSearchPanel } from '../components/ActivityListSearchPanel'
+import { createAdvancedSearchChips } from '../utils/activitySearchChips'
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { ActivityOperationLogModal } from '../components/ActivityOperationLogModal'
 import { PauseConfirmModal, PauseDemoGroup, ResumeConfirmModal } from '../components/ActivityPauseControls'
@@ -34,7 +36,14 @@ interface LimitDiscountActivityListProps {
   onToast?: (message: string) => void
 }
 
-const EMPTY_FILTERS: LimitDiscountListFilters = { keyword: '', status: 'all', startDate: '', endDate: '' }
+const EMPTY_FILTERS: LimitDiscountListFilters = {
+  keyword: '',
+  productName: '',
+  productId: '',
+  status: 'all',
+  startDate: '',
+  endDate: '',
+}
 const PAGE_SIZE = 10
 const CHANNEL_MAP = Object.fromEntries(LIMIT_DISCOUNT_CHANNELS.map((item) => [item.id, item]))
 
@@ -121,23 +130,23 @@ export function LimitDiscountActivityList(props: LimitDiscountActivityListProps)
             ))}
           </StatusMoreMenu>
         </div>
-        <div className="list-toolbar">
-          <div className="list-toolbar__fields">
-            <div className="filter-item">
-              <label>活动名称/ID</label>
-              <input className="input input--filter" value={filters.keyword} placeholder="请输入活动名称或 ID" onChange={(e) => setFilters((f) => ({ ...f, keyword: e.target.value }))} />
-            </div>
-            <div className="filter-item">
+        <ActivityListSearchPanel
+          values={filters}
+          resultCount={filtered.length}
+          onChange={(field, value) => setFilters((current) => ({ ...current, [field]: value }))}
+          onReset={() => setFilters(EMPTY_FILTERS)}
+          advancedFilters={createAdvancedSearchChips(filters, EMPTY_FILTERS, [{ key: 'startDate', label: '开始日期' }, { key: 'endDate', label: '结束日期' }], (patch) => setFilters((current) => ({ ...current, ...patch })))}
+          advancedFields={<>
+            <div className="filter-item activity-search-panel__dates">
               <label>活动时间</label>
               <div className="date-range">
-                <input type="date" className="input input--filter" value={filters.startDate} onChange={(e) => setFilters((f) => ({ ...f, startDate: e.target.value }))} />
+                <input aria-label="活动开始日期" type="date" className="input input--filter" value={filters.startDate} onChange={(e) => setFilters((f) => ({ ...f, startDate: e.target.value }))} />
                 <span>至</span>
-                <input type="date" className="input input--filter" value={filters.endDate} onChange={(e) => setFilters((f) => ({ ...f, endDate: e.target.value }))} />
+                <input aria-label="活动结束日期" type="date" className="input input--filter" value={filters.endDate} onChange={(e) => setFilters((f) => ({ ...f, endDate: e.target.value }))} />
               </div>
             </div>
-          </div>
-          <button type="button" className="btn btn--default btn--sm" onClick={() => setFilters(EMPTY_FILTERS)}>重置</button>
-        </div>
+          </>}
+        />
       </div>
       <div className="table-wrap table-wrap--list">
         <table className="table table--list table--activity">

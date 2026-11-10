@@ -1,3 +1,4 @@
+import { matchesActivityProductFilters } from './activityProductSearch'
 import type {
   ActivityOperationLog,
   ActivityStatus,
@@ -153,20 +154,6 @@ export function validateStep(activity: StoredValuePayActivityForm, step: number)
   return null
 }
 
-function matchesProductName(activity: StoredValuePayActivityForm, keyword: string): boolean {
-  const kw = keyword.trim().toLowerCase()
-  if (!kw) return true
-  return getActivityProducts(activity).some((p) => p.name.toLowerCase().includes(kw))
-}
-
-function matchesProductId(activity: StoredValuePayActivityForm, keyword: string): boolean {
-  const kw = keyword.trim().toLowerCase()
-  if (!kw) return true
-  return getActivityProducts(activity).some((p) =>
-    p.id.toLowerCase().includes(kw) || p.skuId.toLowerCase().includes(kw),
-  )
-}
-
 export function matchesFilters(activity: StoredValuePayActivityForm, filters: StoredValuePayListFilters): boolean {
   if (filters.status !== 'all' && activity.status !== filters.status) return false
   if (filters.priceMethod !== 'all' && activity.priceMethod !== filters.priceMethod) return false
@@ -175,8 +162,7 @@ export function matchesFilters(activity: StoredValuePayActivityForm, filters: St
     const kw = filters.keyword.toLowerCase()
     if (!activity.name.toLowerCase().includes(kw) && !activity.id.toLowerCase().includes(kw)) return false
   }
-  if (filters.productName && !matchesProductName(activity, filters.productName)) return false
-  if (filters.productId && !matchesProductId(activity, filters.productId)) return false
+  if (!matchesActivityProductFilters(getActivityProducts(activity), filters)) return false
   if (filters.activityCode) {
     const code = filters.activityCode.toLowerCase()
     if (!activity.activityCode.toLowerCase().includes(code)) return false

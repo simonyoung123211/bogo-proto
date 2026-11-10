@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { LimitDiscountGoodsFields } from '../components/LimitDiscountGoodsFields'
 import { SelectedProductPager, SelectedProductSearchBar } from '../components/SelectedProductTools'
+import { matchesProductKeyword } from '../utils/productSearch'
 import { LimitDiscountRuleFields } from '../components/LimitDiscountRuleFields'
 import {
   ChannelCornerChoices,
@@ -404,9 +405,10 @@ function GoodsDetail({ activity }: { activity: LimitDiscountActivityForm }) {
   const rows = activity.productItems
     .map((item) => ({ item, product: products.find((p) => p.id === item.productId) }))
     .filter((row): row is { item: LimitDiscountProductItem; product: Product } => Boolean(row.product))
-  const kw = keyword.trim()
+  const kw = keyword.trim().toLowerCase()
   const filtered = kw
-    ? rows.filter(({ product }) => [product.name, product.spec, product.barcode, product.specCode, product.identifier].some((text) => text.includes(kw)))
+    ? rows.filter(({ product }) => matchesProductKeyword(product, kw)
+      || [product.spec, product.barcode, product.specCode, product.identifier].some((text) => text.toLowerCase().includes(kw)))
     : rows
   const isInclude = activity.goodsScope === 'include'
   const method = activity.discountMethod
@@ -420,7 +422,7 @@ function GoodsDetail({ activity }: { activity: LimitDiscountActivityForm }) {
         filteredCount={filtered.length}
         totalCount={rows.length}
         itemLabel="商品"
-        placeholder="在已选商品中查找：名称 / 规格 / 条码 / 规格码"
+        placeholder="在已选商品中查找：名称 / 商品 ID / SKU ID / 编码 / 规格 / 条码"
       />
       <DetailTable
         key={kw}
