@@ -46,6 +46,7 @@ const sidebarMenus: MenuItem[] = [
     children: [
       { id: 'paid-member-card', label: '付费权益卡', navKey: 'paid_member_card' },
       { id: 'paid-member-price', label: '付费会员价', navKey: 'paid_member_price' },
+      { id: 'consumption-privilege', label: '消费特权', navKey: 'consumption_privilege' },
     ],
   },
   {

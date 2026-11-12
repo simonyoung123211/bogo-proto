@@ -7,7 +7,6 @@ import { MemberPriceScopeSnapshotModal, type MemberPriceScopeSnapshotType } from
 import { CHANNELS, MORE_STATUS_TABS, PAUSE_OVERDUE_MINUTES, PRIMARY_STATUS_TABS, STATUS_LABELS } from '../mockData'
 import { STORED_VALUE_PAY_METHOD_LABELS, STORED_VALUE_PAY_RULE_SHORT_LABELS } from '../mockStoredValuePayData'
 import type { ActivityStatus, MemberPriceActivityForm, MemberPriceMethod, StoredValuePayActivityForm, StoredValuePayListFilters, StoredValuePayRule } from '../types'
-import { StoredValuePayGeneralSettingsModal } from './StoredValuePayGeneralSettings'
 import {
   canPause,
   canResume,
@@ -32,6 +31,7 @@ import {
 interface StoredValuePayActivityListProps {
   activities: StoredValuePayActivityForm[]
   onCreate: () => void
+  onOpenSettings: () => void
   onView: (id: string) => void
   onViewParticipation: (id: string) => void
   onEdit: (id: string) => void
@@ -64,6 +64,7 @@ const PAGE_SIZE = 10
 export function StoredValuePayActivityList({
   activities,
   onCreate,
+  onOpenSettings,
   onView,
   onViewParticipation,
   onEdit,
@@ -77,7 +78,6 @@ export function StoredValuePayActivityList({
   onToast,
 }: StoredValuePayActivityListProps) {
   const [filters, setFilters] = useState<StoredValuePayListFilters>(EMPTY_FILTERS)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [pauseTarget, setPauseTarget] = useState<StoredValuePayActivityForm | null>(null)
   const [resumeTarget, setResumeTarget] = useState<StoredValuePayActivityForm | null>(null)
   const [voidTarget, setVoidTarget] = useState<string | null>(null)
@@ -187,7 +187,7 @@ export function StoredValuePayActivityList({
           </div>
         </div>
         <div className="list-page-header__actions">
-          <button type="button" className="btn btn--default btn--icon" onClick={() => setSettingsOpen(true)}>
+          <button type="button" className="btn btn--default btn--icon" onClick={onOpenSettings}>
             <IconSettings />
             通用设置
           </button>
@@ -384,13 +384,6 @@ export function StoredValuePayActivityList({
           </div>
         )}
       </div>
-
-      {settingsOpen && (
-        <StoredValuePayGeneralSettingsModal
-          onClose={() => setSettingsOpen(false)}
-          onSaved={() => onToast?.('储值支付通用设置已保存')}
-        />
-      )}
 
       {pauseTarget && (
         <PauseConfirmModal

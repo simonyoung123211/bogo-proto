@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Toast, inferToastType, type ToastType } from './components/Toast'
 import { AdminLayout } from './layout/AdminLayout'
+import { ActivityListWithSettings } from './components/ActivityListWithSettings'
 import { ActivityList } from './pages/ActivityList'
 import { ActivityParticipationRecords } from './pages/ActivityParticipationRecords'
 import { ActivityWizard } from './pages/ActivityWizard'
@@ -18,8 +19,11 @@ import { MultiItemActivityWizard } from './pages/MultiItemActivityWizard'
 import { MultiItemParticipationRecords } from './pages/MultiItemParticipationRecords'
 import { PaidMemberCardList } from './pages/PaidMemberCardList'
 import { PaidMemberPriceActivityList } from './pages/PaidMemberPriceActivityList'
+import { PaidMemberPriceGeneralSettingsPage } from './pages/PaidMemberPriceGeneralSettings'
+import { ConsumptionPrivilegeDisplaySettingsPage, ConsumptionPrivilegePage } from './pages/ConsumptionPrivilege'
 import { PaidMemberPriceActivityWizard } from './pages/PaidMemberPriceActivityWizard'
 import { StoredValuePayActivityList } from './pages/StoredValuePayActivityList'
+import { StoredValuePayGeneralSettingsPage } from './pages/StoredValuePayGeneralSettings'
 import { StoredValuePayActivityWizard } from './pages/StoredValuePayActivityWizard'
 import { StoredValuePayParticipationRecords } from './pages/StoredValuePayParticipationRecords'
 import { EnterpriseDiscountActivityList } from './pages/EnterpriseDiscountActivityList'
@@ -29,6 +33,10 @@ import { BundlePriceActivityList } from './pages/BundlePriceActivityList'
 import { BundlePriceActivityWizard } from './pages/BundlePriceActivityWizard'
 import { BundlePriceParticipationRecords } from './pages/BundlePriceParticipationRecords'
 import { LimitDiscountActivityList } from './pages/LimitDiscountActivityList'
+import { LimitDiscountConflicts } from './components/LimitDiscountConflicts'
+import { findDiscountConflicts, type DiscountConflict } from './utils/limitDiscountConflicts'
+import { collectStepErrors as discountStepErrors } from './utils/limitDiscountActivity'
+import { retainEligibleAreaIds } from './utils/limitDiscountScope'
 import { LimitDiscountActivityWizard } from './pages/LimitDiscountActivityWizard'
 import { LimitDiscountParticipationRecords } from './pages/LimitDiscountParticipationRecords'
 import { OrderList } from './pages/OrderList'
@@ -126,6 +134,7 @@ import {
   loadEnterpriseDiscountActivities,
   loadBundlePriceActivities,
   loadLimitDiscountActivities,
+  LIMIT_DISCOUNT_STORAGE_KEY,
   loadStoredValuePayActivities,
   saveActivities,
   saveDeliveryFeeActivities,
@@ -145,7 +154,7 @@ import {
   setDemoBridgeSourceId,
   syncLinkedBogoIfNeeded,
 } from './utils/demoBogoBridge'
-import { activityListTypeForNav, readActivityListQuery, writeActivityListQuery } from './utils/activityListQuery'
+import { ACTIVITY_SETTINGS_VIEWS, activityListTypeForNav, readActivityListQuery, writeActivityListQuery, type SettingsActivityType } from './utils/activityListQuery'
 import { applyStoreClosedCleanup, resolveStoreConfigIssue } from './utils/storeClosure'
 import {
   buildClosureInboxMessages,
@@ -174,6 +183,34 @@ function App() {
     const fromQuery = readActivityListQuery(window.location.search)
     return fromQuery && 'view' in fromQuery ? fromQuery.view : { type: 'list' }
   })
+
+  useEffect(() => {
+    const followHistory = () => {
+      const route = readActivityListQuery(window.location.search)
+      setView(route && 'view' in route ? route.view : { type: 'list' })
+    }
+    window.addEventListener('popstate', followHistory)
+    return () => window.removeEventListener('popstate', followHistory)
+  }, [])
+
+  const openActivitySettings = (type: SettingsActivityType) => {
+    writeActivityListQuery(type)
+    const url = new URL(window.location.href)
+    url.searchParams.set('view', 'settings')
+    window.history.pushState({ settingsFromList: type }, '', url)
+    setView({ type: ACTIVITY_SETTINGS_VIEWS[type] })
+  }
+
+  const closeActivitySettings = (type: SettingsActivityType) => {
+    if (window.history.state?.settingsFromList === type) {
+      window.history.back()
+      return
+    }
+    // 从设置页直链进入时，返回本活动列表。
+    writeActivityListQuery(type)
+    setView(type === 'consumption-privilege' ? { type: 'consumption-privilege' } : { type: `${type}-list` })
+  }
+
   /** 买1送N 参与记录的活动范围，空数组表示全部活动；提到这里是为了从订单详情返回时不丢失所选活动 */
   const [participationScope, setParticipationScope] = useState<string[]>([])
   const [draft, setDraft] = useState<ActivityForm | null>(null)
@@ -186,6 +223,16 @@ function App() {
   const [enterpriseDiscountDraft, setEnterpriseDiscountDraft] = useState<EnterpriseDiscountActivityForm | null>(null)
   const [bundlePriceDraft, setBundlePriceDraft] = useState<BundlePriceActivityForm | null>(null)
   const [limitDiscountDraft, setLimitDiscountDraft] = useState<LimitDiscountActivityForm | null>(null)
+  const [discountBlock, setDiscountBlock] = useState<{ label: string; conflicts: DiscountConflict[] } | null>(null)
+  useEffect(() => {
+    const refresh = (event: StorageEvent) => {
+      if (event.key === LIMIT_DISCOUNT_STORAGE_KEY || event.key === null) {
+        setLimitDiscountActivities(loadLimitDiscountActivities())
+      }
+    }
+    window.addEventListener('storage', refresh)
+    return () => window.removeEventListener('storage', refresh)
+  }, [])
   const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null)
   const [linkedConsumerActivityId, setLinkedConsumerActivityId] = useState<string | null>(() => getDemoBridgeSourceId())
   const [inboxMessages, setInboxMessages] = useState<InboxMessage[]>(() => loadInboxMessages())
@@ -198,7 +245,8 @@ function App() {
   useEffect(() => {
     const fromQuery = readActivityListQuery(window.location.search)
     if (fromQuery && 'unknown' in fromQuery) {
-      showToast(`未找到「${fromQuery.unknown}」对应的活动列表`)
+      const timer = window.setTimeout(() => showToast(`未找到「${fromQuery.unknown}」对应的活动列表`), 0)
+      return () => window.clearTimeout(timer)
     }
   }, [showToast])
 
@@ -365,10 +413,11 @@ function App() {
   }
 
   const upsertLimitDiscount = (activity: LimitDiscountActivityForm) => {
-    const exists = limitDiscountActivities.some((a) => a.id === activity.id)
+    const latest = loadLimitDiscountActivities()
+    const exists = latest.some((a) => a.id === activity.id)
     const next = exists
-      ? limitDiscountActivities.map((a) => (a.id === activity.id ? activity : a))
-      : [activity, ...limitDiscountActivities]
+      ? latest.map((a) => (a.id === activity.id ? activity : a))
+      : [activity, ...latest]
     persistLimitDiscount(next)
   }
 
@@ -650,7 +699,7 @@ function App() {
     const activity = limitDiscountActivities.find((a) => a.id === id)
     if (!activity) return
     const copy = cloneLimitDiscountActivity(activity)
-    persistLimitDiscount([copy, ...limitDiscountActivities])
+    upsertLimitDiscount(copy)
     setLimitDiscountDraft(copy)
     setView({ type: 'limit-discount-wizard', mode: 'copy' })
     showToast('已复制活动，请编辑后保存')
@@ -753,9 +802,32 @@ function App() {
     showToast('活动发布成功')
   }
 
+  const validateDiscountTransition = (activity: LimitDiscountActivityForm, label: string) => {
+    const error = [0, 1, 2].flatMap((step) => discountStepErrors(activity, step))[0]
+    if (error) {
+      showToast(`无法${label}：${error}`)
+      return false
+    }
+    const latest = loadLimitDiscountActivities()
+    const conflicts = findDiscountConflicts(activity, latest)
+    if (conflicts.length) {
+      setLimitDiscountActivities(latest)
+      setDiscountBlock({ label, conflicts })
+      return false
+    }
+    return true
+  }
+
+  // 串行执行同源标签页的“检查并占用范围”，避免两个新活动都通过旧快照。
+  const withLimitDiscountLock = (save: () => void) => {
+    if (navigator.locks) void navigator.locks.request(LIMIT_DISCOUNT_STORAGE_KEY, save)
+    else save()
+  }
+
   const handleLimitDiscountPublishFromList = (id: string) => {
-    const activity = limitDiscountActivities.find((a) => a.id === id)
-    if (!activity) return
+    const activity = loadLimitDiscountActivities().find((a) => a.id === id)
+    if (!activity || !['draft', 'pending'].includes(activity.status)) return
+    if (!validateDiscountTransition(activity, '发布')) return
     upsertLimitDiscount(appendLimitDiscountLog(
       { ...activity, status: computeLimitDiscountPublishStatus(activity) },
       '发布活动',
@@ -1105,9 +1177,10 @@ function App() {
   }
 
   const handleLimitDiscountResume = (id: string) => {
-    const activity = limitDiscountActivities.find((a) => a.id === id)
-    if (!activity) return
+    const activity = loadLimitDiscountActivities().find((a) => a.id === id)
+    if (!activity || activity.status !== 'paused') return
     const plan = buildResumePlan(activity, '限时折扣立即重新生效')
+    if (plan.status !== 'ended' && !validateDiscountTransition(activity, '启用')) return
     upsertLimitDiscount(appendLimitDiscountLog(
       { ...activity, status: plan.status, pausedAt: plan.keepPausedAt ? activity.pausedAt : undefined },
       plan.action,
@@ -1350,10 +1423,11 @@ function App() {
 
   const handleLimitDiscountSaveDraft = () => {
     if (!limitDiscountDraft) return
+    const draft = retainEligibleAreaIds(limitDiscountDraft)
     const exists = limitDiscountActivities.some((a) => a.id === limitDiscountDraft.id)
     const saved = exists
-      ? appendLimitDiscountLog({ ...limitDiscountDraft, status: 'draft' }, '编辑活动', `保存草稿「${limitDiscountDraft.name}」`, currentOperator)
-      : { ...limitDiscountDraft, status: 'draft' as const }
+      ? appendLimitDiscountLog({ ...draft, status: 'draft' }, '编辑活动', `保存草稿「${draft.name}」`, currentOperator)
+      : { ...draft, status: 'draft' as const }
     upsertLimitDiscount(saved)
     showToast('草稿保存成功')
     setView({ type: 'limit-discount-list' })
@@ -1461,8 +1535,9 @@ function App() {
 
   const handleLimitDiscountSave = () => {
     if (!limitDiscountDraft) return
-    const { status, keep } = resolveSavedStatus(limitDiscountActivities, limitDiscountDraft)
-    upsertLimitDiscount(appendLimitDiscountLog({ ...limitDiscountDraft, status }, keep ? '编辑活动' : '保存活动', `保存活动「${limitDiscountDraft.name}」`, currentOperator))
+    if (!validateDiscountTransition(limitDiscountDraft, '保存')) return
+    const { status, keep } = resolveSavedStatus(loadLimitDiscountActivities(), limitDiscountDraft)
+    upsertLimitDiscount(appendLimitDiscountLog({ ...retainEligibleAreaIds(limitDiscountDraft), status }, keep ? '编辑活动' : '保存活动', `保存活动「${limitDiscountDraft.name}」`, currentOperator))
     showToast(keep ? '活动已保存' : '活动保存成功，请前往活动列表发布')
     setView({ type: 'limit-discount-list' })
     setLimitDiscountDraft(null)
@@ -1817,6 +1892,8 @@ function App() {
       setView({ type: 'paid-member-price-list' })
     } else if (key === 'paid_member_card') {
       setView({ type: 'paid-member-card-list' })
+    } else if (key === 'consumption_privilege') {
+      setView({ type: 'consumption-privilege' })
     }
   }
 
@@ -1831,6 +1908,7 @@ function App() {
     || view.type === 'member-price-participation'
     || (view.type === 'order-detail' && view.from === 'member-price-participation')
   const isStoredValuePayModule = view.type === 'stored-value-pay-list'
+    || view.type === 'stored-value-pay-settings'
     || view.type === 'stored-value-pay-wizard'
     || view.type === 'stored-value-pay-participation'
     || (view.type === 'order-detail' && view.from === 'stored-value-pay-participation')
@@ -1851,10 +1929,13 @@ function App() {
     || view.type === 'limit-discount-wizard'
     || view.type === 'limit-discount-participation'
   const isPaidMemberPriceModule = view.type === 'paid-member-price-list'
+    || view.type === 'paid-member-price-settings'
     || view.type === 'paid-member-price-wizard'
     || view.type === 'paid-member-price-participation'
     || (view.type === 'order-detail' && view.from === 'paid-member-price-participation')
   const isPaidMemberCardModule = view.type === 'paid-member-card-list'
+  const isConsumptionPrivilegeModule = view.type === 'consumption-privilege'
+    || view.type === 'consumption-privilege-settings'
 
   const isBogoParticipation = view.type === 'activity-participation'
     || (view.type === 'order-detail' && view.from === 'activity-participation')
@@ -1881,6 +1962,8 @@ function App() {
                   ? 'paid_member_price'
                   : isPaidMemberCardModule
                     ? 'paid_member_card'
+                    : isConsumptionPrivilegeModule
+                      ? 'consumption_privilege'
                     : 'bogo'
 
   const multiItemParticipationActivity = view.type === 'multi-item-participation'
@@ -1925,9 +2008,15 @@ function App() {
       : ['营销管理', '订单管理', '订单查询', '订单详情']
     : isPaidMemberCardModule
       ? ['会员管理', '运营体系', '付费权益卡']
+    : isConsumptionPrivilegeModule
+      ? view.type === 'consumption-privilege'
+        ? ['会员管理', '消费特权']
+        : ['会员管理', '消费特权', '展示设置']
     : isPaidMemberPriceModule
       ? view.type === 'paid-member-price-list'
         ? ['营销管理', '会员管理', '付费会员价']
+        : view.type === 'paid-member-price-settings'
+          ? ['营销管理', '会员管理', '付费会员价', '通用设置']
         : view.type === 'paid-member-price-participation' && paidMemberPriceParticipationActivity
           ? ['营销管理', '会员管理', '付费会员价', '参与记录']
           : view.type === 'paid-member-price-wizard'
@@ -1946,6 +2035,8 @@ function App() {
     : isStoredValuePayModule
       ? view.type === 'stored-value-pay-list'
         ? ['营销管理', '促销活动', '储值支付优惠']
+        : view.type === 'stored-value-pay-settings'
+          ? ['营销管理', '促销活动', '储值支付优惠', '通用设置']
         : view.type === 'stored-value-pay-participation' && storedValuePayParticipationActivity
           ? ['营销管理', '促销活动', '储值支付优惠', '参与记录']
           : view.type === 'stored-value-pay-wizard'
@@ -2133,24 +2224,39 @@ function App() {
           onGoToActivities={() => setView({ type: 'paid-member-price-list' })}
           onToast={showToast}
         />
-      ) : view.type === 'paid-member-price-list' ? (
-        <PaidMemberPriceActivityList
-          activities={paidMemberPriceActivities}
-          cards={paidMemberCards}
-          onCreate={handlePaidMemberPriceCreate}
-          onView={handlePaidMemberPriceView}
-          onViewParticipation={(id) => setView({ type: 'paid-member-price-participation', activityId: id })}
-          onEdit={handlePaidMemberPriceEdit}
-          onCopy={handlePaidMemberPriceCopy}
-          onPublish={handlePaidMemberPricePublishFromList}
-          onPause={handlePaidMemberPricePause}
-          onResume={handlePaidMemberPriceResume}
-          onVoid={handlePaidMemberPriceVoid}
-          onDelete={handlePaidMemberPriceDelete}
-          onDemoSetPausedMinutes={handlePaidMemberPriceDemoSetPausedMinutes}
-          onGoToCards={() => setView({ type: 'paid-member-card-list' })}
-          onToast={showToast}
+      ) : view.type === 'consumption-privilege' ? (
+        <ConsumptionPrivilegePage onOpenSettings={() => openActivitySettings('consumption-privilege')} />
+      ) : view.type === 'consumption-privilege-settings' ? (
+        <ConsumptionPrivilegeDisplaySettingsPage
+          onBack={() => closeActivitySettings('consumption-privilege')}
+          onSaved={() => showToast('消费特权展示设置已保存')}
         />
+      ) : view.type === 'paid-member-price-list' || view.type === 'paid-member-price-settings' ? (
+        <ActivityListWithSettings key="paid-member-price" settings={view.type === 'paid-member-price-settings' && (
+          <PaidMemberPriceGeneralSettingsPage
+            onBack={() => closeActivitySettings('paid-member-price')}
+            onSaved={() => showToast('付费会员价通用设置已保存')}
+          />
+        )}>
+          <PaidMemberPriceActivityList
+            activities={paidMemberPriceActivities}
+            cards={paidMemberCards}
+            onCreate={handlePaidMemberPriceCreate}
+            onOpenSettings={() => openActivitySettings('paid-member-price')}
+            onView={handlePaidMemberPriceView}
+            onViewParticipation={(id) => setView({ type: 'paid-member-price-participation', activityId: id })}
+            onEdit={handlePaidMemberPriceEdit}
+            onCopy={handlePaidMemberPriceCopy}
+            onPublish={handlePaidMemberPricePublishFromList}
+            onPause={handlePaidMemberPricePause}
+            onResume={handlePaidMemberPriceResume}
+            onVoid={handlePaidMemberPriceVoid}
+            onDelete={handlePaidMemberPriceDelete}
+            onDemoSetPausedMinutes={handlePaidMemberPriceDemoSetPausedMinutes}
+            onGoToCards={() => setView({ type: 'paid-member-card-list' })}
+            onToast={showToast}
+          />
+        </ActivityListWithSettings>
       ) : view.type === 'paid-member-price-wizard' && paidMemberPriceDraft ? (
         <PaidMemberPriceActivityWizard
           activity={paidMemberPriceDraft}
@@ -2218,44 +2324,54 @@ function App() {
           onDelete={handleMultiItemDelete}
           onToast={showToast}
         />
-      ) : view.type === 'member-price-list' ? (
-        <MemberPriceActivityList
-          activities={memberPriceActivities}
-          onCreate={handleMemberPriceCreate}
-          onOpenSettings={() => setView({ type: 'member-price-settings' })}
-          onView={handleMemberPriceView}
-          onViewParticipation={(id) => setView({ type: 'member-price-participation', activityId: id })}
-          onEdit={handleMemberPriceEdit}
-          onCopy={handleMemberPriceCopy}
-          onPublish={handleMemberPricePublishFromList}
-          onPause={handleMemberPricePause}
-          onResume={handleMemberPriceResume}
-          onDemoSetPausedMinutes={handleMemberPriceDemoSetPausedMinutes}
-          onVoid={handleMemberPriceVoid}
-          onDelete={handleMemberPriceDelete}
-          onToast={showToast}
-        />
-      ) : view.type === 'member-price-settings' ? (
-        <MemberPriceGeneralSettingsPage
-          onBack={() => setView({ type: 'member-price-list' })}
-          onSaved={() => showToast('会员价通用设置已保存')}
-        />
-      ) : view.type === 'stored-value-pay-list' ? (
-        <StoredValuePayActivityList
-          activities={storedValuePayActivities}
-          onCreate={handleStoredValuePayCreate}
-          onView={handleStoredValuePayView}
-          onViewParticipation={(id) => setView({ type: 'stored-value-pay-participation', activityId: id })}
-          onEdit={handleStoredValuePayEdit}
-          onCopy={handleStoredValuePayCopy}
-          onPublish={handleStoredValuePayPublishFromList}
-          onPause={handleStoredValuePayPause}
-          onResume={handleStoredValuePayResume}
-          onDemoSetPausedMinutes={handleStoredValuePayDemoSetPausedMinutes}
-          onVoid={handleStoredValuePayVoid}
-          onDelete={handleStoredValuePayDelete}
-          onToast={showToast}
-        />
+      ) : view.type === 'member-price-list' || view.type === 'member-price-settings' ? (
+        <ActivityListWithSettings key="member-price" settings={view.type === 'member-price-settings' && (
+          <MemberPriceGeneralSettingsPage
+            onBack={() => closeActivitySettings('member-price')}
+            onSaved={() => showToast('会员价通用设置已保存')}
+          />
+        )}>
+          <MemberPriceActivityList
+            activities={memberPriceActivities}
+            onCreate={handleMemberPriceCreate}
+            onOpenSettings={() => openActivitySettings('member-price')}
+            onView={handleMemberPriceView}
+            onViewParticipation={(id) => setView({ type: 'member-price-participation', activityId: id })}
+            onEdit={handleMemberPriceEdit}
+            onCopy={handleMemberPriceCopy}
+            onPublish={handleMemberPricePublishFromList}
+            onPause={handleMemberPricePause}
+            onResume={handleMemberPriceResume}
+            onDemoSetPausedMinutes={handleMemberPriceDemoSetPausedMinutes}
+            onVoid={handleMemberPriceVoid}
+            onDelete={handleMemberPriceDelete}
+            onToast={showToast}
+          />
+        </ActivityListWithSettings>
+      ) : view.type === 'stored-value-pay-list' || view.type === 'stored-value-pay-settings' ? (
+        <ActivityListWithSettings key="stored-value-pay" settings={view.type === 'stored-value-pay-settings' && (
+          <StoredValuePayGeneralSettingsPage
+            onBack={() => closeActivitySettings('stored-value-pay')}
+            onSaved={() => showToast('储值支付优惠通用设置已保存')}
+          />
+        )}>
+          <StoredValuePayActivityList
+            activities={storedValuePayActivities}
+            onCreate={handleStoredValuePayCreate}
+            onOpenSettings={() => openActivitySettings('stored-value-pay')}
+            onView={handleStoredValuePayView}
+            onViewParticipation={(id) => setView({ type: 'stored-value-pay-participation', activityId: id })}
+            onEdit={handleStoredValuePayEdit}
+            onCopy={handleStoredValuePayCopy}
+            onPublish={handleStoredValuePayPublishFromList}
+            onPause={handleStoredValuePayPause}
+            onResume={handleStoredValuePayResume}
+            onDemoSetPausedMinutes={handleStoredValuePayDemoSetPausedMinutes}
+            onVoid={handleStoredValuePayVoid}
+            onDelete={handleStoredValuePayDelete}
+            onToast={showToast}
+          />
+        </ActivityListWithSettings>
       ) : view.type === 'enterprise-discount-list' ? (
         <EnterpriseDiscountActivityList
           activities={enterpriseDiscountActivities}
@@ -2331,9 +2447,9 @@ function App() {
           onViewAllParticipation={() => setView({ type: 'limit-discount-participation' })}
           onEdit={handleLimitDiscountEdit}
           onCopy={handleLimitDiscountCopy}
-          onPublish={handleLimitDiscountPublishFromList}
+          onPublish={(id) => withLimitDiscountLock(() => handleLimitDiscountPublishFromList(id))}
           onPause={handleLimitDiscountPause}
-          onResume={handleLimitDiscountResume}
+          onResume={(id) => withLimitDiscountLock(() => handleLimitDiscountResume(id))}
           onDemoSetPausedMinutes={handleLimitDiscountDemoSetPausedMinutes}
           onVoid={handleLimitDiscountVoid}
           onDelete={handleLimitDiscountDelete}
@@ -2433,11 +2549,12 @@ function App() {
       ) : limitDiscountDraft ? (
         <LimitDiscountActivityWizard
           activity={limitDiscountDraft}
+          activities={limitDiscountActivities}
           mode={view.type === 'limit-discount-wizard' ? view.mode : 'create'}
           onChange={setLimitDiscountDraft}
           onCancel={() => { setView({ type: 'limit-discount-list' }); setLimitDiscountDraft(null) }}
           onSaveDraft={handleLimitDiscountSaveDraft}
-          onSave={handleLimitDiscountSave}
+          onSave={() => withLimitDiscountLock(handleLimitDiscountSave)}
           onSwitchToEdit={view.type === 'limit-discount-wizard' && view.mode === 'view' ? () => setView({ type: 'limit-discount-wizard', mode: 'edit' }) : undefined}
         />
       ) : deliveryFeeDraft ? (
@@ -2452,6 +2569,15 @@ function App() {
           onToast={showToast}
         />
       ) : null}
+      {discountBlock && (
+        <div className="modal-overlay">
+          <div className="modal" role="dialog" aria-modal="true" aria-label={`无法${discountBlock.label}活动`}>
+            <div className="modal__header"><h3>无法{discountBlock.label}活动</h3></div>
+            <div className="modal__body modal__body--scroll"><LimitDiscountConflicts conflicts={discountBlock.conflicts} /></div>
+            <div className="modal__footer"><button type="button" autoFocus className="btn btn--primary" onClick={() => setDiscountBlock(null)}>返回调整</button></div>
+          </div>
+        </div>
+      )}
       {toast && (
         <Toast
           message={toast.message}

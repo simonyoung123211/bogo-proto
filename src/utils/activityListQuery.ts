@@ -12,6 +12,14 @@ type ActivityListLink = {
   view: PageView
 }
 
+export const ACTIVITY_SETTINGS_VIEWS = {
+  'member-price': 'member-price-settings',
+  'paid-member-price': 'paid-member-price-settings',
+  'stored-value-pay': 'stored-value-pay-settings',
+  'consumption-privilege': 'consumption-privilege-settings',
+} as const
+export type SettingsActivityType = keyof typeof ACTIVITY_SETTINGS_VIEWS
+
 const ACTIVITY_LIST_LINKS: ActivityListLink[] = [
   { type: 'bogo', navKey: 'bogo', aliases: ['买1送1', '买一送一'], view: { type: 'list' } },
   { type: 'nth-item', navKey: 'half_item', aliases: ['half-item', 'half_item', '第n件优惠', '第N件优惠', '第2件半价'], view: { type: 'multi-item-list' } },
@@ -21,6 +29,7 @@ const ACTIVITY_LIST_LINKS: ActivityListLink[] = [
   { type: 'delivery-fee', navKey: 'delivery_fee', aliases: ['delivery_fee', '减配送费'], view: { type: 'delivery-fee-list' } },
   { type: 'member-price', navKey: 'member_price', aliases: ['member_price', '会员价'], view: { type: 'member-price-list' } },
   { type: 'paid-member-price', navKey: 'paid_member_price', aliases: ['paid_member_price', '付费会员价'], view: { type: 'paid-member-price-list' } },
+  { type: 'consumption-privilege', navKey: 'consumption_privilege', aliases: ['consumption_privilege', '消费特权'], view: { type: 'consumption-privilege' } },
   { type: 'stored-value-pay', navKey: 'stored_value_pay', aliases: ['stored_value_pay', '储值支付优惠', '储值支付'], view: { type: 'stored-value-pay-list' } },
   { type: 'enterprise-discount', navKey: 'enterprise_discount', aliases: ['enterprise_discount', '企业员工折扣'], view: { type: 'enterprise-discount-list' } },
 ]
@@ -36,10 +45,14 @@ function matchLink(raw: string): ActivityListLink | undefined {
 
 /** 从地址读出要打开的活动列表；参数为空返回 null，参数无法识别返回 unknown */
 export function readActivityListQuery(search: string): { view: PageView } | { unknown: string } | null {
-  const raw = new URLSearchParams(search).get(ACTIVITY_LIST_QUERY_KEY)
+  const params = new URLSearchParams(search)
+  const raw = params.get(ACTIVITY_LIST_QUERY_KEY)
   if (raw == null || raw.trim() === '') return null
   const link = matchLink(raw)
   if (!link) return { unknown: raw.trim() }
+  if (params.get('view') === 'settings' && Object.hasOwn(ACTIVITY_SETTINGS_VIEWS, link.type)) {
+    return { view: { type: ACTIVITY_SETTINGS_VIEWS[link.type as SettingsActivityType] } }
+  }
   return { view: link.view }
 }
 
@@ -50,6 +63,7 @@ export function activityListTypeForNav(navKey: string): string | null {
 /** 把当前活动列表写回地址，便于复制分享；不新增浏览历史 */
 export function writeActivityListQuery(type: string | null) {
   const url = new URL(window.location.href)
+  if (url.searchParams.get('view') === 'settings') url.searchParams.delete('view')
   if (type) url.searchParams.set(ACTIVITY_LIST_QUERY_KEY, type)
   else url.searchParams.delete(ACTIVITY_LIST_QUERY_KEY)
   const next = `${url.pathname}${url.search}${url.hash}`

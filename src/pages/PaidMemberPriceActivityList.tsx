@@ -46,6 +46,7 @@ interface PaidMemberPriceActivityListProps {
   activities: PaidMemberPriceActivityForm[]
   cards: PaidMemberCardTemplate[]
   onCreate: () => void
+  onOpenSettings: () => void
   onView: (id: string) => void
   onViewParticipation: (id: string) => void
   onEdit: (id: string) => void
@@ -85,6 +86,7 @@ export function PaidMemberPriceActivityList({
   activities,
   cards,
   onCreate,
+  onOpenSettings,
   onView,
   onViewParticipation,
   onEdit,
@@ -128,7 +130,10 @@ export function PaidMemberPriceActivityList({
   const rangeStart = filtered.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
   const rangeEnd = Math.min(currentPage * PAGE_SIZE, filtered.length)
 
-  useEffect(() => { setPage(1) }, [filters])
+  const updateFilters: typeof setFilters = (value) => {
+    setFilters(value)
+    setPage(1)
+  }
 
   const statusCounts = useMemo(
     () => countActivitiesByStatus(activities, filters, cards),
@@ -137,11 +142,11 @@ export function PaidMemberPriceActivityList({
   const overdueCount = countOverduePaused(activities, now)
 
   const setStatusTab = (status: PaidMemberPriceStatus | 'all') => {
-    setFilters((f) => ({ ...f, status }))
+    updateFilters((f) => ({ ...f, status }))
   }
 
   const resetFilters = () => {
-    setFilters(EMPTY_FILTERS)
+    updateFilters(EMPTY_FILTERS)
   }
 
   const copyActivityId = async (id: string, e: ReactMouseEvent) => {
@@ -185,7 +190,7 @@ export function PaidMemberPriceActivityList({
           <button
             type="button"
             className="link-btn"
-            onClick={() => setFilters((f) => ({ ...f, status: 'paused' }))}
+            onClick={() => updateFilters((f) => ({ ...f, status: 'paused' }))}
           >
             查看这些活动
           </button>
@@ -200,6 +205,10 @@ export function PaidMemberPriceActivityList({
           </div>
         </div>
         <div className="list-page-header__actions">
+          <button type="button" className="btn btn--default btn--icon" onClick={onOpenSettings}>
+            <span aria-hidden>⚙</span>
+            通用设置
+          </button>
           <button type="button" className="btn btn--default btn--icon" onClick={onGoToCards}>
             <IconCard />
             付费权益卡
@@ -224,16 +233,16 @@ export function PaidMemberPriceActivityList({
         <ActivityListSearchPanel
           values={filters}
           resultCount={filtered.length}
-          onChange={(field, value) => setFilters((current) => ({ ...current, [field]: value }))}
+          onChange={(field, value) => updateFilters((current) => ({ ...current, [field]: value }))}
           onReset={resetFilters}
-          advancedFilters={createAdvancedSearchChips(filters, EMPTY_FILTERS, [{ key: 'cardTemplateId', label: '关联权益卡', options: Object.fromEntries(cards.map((card) => [card.id, card.name])) }, { key: 'cardStatus', label: '卡在售状态', options: PAID_MEMBER_CARD_STATUS_LABELS }, { key: 'priceMethod', label: '优惠形式', options: MEMBER_PRICE_METHOD_LABELS }, { key: 'activityCode', label: '活动编码' }], (patch) => setFilters((current) => ({ ...current, ...patch })))}
+          advancedFilters={createAdvancedSearchChips(filters, EMPTY_FILTERS, [{ key: 'cardTemplateId', label: '关联权益卡', options: Object.fromEntries(cards.map((card) => [card.id, card.name])) }, { key: 'cardStatus', label: '卡在售状态', options: PAID_MEMBER_CARD_STATUS_LABELS }, { key: 'priceMethod', label: '优惠形式', options: MEMBER_PRICE_METHOD_LABELS }, { key: 'activityCode', label: '活动编码' }], (patch) => updateFilters((current) => ({ ...current, ...patch })))}
           advancedFields={<>
             <div className="filter-item">
               <label>关联权益卡</label>
               <select aria-label="关联权益卡"
                 className="input input--filter"
                 value={filters.cardTemplateId}
-                onChange={(e) => setFilters((f) => ({ ...f, cardTemplateId: e.target.value }))}
+                onChange={(e) => updateFilters((f) => ({ ...f, cardTemplateId: e.target.value }))}
               >
                 <option value="all">全部</option>
                 {cards.map((c) => (
@@ -246,7 +255,7 @@ export function PaidMemberPriceActivityList({
               <select aria-label="卡在售状态"
                 className="input input--filter"
                 value={filters.cardStatus}
-                onChange={(e) => setFilters((f) => ({ ...f, cardStatus: e.target.value as PaidMemberPriceListFilters['cardStatus'] }))}
+                onChange={(e) => updateFilters((f) => ({ ...f, cardStatus: e.target.value as PaidMemberPriceListFilters['cardStatus'] }))}
               >
                 {(['all', 'on_sale', 'off_shelf', 'stopped'] as const).map((s) => (
                   <option key={s} value={s}>{PAID_MEMBER_CARD_STATUS_LABELS[s]}</option>
@@ -258,7 +267,7 @@ export function PaidMemberPriceActivityList({
               <select aria-label="优惠形式"
                 className="input input--filter"
                 value={filters.priceMethod}
-                onChange={(e) => setFilters((f) => ({ ...f, priceMethod: e.target.value as PaidMemberPriceListFilters['priceMethod'] }))}
+                onChange={(e) => updateFilters((f) => ({ ...f, priceMethod: e.target.value as PaidMemberPriceListFilters['priceMethod'] }))}
               >
                 <option value="all">全部</option>
                 {(Object.keys(MEMBER_PRICE_METHOD_LABELS) as MemberPriceMethod[]).map((m) => (
@@ -268,7 +277,7 @@ export function PaidMemberPriceActivityList({
             </div>
             <div className="filter-item">
                 <label>活动编码</label>
-                <input aria-label="活动编码" className="input input--filter" value={filters.activityCode} onChange={(e) => setFilters((f) => ({ ...f, activityCode: e.target.value }))} placeholder="请输入活动编码" />
+                <input aria-label="活动编码" className="input input--filter" value={filters.activityCode} onChange={(e) => updateFilters((f) => ({ ...f, activityCode: e.target.value }))} placeholder="请输入活动编码" />
               </div>
           </>}
         />

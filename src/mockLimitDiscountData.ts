@@ -134,6 +134,8 @@ export function createEmptyLimitDiscountActivity(): LimitDiscountActivityForm {
     storeMode: 'all',
     storeIds: [],
     storeTagIds: [],
+    areaMode: 'all',
+    areaIdsByStore: {},
     discountMethod: 'discount',
     goodsScope: 'all',
     valueMode: 'unified',
@@ -171,6 +173,16 @@ function seed(
 }
 
 export const initialLimitDiscountActivities: LimitDiscountActivityForm[] = [
+  seed({
+    id: 'XSZK20261111001',
+    name: '合作点区域八折（示例草稿）',
+    orderTypes: ['pack'],
+    participantUser: 'all_users',
+    areaMode: 'specified',
+    areaIdsByStore: { s2: ['library', 'cafe'], s3: ['spa'] },
+    discountValue: 8,
+    status: 'draft',
+  }),
   seed({
     id: 'XSZK20261001001',
     name: '下午茶限时折扣',

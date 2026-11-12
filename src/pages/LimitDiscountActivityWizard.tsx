@@ -1,4 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { LimitDiscountAreaFields } from '../components/LimitDiscountAreaFields'
+import { LimitDiscountAreaPreview } from '../components/LimitDiscountAreaPreview'
+import { LimitDiscountConflicts } from '../components/LimitDiscountConflicts'
+import { discountAreaRows, eligibleDiscountStores } from '../utils/limitDiscountScope'
+import { findDiscountConflicts } from '../utils/limitDiscountConflicts'
 import { LimitDiscountGoodsFields } from '../components/LimitDiscountGoodsFields'
 import { SelectedProductPager, SelectedProductSearchBar } from '../components/SelectedProductTools'
 import { matchesProductKeyword } from '../utils/productSearch'
@@ -29,13 +34,13 @@ import {
   previewPrice,
   previewSceneHint,
   sceneSummary,
-  storeCoverage,
   storeModeLabel,
   storeTagLabels,
 } from '../utils/limitDiscountActivity'
 
 interface LimitDiscountActivityWizardProps {
   activity: LimitDiscountActivityForm
+  activities: LimitDiscountActivityForm[]
   mode: WizardMode
   onChange: (activity: LimitDiscountActivityForm) => void
   onCancel: () => void
@@ -49,6 +54,7 @@ const PREVIEW_STEP = STEPS.length - 1
 
 export function LimitDiscountActivityWizard({
   activity,
+  activities,
   mode,
   onChange,
   onCancel,
@@ -120,7 +126,9 @@ export function LimitDiscountActivityWizard({
     onSave()
   }
 
-  const coverage = storeCoverage(activity)
+  const areaRows = discountAreaRows(activity)
+  const coveredStoreCount = eligibleDiscountStores(activity).length
+  const conflicts = useMemo(() => !isView && step === PREVIEW_STEP ? findDiscountConflicts(activity, activities) : [], [activity, activities, isView, step])
   const previewProducts = (activity.goodsScope === 'all' ? products : activity.productItems.map((item) => products.find((p) => p.id === item.productId)).filter(Boolean)).slice(0, 3)
   const sceneHint = previewSceneHint(activity)
 
@@ -248,11 +256,11 @@ export function LimitDiscountActivityWizard({
                       onToggle={(id) => toggleList('storeTagIds', id)}
                     />
                   )}
+                  <LimitDiscountAreaFields activity={activity} onChange={onChange} />
                   <div className="promo-card" style={{ marginTop: 16 }}>
                     <div className="promo-card__head">生效门店核对</div>
                     <div className="promo-card__body">
-                      <p>当前覆盖门店 {coverage.total} 家，其中策略门店 {coverage.strategy} 家，实际可参与门店 {coverage.actual} 家。</p>
-                      <p className="field-hint">计算口径：按当前门店范围 {coverage.total} 家 − 策略门店 {coverage.strategy} 家 = 实际参与 {coverage.actual} 家。演示环境策略门店按 0 家计。</p>
+                      <p>门店范围内有 {coveredStoreCount} 家营业门店，{activity.areaMode === 'specified' ? `其中 ${areaRows.length} 家已指定参与区域` : '均不限点餐区域'}。</p>
                     </div>
                   </div>
                 </PromoSection>
@@ -269,6 +277,12 @@ export function LimitDiscountActivityWizard({
 
             {step === 3 && (
               <div className="wizard-step wizard-step--animate">
+                {conflicts.length > 0 && (
+                  <>
+                    <LimitDiscountConflicts conflicts={conflicts} />
+                    <button type="button" className="link-btn" onClick={() => goTo(1)}>调整参与门店和区域</button>
+                  </>
+                )}
                 <Review title="适用渠道与时间" rows={[
                   ['参与渠道', channelSummary(activity)],
                   ['业务场景', sceneSummary(activity)],
@@ -287,12 +301,15 @@ export function LimitDiscountActivityWizard({
                 ]} onEdit={!isView ? () => goTo(0) : undefined} />
                 <Review title="门店与商品" rows={[
                   ['参与门店', `${storeModeLabel(activity)}${activity.storeTagIds.length ? `（${storeTagLabels(activity.storeTagIds)}）` : ''}`],
+                  ['区域限制', activity.areaMode === 'specified' ? `指定区域 · ${areaRows.length} 家门店` : '不限区域'],
                   ['参与商品', goodsScopeLabel(activity)],
                   ['优惠力度', discountStrengthSummary(activity)],
                   ['活动库存', activity.goodsScope === 'include' ? '按商品分别设置' : (activity.activityStock == null ? '不限量' : `${activity.activityStock} 件`)],
                 ]} onEdit={!isView ? () => goTo(1) : undefined}>
                   <StoreDetail activity={activity} />
+                  {activity.areaMode === 'specified' && <ul className="ld-area-summary">{areaRows.map(({ store, areas }) => <li key={store.id}>{store.name} · {areas.map((area) => area.name).join('、')}</li>)}</ul>}
                   <GoodsDetail activity={activity} />
+                  {activity.areaMode === 'specified' && <LimitDiscountAreaPreview activity={activity} />}
                 </Review>
                 <p className="field-hint">保存后活动进入待发布。发布后到点自动开始，可在活动列表里暂停、作废或复制。</p>
               </div>
@@ -315,7 +332,7 @@ export function LimitDiscountActivityWizard({
                   </button>
                 </>
               ) : (
-                <span className="wizard-footer__ok">配置体检：已完成</span>
+                conflicts.length ? <span className="wizard-footer__warn">请先处理 {conflicts.length} 个冲突活动</span> : <span className="wizard-footer__ok">配置体检：已完成</span>
               )
             })()
           ) : undefined
@@ -334,7 +351,7 @@ export function LimitDiscountActivityWizard({
               {step < PREVIEW_STEP ? (
                 <button type="button" className="btn btn--primary" onClick={goNext}>下一步</button>
               ) : (
-                <button type="button" className="btn btn--primary" onClick={handleSave}>保存</button>
+                <button type="button" className="btn btn--primary" disabled={conflicts.length > 0} onClick={handleSave}>保存</button>
               )}
             </>
           )

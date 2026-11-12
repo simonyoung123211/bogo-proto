@@ -189,6 +189,7 @@ export function LimitDiscountActivityList(props: LimitDiscountActivityListProps)
                   </td>
                   <td>
                     <div>{storeModeLabel(activity)}</div>
+                    {activity.areaMode === 'specified' && <div className="text-secondary">指定点餐区域</div>}
                     <div className="text-secondary">{goodsScopeLabel(activity)}</div>
                   </td>
                   <td onClick={(e) => e.stopPropagation()}>

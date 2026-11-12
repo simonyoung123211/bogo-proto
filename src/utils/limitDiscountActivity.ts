@@ -14,9 +14,10 @@ import {
   LIMIT_DISCOUNT_STORE_TAGS,
   createEmptyLimitDiscountActivity,
 } from '../mockLimitDiscountData'
-import { MEMBER_TAG_OPTIONS, getCreatorProfile, products, stores } from '../mockData'
+import { MEMBER_TAG_OPTIONS, getCreatorProfile, products } from '../mockData'
 import { createOperationLog, formatActivityDateTime, maskPhone } from './activity'
 import { matchesActivityProductFilters, resolveActivityProducts } from './activityProductSearch'
+import { discountAreaRows } from './limitDiscountScope'
 
 const CHANNEL_IDS = new Set<string>(LIMIT_DISCOUNT_CHANNELS.map((item) => item.id))
 const SCENE_IDS = new Set<string>(LIMIT_DISCOUNT_SCENES.map((item) => item.id))
@@ -271,19 +272,6 @@ export function storeTagLabels(ids: string[]): string {
     .join('、') || '未选择'
 }
 
-export function openStores(): typeof stores {
-  return stores.filter((store) => store.status !== 'closed')
-}
-
-export function storeCoverage(activity: LimitDiscountActivityForm) {
-  const open = openStores()
-  const picked = activity.storeIds.filter((id) => open.some((store) => store.id === id)).length
-  let covered = open.length
-  if (activity.storeMode === 'include') covered = picked
-  if (activity.storeMode === 'exclude') covered = Math.max(0, open.length - picked)
-  return { total: open.length, strategy: 0, actual: covered }
-}
-
 export function previewSceneHint(activity: LimitDiscountActivityForm): string | null {
   const sceneId = activity.orderTypes[0]
   if (!sceneId) return null
@@ -342,6 +330,7 @@ export function cloneActivity(activity: LimitDiscountActivityForm): LimitDiscoun
     timeSlots: activity.timeSlots.map((slot) => ({ ...slot, id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 5)}` })),
     inactiveRanges: activity.inactiveRanges.map((slot) => ({ ...slot, id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 5)}` })),
     operationLogs: [createOperationLog('复制活动', operator, `从「${activity.name}」复制创建`)],
+    areaIdsByStore: structuredClone(activity.areaIdsByStore ?? {}),
   }
 }
 
@@ -408,6 +397,9 @@ export function collectStepErrors(activity: LimitDiscountActivityForm, step: num
     if (activity.searchKeyword.length > 20) errors.push('快捷检索名称不超过20个文字或字母')
   }
   if (step === 1) {
+    if (activity.areaMode === 'specified' && discountAreaRows(activity).length === 0) {
+      errors.push('请至少选择一家参与门店的一个点餐区域')
+    }
     if ((activity.storeMode === 'include' || activity.storeMode === 'exclude') && activity.storeIds.length === 0) {
       errors.push('请选择门店')
     }
@@ -515,6 +507,8 @@ export function migrateLimitDiscountActivity(raw: Record<string, unknown>): Limi
   return {
     ...defaults,
     ...legacy,
+    areaMode: legacy.areaMode === 'specified' ? 'specified' : 'all',
+    areaIdsByStore: legacy.areaIdsByStore ?? {},
     channels: (legacy.channels ?? defaults.channels).filter((id) => CHANNEL_IDS.has(id)),
     orderTypes: (legacy.orderTypes ?? defaults.orderTypes).filter((id) => SCENE_IDS.has(id)),
     weekDays: legacy.weekDays ?? defaults.weekDays,
@@ -522,8 +516,8 @@ export function migrateLimitDiscountActivity(raw: Record<string, unknown>): Limi
     timeSlots: legacy.timeSlots?.length ? legacy.timeSlots : defaults.timeSlots,
     inactiveRanges: legacy.inactiveRanges ?? [],
     valueMode: 'unified',
-    sceneDiscountValues: migrateSharedScenes(legacy),
-    productItems: (legacy.productItems ?? []).map((raw) => migrateProductItem(raw, legacy.valueMode)),
+    sceneDiscountValues: legacy.areaMode ? legacy.sceneDiscountValues ?? {} : migrateSharedScenes(legacy),
+    productItems: legacy.areaMode ? legacy.productItems ?? [] : (legacy.productItems ?? []).map((raw) => migrateProductItem(raw, legacy.valueMode)),
     storeIds: legacy.storeIds ?? [],
     storeTagIds: legacy.storeTagIds ?? [],
     thresholdProductIds: legacy.thresholdProductIds ?? [],

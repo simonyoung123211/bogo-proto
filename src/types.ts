@@ -880,21 +880,49 @@ export interface MemberPriceGeneralSettings {
   tagContentMode: 'default' | 'member_level' | 'custom'
   customTagText: string
   styleMode: 'default' | 'custom'
+  /** 商品标签内的价格与文案左右顺序 */
+  tagTextPosition: 'price_left' | 'label_left'
   backgroundStyle: 'solid' | 'image'
-  /** 图片背景：左侧价格段背景图（建议高30px、宽最大116px） */
+  /** 按当前排列保存左右两部分的背景图与配色，换序时随内容一起移动。 */
   leftBackgroundImage: string
-  /** 图片背景：右侧文案段背景图（建议高30px、宽最大130px） */
   rightBackgroundImage: string
-  /** 左侧价格段（活动价）配色 */
   leftBackgroundColor: string
   leftTextColor: string
-  /** 右侧文案段（活动名称）配色 */
   rightBackgroundColor: string
   rightTextColor: string
-  tagPosition: 'default' | 'inline'
-  showOriginalPrice: boolean
-  /** 划线价开启时，会员价活动生效的活动价展示颜色 */
-  activityPriceColor: string
+}
+
+/** 付费会员价的商品标签通用设置，独立于普通会员价。 */
+export interface PaidMemberPriceGeneralSettings {
+  /** 兼容旧设置；新版通用设置固定启用。 */
+  customPromotionTagEnabled: boolean
+  tagContentMode: 'default' | 'member_level' | 'custom'
+  customTagText: string
+  styleMode: 'default' | 'custom'
+  backgroundStyle: 'solid' | 'image'
+  /** 左侧固定为营销文案，右侧固定为付费会员价格。 */
+  leftBackgroundImage: string
+  rightBackgroundImage: string
+  leftBackgroundColor: string
+  leftTextColor: string
+  rightBackgroundColor: string
+  rightTextColor: string
+}
+
+/** 会员管理「消费特权」的商品标签展示设置。 */
+export interface ConsumptionPrivilegeDisplaySettings {
+  tagContentMode: 'default' | 'member_level' | 'custom'
+  customTagText: string
+  styleMode: 'default' | 'custom'
+  /** 按当前排列保存左右两段样式；换序时与对应内容一起移动。 */
+  tagTextPosition: 'price_left' | 'label_left'
+  backgroundStyle: 'solid' | 'image'
+  leftBackgroundImage: string
+  rightBackgroundImage: string
+  leftBackgroundColor: string
+  leftTextColor: string
+  rightBackgroundColor: string
+  rightTextColor: string
 }
 
 /* ================= 储值支付优惠 ================= */
@@ -979,20 +1007,18 @@ export interface StoredValuePayListFilters {
 }
 
 export interface StoredValuePayGeneralSettings {
-  /** false=系统默认，true=定制促销标签内容和样式 */
+  /** 旧版开关，保留以读取存量设置；新版通用设置固定启用。 */
   customPromotionTagEnabled: boolean
   tagContentMode: 'default' | 'member_level' | 'custom'
   customTagText: string
   styleMode: 'default' | 'custom'
+  tagPosition: 'price_left' | 'label_left'
   backgroundStyle: 'solid' | 'image'
-  /** 图片背景：左侧文案段背景图 */
+  /** 按当前排列保存左右两段样式；换序时与对应内容一起移动。 */
   leftBackgroundImage: string
-  /** 图片背景：右侧价格段背景图 */
   rightBackgroundImage: string
-  /** 左侧文案段配色 */
   leftBackgroundColor: string
   leftTextColor: string
-  /** 右侧价格段配色 */
   rightBackgroundColor: string
   rightTextColor: string
   /** 仅「整单仅限储值余额支付」规则活动生效 */
@@ -1366,6 +1392,8 @@ export interface LimitDiscountActivityForm {
   storeMode: LimitDiscountStoreMode
   storeIds: string[]
   storeTagIds: string[]
+  areaMode: 'all' | 'specified'
+  areaIdsByStore: Record<string, string[]>
   discountMethod: LimitDiscountMethod
   goodsScope: LimitDiscountGoodsScope
   /** 全部商品或指定商品不参与时，余下商品共用的力度方式。指定商品时以每个商品自己的设置为准 */
@@ -1409,6 +1437,7 @@ export type PageView =
   | { type: 'member-price-wizard'; mode: WizardMode; activityId?: string; step?: number }
   | { type: 'member-price-participation'; activityId: string }
   | { type: 'stored-value-pay-list' }
+  | { type: 'stored-value-pay-settings' }
   | { type: 'stored-value-pay-wizard'; mode: WizardMode; activityId?: string; step?: number }
   | { type: 'stored-value-pay-participation'; activityId: string }
   | { type: 'enterprise-discount-list' }
@@ -1427,8 +1456,11 @@ export type PageView =
   | { type: 'limit-discount-wizard'; mode: WizardMode; activityId?: string; step?: number }
   | { type: 'limit-discount-participation'; activityId?: string }
   | { type: 'paid-member-price-list' }
+  | { type: 'paid-member-price-settings' }
   | { type: 'paid-member-price-wizard'; mode: WizardMode; activityId?: string; step?: number; from?: 'card-list' }
   | { type: 'paid-member-price-participation'; activityId: string }
   | { type: 'paid-member-card-list' }
+  | { type: 'consumption-privilege' }
+  | { type: 'consumption-privilege-settings' }
   | { type: 'order-list' }
   | { type: 'order-detail'; orderId: string; from?: 'order-list' | 'activity-participation' | 'multi-item-participation' | 'member-price-participation' | 'stored-value-pay-participation' | 'full-reduction-participation' | 'paid-member-price-participation' | 'enterprise-discount-participation'; activityId?: string }
