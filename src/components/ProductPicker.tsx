@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { categories, products } from '../mockData'
 import { TableSelectHeader } from './TableSelectHeader'
+import { matchesProductKeyword } from '../utils/productSearch'
 
 const PAGE_SIZE = 20
 
@@ -28,7 +29,7 @@ export function ProductPicker({
   const filtered = useMemo(() => {
     return products.filter((p) => {
       if (categoryId !== 'all' && p.categoryId !== categoryId) return false
-      if (keyword && !p.name.includes(keyword) && !p.code.includes(keyword) && !p.id.includes(keyword)) return false
+      if (!matchesProductKeyword(p, keyword)) return false
       return true
     })
   }, [categoryId, keyword])
@@ -134,7 +135,7 @@ export function ProductPicker({
             <div className="picker-toolbar">
               <input
                 className="input"
-                placeholder="请输入商品名称/编码"
+                placeholder="请输入商品名称 / 商品 ID / SKU ID / 编码"
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
               />

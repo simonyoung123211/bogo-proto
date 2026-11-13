@@ -1,8 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MEMBER_LEVELS, products } from '../mockData'
 import { MEMBER_PRICE_METHOD_LABELS } from '../mockMemberPriceData'
-import type { MemberLevelId, MemberPriceMethod, MemberPriceProductCoreFields } from '../types'
-import { defaultValueForMethod, syncProductItems } from '../utils/memberPriceActivity'
+import type { MemberLevelId, MemberPriceMethod, MemberPriceProductCoreFields, MemberPriceProductItem } from '../types'
+import {
+  defaultValueForMethod,
+  formatMemberPriceInputValue,
+  isMemberSameAsDefault,
+  memberSceneOverrides,
+  normalizeMemberPriceInput,
+  orderTypeLabel,
+  pruneMemberSameAsDefault,
+  setMemberSceneOverride,
+  syncProductItems,
+  uniformDiscountItem,
+  writeUniformDiscount,
+} from '../utils/memberPriceActivity'
 import { filterProductsByKeyword } from '../utils/productSearch'
 import { ProductPicker } from './ProductPicker'
 import {
@@ -30,6 +42,11 @@ interface MemberPriceProductConfigProps<T extends MemberPriceProductCoreFields> 
   priceMethodHint?: string
   /** 批量移除时的附加说明 */
   batchRemoveExtraNote?: string
+  /**
+   * 传入活动已选业务类型后，开放分业务设置。
+   * 不传则保持原来的统一力度，供储值支付等复用场景使用。
+   */
+  sceneOrderTypes?: string[]
 }
 
 export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>({
@@ -41,6 +58,7 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
   priceMethodLabel = '会员折扣方式',
   priceMethodHint = '切换优惠方式后，已填写的会员价数值将按默认值重置。',
   batchRemoveExtraNote,
+  sceneOrderTypes,
 }: MemberPriceProductConfigProps<T>) {
   const [showProductPicker, setShowProductPicker] = useState(false)
   const [batchValue, setBatchValue] = useState('')
@@ -50,6 +68,12 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
   const [selectAllVisible, setSelectAllVisible] = useState(false)
   const [keyword, setKeyword] = useState('')
   const [showBatchRemove, setShowBatchRemove] = useState(false)
+  const [editingProductId, setEditingProductId] = useState<string | null>(null)
+  const [editingUniform, setEditingUniform] = useState(false)
+  const [batchScenes, setBatchScenes] = useState(false)
+  const sceneEnabled = sceneOrderTypes != null
+  const scenes = sceneOrderTypes ?? []
+  const uniformItem = uniformDiscountItem(activity)
 
   const update = <K extends keyof T>(key: K, value: T[K]) => {
     onChange({ ...activity, [key]: value })
@@ -71,7 +95,13 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
 
   const changePriceMethod = (method: MemberPriceMethod) => {
     const next = syncProductItems(
-      { ...activity, priceMethod: method, allProductsValue: defaultValueForMethod(method) },
+      {
+        ...activity,
+        priceMethod: method,
+        allProductsValue: defaultValueForMethod(method),
+        valueMode: 'unified',
+        sceneValues: {},
+      },
       activity.productIds,
       true,
     )
@@ -129,11 +159,17 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
     setSelectAllVisible(false)
   }
 
-  const updateItemValue = (productId: string, value: number) => {
+  const updateItem = (productId: string, next: MemberPriceProductItem) => {
     update(
       'productItems',
-      activity.productItems.map((item) => (item.productId === productId ? { ...item, value } : item)),
+      activity.productItems.map((item) => (item.productId === productId ? next : item)),
     )
+  }
+
+  const updateItemValue = (productId: string, value: number) => {
+    const current = activity.productItems.find((item) => item.productId === productId)
+    if (!current) return
+    updateItem(productId, pruneMemberSameAsDefault({ ...current, value }))
   }
 
   /** 单条移除：保留当前检索条件与页码，方便连续处理同一批商品 */
@@ -151,7 +187,7 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
     () => products.filter((p) => activity.productIds.includes(p.id)),
     [activity.productIds],
   )
-  const valueMap = new Map(activity.productItems.map((i) => [i.productId, i.value]))
+  const itemMap = new Map(activity.productItems.map((item) => [item.productId, item]))
 
   const filtering = keyword.trim().length > 0
   /** 关键词命中的已选商品，分页、勾选与批量操作都以这一批为作用域 */
@@ -227,13 +263,13 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
     onToast?.(`已移除 ${targets.length} 个${itemLabel}`)
   }
 
-  const applyBatchValue = () => {
+  const applyBatchDefault = () => {
     const num = Number(batchValue)
     if (!Number.isFinite(num) || batchValue.trim() === '') {
-      onToast?.('请输入有效的批量设置数值')
+      onToast?.('请输入有效的默认力度')
       return
     }
-    if (activity.priceMethod === 'discount' && (num <= 0 || num > 9.9)) {
+    if (activity.priceMethod === 'discount' && (num < 0.1 || num > 9.9)) {
       onToast?.('折扣须在 0.1～9.9 折之间')
       return
     }
@@ -249,12 +285,12 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
     const targetSet = new Set(targets)
     update(
       'productItems',
-      activity.productItems.map((item) => (targetSet.has(item.productId) ? { ...item, value: num } : item)),
+      activity.productItems.map((item) => (
+        targetSet.has(item.productId) ? pruneMemberSameAsDefault({ ...item, value: num }) : item
+      )),
     )
     setBatchValue('')
-    setCheckedIds([])
-    setSelectAllVisible(false)
-    onToast?.(`已为 ${targets.length} 个商品批量设置`)
+    onToast?.(`已为 ${targets.length} 个商品设置默认力度`)
   }
 
   // 勾选列 + 商品/规格/价格 + 折扣价（正选）+ 操作
@@ -332,7 +368,59 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
         />
       </FormRow>
 
-      {showUniformValue && (
+      {showUniformValue && sceneEnabled ? (
+        <FormRow label="优惠设置" required>
+          <div>
+            <p className="field-hint">
+              {isExclude
+                ? '余下商品共用一个默认力度，所有业务都按它执行。个别业务需要不同力度时，点「分业务设置」单独填写，没填的业务仍按默认力度。'
+                : '全部商品共用一个默认力度，所有业务都按它执行。个别业务需要不同力度时，点「分业务设置」单独填写，没填的业务仍按默认力度。'}
+            </p>
+            {scenes.length === 0 && <p className="field-hint">分业务设置前，请先在基础信息里选择参与业务/场景。</p>}
+            <div className="ld-item-mode">
+              <div className="ld-item-mode__main">
+                <input
+                  type="number"
+                  className="input input--num"
+                  style={{ width: 88 }}
+                  disabled={readOnly}
+                  aria-label="默认优惠"
+                  value={formatMemberPriceInputValue(activity.allProductsValue)}
+                  step={activity.priceMethod === 'discount' ? 0.1 : 0.01}
+                  min={activity.priceMethod === 'discount' ? 0.1 : activity.priceMethod === 'fixed_reduction' ? 0.01 : 0}
+                  max={activity.priceMethod === 'discount' ? 9.9 : undefined}
+                  placeholder={activity.priceMethod === 'special_price' ? '请填写' : undefined}
+                  onChange={(e) => {
+                    const next = normalizeMemberPriceInput(activity.priceMethod, e.target.value)
+                    if (next.warning) onToast?.(next.warning)
+                    if (next.value == null) return
+                    onChange(writeUniformDiscount(activity, { value: next.value }))
+                  }}
+                />
+                <span className="field-hint">{unitLabel}</span>
+                {(!readOnly || memberSceneOverrides(scenes, uniformItem).length > 0) && (
+                  <button
+                    type="button"
+                    className="link-btn"
+                    disabled={scenes.length === 0}
+                    title={scenes.length === 0 ? '请先选择参与业务/场景' : undefined}
+                    onClick={() => setEditingUniform(true)}
+                  >
+                    {readOnly ? '查看分业务' : '分业务设置'}
+                  </button>
+                )}
+              </div>
+              {memberSceneOverrides(scenes, uniformItem).length > 0 && (
+                <OverrideTagsButton
+                  overrides={memberSceneOverrides(scenes, uniformItem)}
+                  unitLabel={unitLabel}
+                  onOpen={() => setEditingUniform(true)}
+                />
+              )}
+            </div>
+          </div>
+        </FormRow>
+      ) : showUniformValue ? (
         <FormRow label="优惠设置" required>
           <div>
             <div className="member-price-input">
@@ -341,11 +429,17 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
                 type="number"
                 className="input input--num"
                 disabled={readOnly}
-                value={activity.allProductsValue}
+                value={formatMemberPriceInputValue(activity.allProductsValue)}
                 step={activity.priceMethod === 'discount' ? 0.1 : 0.01}
-                min={0}
+                min={activity.priceMethod === 'discount' ? 0.1 : activity.priceMethod === 'fixed_reduction' ? 0.01 : 0}
                 max={activity.priceMethod === 'discount' ? 9.9 : undefined}
-                onChange={(e) => update('allProductsValue', Number(e.target.value))}
+                placeholder={activity.priceMethod === 'special_price' ? '请填写' : undefined}
+                onChange={(e) => {
+                  const next = normalizeMemberPriceInput(activity.priceMethod, e.target.value)
+                  if (next.warning) onToast?.(next.warning)
+                  if (next.value == null) return
+                  update('allProductsValue', next.value)
+                }}
               />
               <span>{unitLabel}</span>
             </div>
@@ -356,7 +450,7 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
             </p>
           </div>
         </FormRow>
-      )}
+      ) : null}
 
       {activity.productScope === 'partial' && (
         <>
@@ -418,25 +512,42 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
                 </button>
               </div>
               {!isExclude && activity.productItems.length > 0 && (
-                <div className="member-price-batch">
-                  <span>批量设置</span>
+                <div className="member-price-batch ld-batch-bar">
                   <input
                     type="number"
                     className="input input--num"
+                    style={{ width: 88 }}
                     value={batchValue}
-                    placeholder={activity.priceMethod === 'discount' ? '如 8.5' : '如 9.9'}
+                    placeholder="默认力度"
+                    aria-label="批量默认力度"
                     onChange={(e) => setBatchValue(e.target.value)}
                     step={activity.priceMethod === 'discount' ? 0.1 : 0.01}
                     min={0}
                     max={activity.priceMethod === 'discount' ? 9.9 : undefined}
                   />
                   <span>{unitLabel}</span>
-                  <button type="button" className="btn btn--default btn--sm" onClick={applyBatchValue}>
-                    应用
-                  </button>
+                  <button type="button" className="btn btn--default btn--sm" onClick={applyBatchDefault}>设置默认力度</button>
+                  {sceneEnabled && (
+                    <button
+                      type="button"
+                      className="link-btn"
+                      disabled={scenes.length === 0}
+                      title={scenes.length === 0 ? '请先选择参与业务/场景' : '为已选商品单独设置个别业务的力度'}
+                      onClick={() => setBatchScenes(true)}
+                    >
+                      分业务设置
+                    </button>
+                  )}
                 </div>
               )}
             </div>
+          )}
+
+          {sceneEnabled && !isExclude && (
+            <p className="field-hint" style={{ marginBottom: 8 }}>
+              每个商品填一个默认力度，所有业务都按它执行。个别业务需要不同力度时，点「分业务设置」单独填写，没填的业务仍按默认力度。
+              {scenes.length === 0 && ' 分业务设置前，请先在基础信息里选择参与业务/场景。'}
+            </p>
           )}
 
           <table className="table member-price-table">
@@ -511,19 +622,18 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
                     <td>¥{p.price}</td>
                     {!isExclude && (
                       <td>
-                        <div className="member-price-input">
-                          <input
-                            type="number"
-                            className="input input--num"
-                            disabled={readOnly}
-                            value={valueMap.get(p.id) ?? ''}
-                            step={activity.priceMethod === 'discount' ? 0.1 : 0.01}
-                            min={0}
-                            max={activity.priceMethod === 'discount' ? 9.9 : undefined}
-                            onChange={(e) => updateItemValue(p.id, Number(e.target.value))}
-                          />
-                          <span>{unitLabel}</span>
-                        </div>
+                        <ProductStrengthCell
+                          productName={p.name}
+                          item={itemMap.get(p.id)}
+                          unitLabel={unitLabel}
+                          priceMethod={activity.priceMethod}
+                          readOnly={readOnly}
+                          sceneEnabled={sceneEnabled}
+                          scenes={scenes}
+                          onValueChange={(value) => updateItemValue(p.id, value)}
+                          onToast={onToast}
+                          onOpenScenes={() => setEditingProductId(p.id)}
+                        />
                       </td>
                     )}
                     {!readOnly && (
@@ -567,6 +677,40 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
         />
       )}
 
+      {editingProductId && (
+        <MemberSceneDialog
+          activity={activity}
+          productId={editingProductId}
+          scenes={scenes}
+          readOnly={readOnly}
+          onChangeItem={(next) => updateItem(next.productId, next)}
+          onToast={onToast}
+          onClose={() => setEditingProductId(null)}
+        />
+      )}
+      {editingUniform && (
+        <MemberSceneDialog
+          activity={activity}
+          uniform
+          scenes={scenes}
+          readOnly={readOnly}
+          onChangeItem={() => undefined}
+          onActivity={(next) => onChange(next)}
+          onToast={onToast}
+          onClose={() => setEditingUniform(false)}
+        />
+      )}
+      {batchScenes && (
+        <MemberBatchSceneDialog
+          activity={activity}
+          productIds={checkedTargets()}
+          scenes={scenes}
+          onApply={(items) => { update('productItems', items); setBatchScenes(false) }}
+          onToast={onToast}
+          onClose={() => setBatchScenes(false)}
+        />
+      )}
+
       {showProductPicker && (
         <ProductPicker
           selectedIds={activity.productIds}
@@ -576,6 +720,168 @@ export function MemberPriceProductConfig<T extends MemberPriceProductCoreFields>
         />
       )}
     </>
+  )
+}
+
+function MemberBatchSceneDialog<T extends MemberPriceProductCoreFields>({
+  activity,
+  productIds,
+  scenes,
+  onApply,
+  onToast,
+  onClose,
+}: {
+  activity: T
+  productIds: string[]
+  scenes: string[]
+  onApply: (items: MemberPriceProductItem[]) => void
+  onToast?: (message: string) => void
+  onClose: () => void
+}) {
+  const [defaultValue, setDefaultValue] = useState('')
+  const [sceneValues, setSceneValues] = useState<Record<string, string>>({})
+  const [cleared, setCleared] = useState<Record<string, boolean>>({})
+  const unitLabel = activity.priceMethod === 'discount' ? '折' : '元'
+  const inputRange = {
+    min: activity.priceMethod === 'discount' ? 0.1 : activity.priceMethod === 'fixed_reduction' ? 0.01 : 0,
+    max: activity.priceMethod === 'discount' ? 9.9 : undefined,
+    step: activity.priceMethod === 'discount' ? 0.1 : 0.01,
+  }
+  const defaultNumber = defaultValue.trim() === '' ? null : Number(defaultValue)
+  const apply = () => {
+    let warning: string | undefined
+    const defaultParsed = normalizeMemberPriceInput(activity.priceMethod, defaultValue)
+    if (defaultParsed.warning) warning = defaultParsed.warning
+    if (defaultValue.trim() && defaultParsed.value == null) {
+      onToast?.(warning ?? '请输入有效的默认力度')
+      return
+    }
+    const normalizedScenes: Record<string, number> = {}
+    for (const sceneId of scenes) {
+      const raw = sceneValues[sceneId]
+      if (!raw?.trim() || cleared[sceneId]) continue
+      const parsed = normalizeMemberPriceInput(activity.priceMethod, raw)
+      if (parsed.warning) warning = parsed.warning
+      if (parsed.value != null) normalizedScenes[sceneId] = parsed.value
+    }
+    if (warning) onToast?.(warning)
+    const ids = new Set(productIds)
+    onApply(activity.productItems.map((item) => {
+      if (!ids.has(item.productId)) return item
+      let next = item
+      if (defaultParsed.value != null) next = { ...next, value: defaultParsed.value }
+      scenes.forEach((sceneId) => {
+        if (cleared[sceneId]) next = setMemberSceneOverride(next, sceneId, null)
+        else if (sceneId in normalizedScenes) next = setMemberSceneOverride(next, sceneId, normalizedScenes[sceneId])
+      })
+      return pruneMemberSameAsDefault(next)
+    }))
+  }
+  const filledCount = scenes.filter((sceneId) => sceneValues[sceneId]?.trim() || cleared[sceneId]).length
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal--scene" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <div className="modal__header">
+          <div>
+            <h3>已选 {productIds.length} 个商品 · 分业务设置</h3>
+            <p className="modal__subtitle">只填写要改的项，留空的保持各商品原样。与该商品默认力度相同的，按默认处理。</p>
+          </div>
+          <button type="button" className="modal__close" aria-label="关闭" onClick={onClose}>×</button>
+        </div>
+        <div className="modal__body modal__body--scroll">
+          <div className="ld-scene-default">
+            <span className="ld-scene-default__label">默认{MEMBER_PRICE_METHOD_LABELS[activity.priceMethod]}</span>
+            <input
+              className="input"
+              style={{ width: 88 }}
+              type="number"
+              {...inputRange}
+              placeholder="不修改"
+              value={defaultValue}
+              onChange={(e) => {
+                const raw = e.target.value
+                const parsed = normalizeMemberPriceInput(activity.priceMethod, raw)
+                if (parsed.warning) onToast?.(parsed.warning)
+                setDefaultValue(parsed.value != null && parsed.warning ? String(parsed.value) : raw)
+              }}
+            />
+            <span className="field-hint">{unitLabel}</span>
+            <span className="field-hint">填写后覆盖已选商品的默认力度</span>
+          </div>
+          {scenes.length === 0 ? (
+            <p className="field-hint">请先在基础信息里选择参与业务/场景。</p>
+          ) : (
+            <>
+              <div className="ld-scene-grid__head">
+                <span>需要不同力度的业务填写即可，本次将调整 {filledCount}/{scenes.length} 个</span>
+                <button
+                  type="button"
+                  className="link-btn"
+                  onClick={() => {
+                    setSceneValues({})
+                    setCleared(Object.fromEntries(scenes.map((sceneId) => [sceneId, true])))
+                  }}
+                >
+                  全部恢复默认
+                </button>
+              </div>
+              <div className="ld-scene-grid">
+                {scenes.map((sceneId) => {
+                  const raw = sceneValues[sceneId] ?? ''
+                  const value = raw.trim() === '' ? null : Number(raw)
+                  const isSame = value != null && defaultNumber != null && value === defaultNumber
+                  const isCleared = Boolean(cleared[sceneId]) && raw.trim() === ''
+                  return (
+                    <div key={sceneId} className={`ld-scene-grid__item ${isSame ? 'is-same' : value != null ? 'is-set' : ''}`}>
+                      <label className="ld-scene-grid__name" htmlFor={`mp-batch-scene-${sceneId}`}>{orderTypeLabel(sceneId)}</label>
+                      <input
+                        id={`mp-batch-scene-${sceneId}`}
+                        className="input"
+                        style={{ width: 120 }}
+                        type="number"
+                        {...inputRange}
+                        placeholder={isCleared ? '恢复默认' : '不修改'}
+                        value={raw}
+                        onChange={(e) => {
+                          const raw = e.target.value
+                          const parsed = normalizeMemberPriceInput(activity.priceMethod, raw)
+                          if (parsed.warning) onToast?.(parsed.warning)
+                          setSceneValues((prev) => ({
+                            ...prev,
+                            [sceneId]: parsed.value != null && parsed.warning ? String(parsed.value) : raw,
+                          }))
+                          setCleared((prev) => ({ ...prev, [sceneId]: false }))
+                        }}
+                      />
+                      {value != null && !isSame && <span className="field-hint">{unitLabel}</span>}
+                      {!isCleared && (
+                        <button
+                          type="button"
+                          className="link-btn"
+                          onClick={() => {
+                            setSceneValues((prev) => ({ ...prev, [sceneId]: '' }))
+                            setCleared((prev) => ({ ...prev, [sceneId]: true }))
+                          }}
+                        >
+                          恢复默认
+                        </button>
+                      )}
+                      {isSame && <span className="ld-scene-grid__warn">与默认相同，无需单独设置</span>}
+                      {isCleared && <span className="field-hint">已选商品的该业务将按默认力度</span>}
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
+        <div className="modal__footer">
+          <button type="button" className="btn btn--default" onClick={onClose}>取消</button>
+          <button type="button" className="btn btn--primary" onClick={apply}>完成</button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -607,6 +913,251 @@ function RadioGroup({
           {opt.label}
         </label>
       ))}
+    </div>
+  )
+}
+
+/** 单元格内默认露出的分业务标签数；超出用「查看更多」入口 */
+const OVERRIDE_TAG_LIMIT = 4
+
+function OverrideTagsButton({
+  overrides,
+  unitLabel,
+  onOpen,
+}: {
+  overrides: { sceneId: string; value: number }[]
+  unitLabel: string
+  onOpen: () => void
+}) {
+  const shown = overrides.slice(0, OVERRIDE_TAG_LIMIT)
+  const rest = overrides.length - shown.length
+  const fullText = overrides
+    .map(({ sceneId, value }) => `${orderTypeLabel(sceneId)} ${value}${unitLabel}`)
+    .join('；')
+  return (
+    <div className="ld-override-tags">
+      {shown.map(({ sceneId, value }) => (
+        <button
+          key={sceneId}
+          type="button"
+          className="ld-override-tag"
+          title={`单独设置：${fullText}`}
+          onClick={onOpen}
+        >
+          {orderTypeLabel(sceneId)}<strong>{value}</strong>{unitLabel}
+        </button>
+      ))}
+      {rest > 0 && (
+        <button
+          type="button"
+          className="ld-override-more"
+          title={`还有 ${rest} 项：${overrides.slice(OVERRIDE_TAG_LIMIT).map(({ sceneId, value }) => `${orderTypeLabel(sceneId)} ${value}${unitLabel}`).join('；')}`}
+          onClick={onOpen}
+        >
+          查看更多<span className="ld-override-more__count">+{rest}</span>
+        </button>
+      )}
+    </div>
+  )
+}
+
+function ProductStrengthCell({
+  productName,
+  item,
+  unitLabel,
+  priceMethod,
+  readOnly,
+  sceneEnabled,
+  scenes,
+  onValueChange,
+  onToast,
+  onOpenScenes,
+}: {
+  productName: string
+  item: MemberPriceProductItem | undefined
+  unitLabel: string
+  priceMethod: MemberPriceMethod
+  readOnly?: boolean
+  sceneEnabled: boolean
+  scenes: string[]
+  onValueChange: (value: number) => void
+  onToast?: (message: string) => void
+  onOpenScenes: () => void
+}) {
+  const overrides = item ? memberSceneOverrides(scenes, item) : []
+  return (
+    <div className="ld-item-mode">
+      <div className="ld-item-mode__main">
+        <input
+          type="number"
+          className="input input--num"
+          style={{ width: 88 }}
+          aria-label={`${productName}默认优惠`}
+          disabled={readOnly}
+          value={formatMemberPriceInputValue(item?.value)}
+          step={priceMethod === 'discount' ? 0.1 : 0.01}
+          min={priceMethod === 'discount' ? 0.1 : priceMethod === 'fixed_reduction' ? 0.01 : 0}
+          max={priceMethod === 'discount' ? 9.9 : undefined}
+          placeholder={priceMethod === 'special_price' ? '请填写' : undefined}
+          onChange={(e) => {
+            const parsed = normalizeMemberPriceInput(priceMethod, e.target.value)
+            if (parsed.warning) onToast?.(parsed.warning)
+            if (parsed.value == null) return
+            onValueChange(parsed.value)
+          }}
+        />
+        <span>{unitLabel}</span>
+        {sceneEnabled && (!readOnly || overrides.length > 0) && (
+          <button
+            type="button"
+            className="link-btn"
+            disabled={scenes.length === 0}
+            title={scenes.length === 0 ? '请先选择参与业务/场景' : undefined}
+            onClick={onOpenScenes}
+          >
+            {readOnly ? '查看分业务' : '分业务设置'}
+          </button>
+        )}
+      </div>
+      {overrides.length > 0 && (
+        <OverrideTagsButton overrides={overrides} unitLabel={unitLabel} onOpen={onOpenScenes} />
+      )}
+    </div>
+  )
+}
+
+function MemberSceneDialog<T extends MemberPriceProductCoreFields>({
+  activity,
+  productId,
+  uniform,
+  scenes,
+  readOnly,
+  onChangeItem,
+  onActivity,
+  onToast,
+  onClose,
+}: {
+  activity: T
+  productId?: string
+  uniform?: boolean
+  scenes: string[]
+  readOnly?: boolean
+  onChangeItem: (item: MemberPriceProductItem) => void
+  onActivity?: (activity: T) => void
+  onToast?: (message: string) => void
+  onClose: () => void
+}) {
+  const item = uniform ? uniformDiscountItem(activity) : activity.productItems.find((row) => row.productId === productId)
+  const product = uniform ? undefined : products.find((row) => row.id === productId)
+  if (!item || (!uniform && !product)) return null
+  const commit = (next: MemberPriceProductItem, prune = false) => {
+    const saved = prune ? pruneMemberSameAsDefault(next) : next
+    if (uniform) onActivity?.(writeUniformDiscount(activity, { value: saved.value, sceneValues: saved.sceneValues }))
+    else onChangeItem(saved)
+  }
+  const unitLabel = activity.priceMethod === 'discount' ? '折' : '元'
+  const inputRange = {
+    min: activity.priceMethod === 'discount' ? 0.1 : activity.priceMethod === 'fixed_reduction' ? 0.01 : 0,
+    max: activity.priceMethod === 'discount' ? 9.9 : undefined,
+    step: activity.priceMethod === 'discount' ? 0.1 : 0.01,
+  }
+  const commitValue = (raw: string, fallback: number): number => {
+    const parsed = normalizeMemberPriceInput(activity.priceMethod, raw)
+    if (parsed.warning) onToast?.(parsed.warning)
+    if (parsed.value != null) return parsed.value
+    return Number.isFinite(fallback) ? fallback : defaultValueForMethod(activity.priceMethod, product?.price)
+  }
+  const setOverride = (sceneId: string, raw: string) => {
+    if (raw.trim() === '') {
+      commit(setMemberSceneOverride(item, sceneId, null))
+      return
+    }
+    const parsed = normalizeMemberPriceInput(activity.priceMethod, raw)
+    if (parsed.warning) onToast?.(parsed.warning)
+    if (parsed.value == null) return
+    commit(setMemberSceneOverride(item, sceneId, parsed.value))
+  }
+  const close = () => {
+    if (!readOnly) commit(item, true)
+    onClose()
+  }
+  const overrideCount = memberSceneOverrides(scenes, item).length
+
+  return (
+    <div className="modal-overlay" onClick={close}>
+      <div className="modal modal--scene" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <div className="modal__header">
+          <div>
+            <h3>{uniform ? (activity.productSelectionMode === 'exclude' ? '余下商品 · 分业务设置' : '全部商品 · 分业务设置') : `${product?.name} · 分业务设置`}</h3>
+            {product && <p className="modal__subtitle">销售价 ¥{product.price}</p>}
+          </div>
+          <button type="button" className="modal__close" aria-label="关闭" onClick={close}>×</button>
+        </div>
+        <div className="modal__body modal__body--scroll">
+          <div className="ld-scene-default">
+            <span className="ld-scene-default__label">默认{MEMBER_PRICE_METHOD_LABELS[activity.priceMethod]}</span>
+            <input
+              className="input"
+              style={{ width: 88 }}
+              type="number"
+              {...inputRange}
+              disabled={readOnly}
+              value={formatMemberPriceInputValue(item.value)}
+              placeholder={activity.priceMethod === 'special_price' ? '请填写' : undefined}
+              onChange={(e) => commit(pruneMemberSameAsDefault({
+                ...item,
+                value: commitValue(e.target.value, item.value),
+              }))}
+            />
+            <span className="field-hint">{unitLabel}</span>
+            <span className="field-hint">未单独设置的业务按默认力度执行</span>
+          </div>
+          {scenes.length === 0 ? (
+            <p className="field-hint">请先在基础信息里选择参与业务/场景。</p>
+          ) : (
+            <>
+              <div className="ld-scene-grid__head">
+                <span>需要不同力度的业务填写即可，已单独设置 {overrideCount}/{scenes.length} 个</span>
+                {!readOnly && overrideCount > 0 && (
+                  <button type="button" className="link-btn" onClick={() => commit({ ...item, sceneValues: {} })}>全部恢复默认</button>
+                )}
+              </div>
+              <div className="ld-scene-grid">
+                {scenes.map((sceneId) => {
+                  const override = item.sceneValues?.[sceneId]
+                  const isSet = override != null && !Number.isNaN(override)
+                  const isSame = isMemberSameAsDefault(item, sceneId)
+                  const defaultText = Number.isFinite(item.value) ? String(item.value) : '默认'
+                  return (
+                    <div key={sceneId} className={`ld-scene-grid__item ${isSame ? 'is-same' : isSet ? 'is-set' : ''}`}>
+                      <label className="ld-scene-grid__name" htmlFor={`mp-scene-${sceneId}`}>{orderTypeLabel(sceneId)}</label>
+                      <input
+                        id={`mp-scene-${sceneId}`}
+                        className="input"
+                        style={{ width: 120 }}
+                        type="number"
+                        {...inputRange}
+                        disabled={readOnly}
+                        placeholder={`默认 ${defaultText}`}
+                        value={isSet ? override : ''}
+                        onChange={(e) => setOverride(sceneId, e.target.value)}
+                      />
+                      {isSet && !isSame && <span className="field-hint">{unitLabel}</span>}
+                      {isSet && !isSame && !readOnly && (
+                        <button type="button" className="link-btn" onClick={() => setOverride(sceneId, '')}>恢复默认</button>
+                      )}
+                      {isSame && !readOnly && <span className="ld-scene-grid__warn">与默认相同，无需单独设置</span>}
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
+        <div className="modal__footer">
+          <button type="button" className="btn btn--primary" onClick={close}>{readOnly ? '知道了' : '完成'}</button>
+        </div>
+      </div>
     </div>
   )
 }

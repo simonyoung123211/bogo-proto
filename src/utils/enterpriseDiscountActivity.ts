@@ -11,6 +11,7 @@ import type {
 } from '../types'
 import { createOperationLog, formatActivityDateTime, maskPhone } from './activity'
 import { getCreatorProfile } from '../mockData'
+import { matchesActivityProductFilters, resolveActivityProducts } from './activityProductSearch'
 
 export function getEnterprise(id: string) {
   return ENTERPRISE_CUSTOMERS.find((item) => item.id === id)
@@ -181,6 +182,7 @@ export function matchesFilters(
   filters: EnterpriseDiscountListFilters,
 ): boolean {
   if (filters.status !== 'all' && activity.status !== filters.status) return false
+  if (!matchesActivityProductFilters(resolveActivityProducts(activity), filters)) return false
   const keyword = filters.keyword.trim().toLowerCase()
   if (keyword) {
     const names = activity.enterprises

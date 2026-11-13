@@ -8,7 +8,11 @@ import type {
   MultiItemActivityForm,
   PaidMemberCardTemplate,
   PaidMemberPriceActivityForm,
+  PaidMemberPriceGeneralSettings,
+  ConsumptionPrivilegeDisplaySettings,
   EnterpriseDiscountActivityForm,
+  BundlePriceActivityForm,
+  LimitDiscountActivityForm,
   StoredValuePayActivityForm,
   StoredValuePayGeneralSettings,
 } from '../types'
@@ -22,6 +26,8 @@ import {
   initialPaidMemberPriceActivities,
 } from '../mockPaidMemberPriceData'
 import { initialEnterpriseDiscountActivities } from '../mockEnterpriseDiscountData'
+import { initialBundlePriceActivities } from '../mockBundlePriceData'
+import { initialLimitDiscountActivities } from '../mockLimitDiscountData'
 import { initialStoredValuePayActivities } from '../mockStoredValuePayData'
 import { migrateActivity } from './activity'
 import { reopenStoresForDemo } from './storeRegistry'
@@ -31,6 +37,8 @@ import { migrateMemberPriceActivity } from './memberPriceActivity'
 import { migrateMultiItemActivity } from './multiItemActivity'
 import { migratePaidMemberPriceActivity } from './paidMemberPriceActivity'
 import { migrateEnterpriseDiscountActivity } from './enterpriseDiscountActivity'
+import { migrateBundlePriceActivity } from './bundlePriceActivity'
+import { migrateLimitDiscountActivity } from './limitDiscountActivity'
 import { migrateStoredValuePayActivity } from './storedValuePayActivity'
 
 const STORAGE_KEY = 'bogo-activities-v1'
@@ -42,8 +50,12 @@ const PAID_MEMBER_PRICE_STORAGE_KEY = 'paid-member-price-activities-v1'
 const PAID_MEMBER_CARD_STORAGE_KEY = 'paid-member-cards-v1'
 const STORED_VALUE_PAY_STORAGE_KEY = 'stored-value-pay-activities-v1'
 const ENTERPRISE_DISCOUNT_STORAGE_KEY = 'enterprise-discount-activities-v1'
+const BUNDLE_PRICE_STORAGE_KEY = 'bundle-price-activities-v1'
+export const LIMIT_DISCOUNT_STORAGE_KEY = 'limit-discount-activities-v1'
 const GENERAL_SETTINGS_KEY = 'bogo-general-settings-v1'
 const MEMBER_PRICE_GENERAL_SETTINGS_KEY = 'member-price-general-settings-v1'
+const PAID_MEMBER_PRICE_GENERAL_SETTINGS_KEY = 'paid-member-price-general-settings-v1'
+const CONSUMPTION_PRIVILEGE_DISPLAY_SETTINGS_KEY = 'consumption-privilege-display-settings-v1'
 const STORED_VALUE_PAY_GENERAL_SETTINGS_KEY = 'stored-value-pay-general-settings-v1'
 
 export const MAX_GIFT_STORAGE_PER_ORDER_LIMIT = 99
@@ -56,7 +68,8 @@ export const DEFAULT_MEMBER_PRICE_GENERAL_SETTINGS: MemberPriceGeneralSettings =
   customPromotionTagEnabled: true,
   tagContentMode: 'default',
   customTagText: '',
-  styleMode: 'custom',
+  styleMode: 'default',
+  tagTextPosition: 'price_left',
   backgroundStyle: 'solid',
   leftBackgroundImage: '',
   rightBackgroundImage: '',
@@ -64,9 +77,6 @@ export const DEFAULT_MEMBER_PRICE_GENERAL_SETTINGS: MemberPriceGeneralSettings =
   leftTextColor: '#6B5215',
   rightBackgroundColor: '#33302B',
   rightTextColor: '#F5D890',
-  tagPosition: 'default',
-  showOriginalPrice: false,
-  activityPriceColor: '#FF4D4F',
 }
 
 export function loadActivities(): ActivityForm[] {
@@ -152,7 +162,10 @@ export function loadMemberPriceActivities(): MemberPriceActivityForm[] {
   } catch {
     /* ignore */
   }
-  return [...initialMemberPriceActivities]
+  // 初始 mock 也走迁移：旧「一组多等级」自动拆成一组一枚举
+  return initialMemberPriceActivities.map((a) =>
+    migrateMemberPriceActivity(a as unknown as Record<string, unknown>),
+  )
 }
 
 export function saveMemberPriceActivities(activities: MemberPriceActivityForm[]): void {
@@ -165,6 +178,10 @@ export function loadMemberPriceGeneralSettings(): MemberPriceGeneralSettings {
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<MemberPriceGeneralSettings> &
         Record<string, unknown>
+      // 新版商品卡片使用固定标签位置，忽略旧版的整块标签位置设置。
+      delete parsed.tagPosition
+      delete parsed.showOriginalPrice
+      delete parsed.activityPriceColor
       // 旧版本字段迁移：原 left* 控制文案段、price* 控制价格段，
       // 新版本 left* 为左侧价格段、right* 为右侧文案段
       if (typeof parsed.priceBackgroundColor === 'string') {
@@ -178,7 +195,7 @@ export function loadMemberPriceGeneralSettings(): MemberPriceGeneralSettings {
         delete parsed.priceTextColor
         delete parsed.priceBackgroundImage
       }
-      return { ...DEFAULT_MEMBER_PRICE_GENERAL_SETTINGS, ...parsed }
+      return { ...DEFAULT_MEMBER_PRICE_GENERAL_SETTINGS, ...parsed, customPromotionTagEnabled: true }
     }
   } catch {
     /* ignore */
@@ -187,7 +204,72 @@ export function loadMemberPriceGeneralSettings(): MemberPriceGeneralSettings {
 }
 
 export function saveMemberPriceGeneralSettings(settings: MemberPriceGeneralSettings): void {
-  localStorage.setItem(MEMBER_PRICE_GENERAL_SETTINGS_KEY, JSON.stringify(settings))
+  localStorage.setItem(MEMBER_PRICE_GENERAL_SETTINGS_KEY, JSON.stringify({ ...settings, customPromotionTagEnabled: true }))
+}
+
+export const DEFAULT_PAID_MEMBER_PRICE_GENERAL_SETTINGS: PaidMemberPriceGeneralSettings = {
+  customPromotionTagEnabled: true,
+  tagContentMode: 'default',
+  customTagText: '',
+  styleMode: 'default',
+  backgroundStyle: 'solid',
+  leftBackgroundImage: '',
+  rightBackgroundImage: '',
+  leftBackgroundColor: '#33302B',
+  leftTextColor: '#F5D890',
+  rightBackgroundColor: '#F9EDC0',
+  rightTextColor: '#6B5215',
+}
+
+export function loadPaidMemberPriceGeneralSettings(): PaidMemberPriceGeneralSettings {
+  try {
+    const raw = localStorage.getItem(PAID_MEMBER_PRICE_GENERAL_SETTINGS_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<PaidMemberPriceGeneralSettings>
+      return {
+        ...DEFAULT_PAID_MEMBER_PRICE_GENERAL_SETTINGS,
+        ...parsed,
+        customPromotionTagEnabled: true,
+        tagContentMode: parsed.customPromotionTagEnabled === false ? 'default' : parsed.tagContentMode ?? 'default',
+        styleMode: parsed.customPromotionTagEnabled === false ? 'default' : parsed.styleMode ?? 'default',
+      }
+    }
+  } catch {
+    /* ignore invalid local data */
+  }
+  return { ...DEFAULT_PAID_MEMBER_PRICE_GENERAL_SETTINGS }
+}
+
+export function savePaidMemberPriceGeneralSettings(settings: PaidMemberPriceGeneralSettings): void {
+  localStorage.setItem(PAID_MEMBER_PRICE_GENERAL_SETTINGS_KEY, JSON.stringify({ ...settings, customPromotionTagEnabled: true }))
+}
+
+export const DEFAULT_CONSUMPTION_PRIVILEGE_DISPLAY_SETTINGS: ConsumptionPrivilegeDisplaySettings = {
+  tagContentMode: 'default',
+  customTagText: '',
+  styleMode: 'default',
+  tagTextPosition: 'label_left',
+  backgroundStyle: 'solid',
+  leftBackgroundImage: '',
+  rightBackgroundImage: '',
+  leftBackgroundColor: '#33302B',
+  leftTextColor: '#F5D890',
+  rightBackgroundColor: '#F9EDC0',
+  rightTextColor: '#6B5215',
+}
+
+export function loadConsumptionPrivilegeDisplaySettings(): ConsumptionPrivilegeDisplaySettings {
+  try {
+    const raw = localStorage.getItem(CONSUMPTION_PRIVILEGE_DISPLAY_SETTINGS_KEY)
+    if (raw) return { ...DEFAULT_CONSUMPTION_PRIVILEGE_DISPLAY_SETTINGS, ...JSON.parse(raw) as Partial<ConsumptionPrivilegeDisplaySettings> }
+  } catch {
+    /* ignore invalid local data */
+  }
+  return { ...DEFAULT_CONSUMPTION_PRIVILEGE_DISPLAY_SETTINGS }
+}
+
+export function saveConsumptionPrivilegeDisplaySettings(settings: ConsumptionPrivilegeDisplaySettings): void {
+  localStorage.setItem(CONSUMPTION_PRIVILEGE_DISPLAY_SETTINGS_KEY, JSON.stringify(settings))
 }
 
 export function loadFullReductionActivities(): FullReductionActivityForm[] {
@@ -259,10 +341,11 @@ export function savePaidMemberCards(cards: PaidMemberCardTemplate[]): void {
 }
 
 export const DEFAULT_STORED_VALUE_PAY_GENERAL_SETTINGS: StoredValuePayGeneralSettings = {
-  customPromotionTagEnabled: false,
+  customPromotionTagEnabled: true,
   tagContentMode: 'default',
   customTagText: '',
   styleMode: 'default',
+  tagPosition: 'price_left',
   backgroundStyle: 'solid',
   leftBackgroundImage: '',
   rightBackgroundImage: '',
@@ -307,12 +390,53 @@ export function saveEnterpriseDiscountActivities(activities: EnterpriseDiscountA
   localStorage.setItem(ENTERPRISE_DISCOUNT_STORAGE_KEY, JSON.stringify(activities))
 }
 
+export function loadBundlePriceActivities(): BundlePriceActivityForm[] {
+  try {
+    const raw = localStorage.getItem(BUNDLE_PRICE_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>[]
+      return parsed.map((a) => migrateBundlePriceActivity(a))
+    }
+  } catch {
+    /* ignore */
+  }
+  return [...initialBundlePriceActivities]
+}
+
+export function saveBundlePriceActivities(activities: BundlePriceActivityForm[]): void {
+  localStorage.setItem(BUNDLE_PRICE_STORAGE_KEY, JSON.stringify(activities))
+}
+
+export function loadLimitDiscountActivities(): LimitDiscountActivityForm[] {
+  try {
+    const raw = localStorage.getItem(LIMIT_DISCOUNT_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>[]
+      return parsed.map((activity) => migrateLimitDiscountActivity(activity))
+    }
+  } catch {
+    /* ignore */
+  }
+  return [...initialLimitDiscountActivities]
+}
+
+export function saveLimitDiscountActivities(activities: LimitDiscountActivityForm[]): void {
+  localStorage.setItem(LIMIT_DISCOUNT_STORAGE_KEY, JSON.stringify(activities))
+}
+
 export function loadStoredValuePayGeneralSettings(): StoredValuePayGeneralSettings {
   try {
     const raw = localStorage.getItem(STORED_VALUE_PAY_GENERAL_SETTINGS_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<StoredValuePayGeneralSettings>
-      return { ...DEFAULT_STORED_VALUE_PAY_GENERAL_SETTINGS, ...parsed }
+      return {
+        ...DEFAULT_STORED_VALUE_PAY_GENERAL_SETTINGS,
+        ...parsed,
+        customPromotionTagEnabled: true,
+        tagContentMode: parsed.customPromotionTagEnabled === false ? 'default' : parsed.tagContentMode ?? 'default',
+        styleMode: parsed.customPromotionTagEnabled === false ? 'default' : parsed.styleMode ?? 'default',
+        tagPosition: parsed.tagPosition === 'label_left' ? 'label_left' : 'price_left',
+      }
     }
   } catch {
     /* ignore */

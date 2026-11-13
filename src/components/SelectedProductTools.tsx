@@ -13,6 +13,8 @@ interface SelectedProductSearchBarProps {
   totalCount: number
   /** 列表主体名称，反选场景传「不参与商品」 */
   itemLabel?: string
+  /** 未传时按商品列表的默认文案 */
+  placeholder?: string
   /**
    * 筛选期间批量操作的作用域说明，如「批量设置与移除仅对筛选结果生效」。
    * 仅在有关键词时展示，防止商家以为动作作用于全部已选商品。
@@ -26,6 +28,7 @@ export function SelectedProductSearchBar({
   filteredCount,
   totalCount,
   itemLabel = '商品',
+  placeholder,
   scopeHint,
 }: SelectedProductSearchBarProps) {
   const filtering = keyword.trim().length > 0
@@ -36,7 +39,7 @@ export function SelectedProductSearchBar({
         <input
           className="input selected-product-search__input"
           value={keyword}
-          placeholder={`在已选${itemLabel}中查找：名称 / 编码 / 商品ID`}
+          placeholder={placeholder ?? `在已选${itemLabel}中查找：名称 / 编码 / 商品 ID / SKU ID`}
           onChange={(e) => onChange(e.target.value)}
         />
         <span className="selected-product-search__count">

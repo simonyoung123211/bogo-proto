@@ -1,9 +1,17 @@
 import { useMemo, useState } from 'react'
 import { PRIMARY_STATUS_TABS, MORE_STATUS_TABS, STATUS_LABELS } from '../mockData'
-import type { ActivityForm, ActivityStatus } from '../types'
+import type { ActivityStatus } from '../types'
+
+interface PickerActivity {
+  id: string
+  name: string
+  status: ActivityStatus
+  startTime?: string
+  endTime?: string
+}
 
 interface ParticipationActivityPickerProps {
-  activities: ActivityForm[]
+  activities: PickerActivity[]
   /** 当前查询范围，空数组表示全部活动 */
   selectedIds: string[]
   /** 各活动的参与记录条数，帮运营快速判断哪些活动有量 */

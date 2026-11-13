@@ -9,7 +9,7 @@ interface MultiItemRuleFieldsProps {
 }
 
 const RULE_TYPE_OPTIONS: { value: MultiItemRuleType; label: string }[] = [
-  { value: 'nth_item', label: '第N件优惠' },
+  { value: 'nth_item', label: '第2件半价' },
   { value: 'every_n_items', label: '每N件优惠' },
   { value: 'reach_m_discount_n', label: '满M件N件优惠' },
   { value: 'every_reach_m_discount_n', label: '每满M件N件优惠' },

@@ -18,6 +18,7 @@ import {
 } from '../mockDeliveryFeeData'
 import { PARTICIPANT_USER_OPTIONS, getCreatorProfile, stores } from '../mockData'
 import { createOperationLog, formatActivityDateTime, maskPhone } from './activity'
+import { matchesActivityProductFilters, resolveActivityProducts } from './activityProductSearch'
 
 export function getThresholdTypeLabel(type: DeliveryFeeThresholdType): string {
   return THRESHOLD_TYPE_LABELS[type]
@@ -406,6 +407,7 @@ export function validateBeforeSave(
 export function matchesFilters(activity: DeliveryFeeActivityForm, filters: DeliveryFeeListFilters): boolean {
   if (filters.status !== 'all' && activity.status !== filters.status) return false
   if (filters.ruleMode !== 'all' && activity.ruleMode !== filters.ruleMode) return false
+  if (!matchesActivityProductFilters(resolveActivityProducts(activity), filters)) return false
   if (filters.keyword) {
     const kw = filters.keyword.trim().toLowerCase()
     if (!activity.name.toLowerCase().includes(kw) && !activity.id.toLowerCase().includes(kw)) {

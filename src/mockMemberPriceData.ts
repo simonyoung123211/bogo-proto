@@ -3,8 +3,79 @@ import type {
   MemberLevelId,
   MemberPriceActivityForm,
   MemberPriceMethod,
+  MemberPriceOfferGroup,
+  MemberPriceProductItem,
 } from './types'
 import { getCreatorProfile, MEMBER_LEVELS, products } from './mockData'
+
+/** 会员价参与业务场景，与正式产品一致 */
+export const MEMBER_PRICE_ORDER_TYPES = [
+  { id: 'dine_in', label: '堂食' },
+  { id: 'pack', label: '外带' },
+  { id: 'delivery', label: '外卖（配送）' },
+  { id: 'delivery_pickup', label: '外卖（自取）' },
+  { id: 'store_express', label: '门店快递' },
+  { id: 'cake_pickup', label: '蛋糕自提' },
+  { id: 'cake_delivery', label: '蛋糕外送' },
+  { id: 'group_delivery', label: '拼单（外卖）' },
+  { id: 'group_dine_in', label: '拼单（堂食）' },
+  { id: 'group_pack', label: '拼单（外带）' },
+] as const
+
+const MEMBER_PRICE_ORDER_TYPE_IDS = new Set<string>(MEMBER_PRICE_ORDER_TYPES.map((item) => item.id))
+
+/** 旧 Demo 枚举迁到现行业务场景 */
+const LEGACY_MEMBER_PRICE_ORDER_TYPE_MAP: Record<string, string> = {
+  takeaway: 'delivery',
+  takeaway_platform: 'delivery',
+  takeaway_self: 'delivery',
+  pickup: 'delivery_pickup',
+}
+
+export function normalizeMemberPriceOrderTypes(ids: string[]): string[] {
+  const next: string[] = []
+  for (const id of ids) {
+    const mapped = LEGACY_MEMBER_PRICE_ORDER_TYPE_MAP[id] ?? id
+    if (MEMBER_PRICE_ORDER_TYPE_IDS.has(mapped) && !next.includes(mapped)) next.push(mapped)
+  }
+  return next
+}
+
+export function remapMemberPriceSceneValues(
+  values: Record<string, number | null> | undefined,
+): Record<string, number | null> | undefined {
+  if (!values) return values
+  const next: Record<string, number | null> = {}
+  for (const [key, value] of Object.entries(values)) {
+    const mapped = LEGACY_MEMBER_PRICE_ORDER_TYPE_MAP[key] ?? key
+    if (!MEMBER_PRICE_ORDER_TYPE_IDS.has(mapped)) continue
+    if (!(mapped in next) || next[mapped] == null) next[mapped] = value
+  }
+  return next
+}
+
+export function normalizeMemberPriceProductItem(item: MemberPriceProductItem): MemberPriceProductItem {
+  if (!item.sceneValues) return item
+  return { ...item, sceneValues: remapMemberPriceSceneValues(item.sceneValues) }
+}
+
+export function createEmptyMemberPriceOfferGroup(
+  overrides: Partial<MemberPriceOfferGroup> = {},
+): MemberPriceOfferGroup {
+  return {
+    id: `mpg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    targetIds: [],
+    priceMethod: 'discount',
+    productItems: [],
+    allProductsValue: 9.9,
+    valueMode: 'unified',
+    sceneValues: {},
+    productScope: 'partial',
+    productIds: [],
+    productSelectionMode: 'include',
+    ...overrides,
+  }
+}
 
 function formatDateTime(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -55,11 +126,22 @@ export function createEmptyMemberPriceActivity(): MemberPriceActivityForm {
     timeSlotType: 'all_day',
     priority: 1,
     channels: ['wechat', 'alipay'],
-    orderTypes: ['dine_in', 'takeaway', 'pickup'],
-    memberLevels: ['normal', 'silver', 'gold', 'platinum', 'diamond'],
+    orderTypes: ['dine_in', 'pack', 'delivery', 'delivery_pickup'],
+    audienceType: 'specified_level',
+    paymentLimitType: 'unlimited',
+    paymentMethodIds: [],
+    paymentAmountLimit: 'any',
+    groups: [
+      createEmptyMemberPriceOfferGroup({
+        targetIds: [],
+        priceMethod: 'discount',
+        allProductsValue: 9.9,
+      }),
+    ],
+    memberLevels: [],
     priceMethod: 'discount',
     productItems: [],
-    allProductsValue: 8,
+    allProductsValue: 9.9,
     toppingsDiscount: false,
     comboSurchargeDiscount: false,
     preparationSurchargeDiscount: false,
@@ -113,10 +195,39 @@ function seed(
       : []),
   ]
   const productIds = overrides.productIds ?? overrides.productItems?.map((i) => i.productId) ?? base.productIds
+  const priceMethod = overrides.priceMethod ?? base.priceMethod
+  const productItems =
+    overrides.productItems ??
+    productIds.map((productId) => ({
+      productId,
+      value: overrides.allProductsValue ?? base.allProductsValue,
+    }))
+  const memberLevels = overrides.memberLevels ?? base.memberLevels
+  const groups =
+    overrides.groups ??
+    [
+      createEmptyMemberPriceOfferGroup({
+        targetIds: memberLevels,
+        priceMethod,
+        productItems,
+        allProductsValue: overrides.allProductsValue ?? base.allProductsValue,
+        productScope: overrides.productScope ?? base.productScope,
+        productIds,
+        productSelectionMode: overrides.productSelectionMode ?? base.productSelectionMode,
+      }),
+    ]
+  const audienceType =
+    overrides.audienceType ??
+    (memberLevels.length >= MEMBER_LEVELS.length ? 'all_level' : 'specified_level')
   return {
     ...base,
     ...overrides,
+    audienceType,
+    groups,
+    memberLevels,
+    priceMethod,
     productIds,
+    productItems,
     createdAt,
     updatedAt,
     operationLogs: logs,
@@ -129,12 +240,46 @@ export const initialMemberPriceActivities: MemberPriceActivityForm[] = [
     name: '全等级会员8折',
     title: '会员专享价',
     tag: '会员价',
+    audienceType: 'specified_stored_value',
+    memberLevels: [],
     priceMethod: 'discount',
-    memberLevels: ['normal', 'silver', 'gold', 'platinum', 'diamond'],
     productScope: 'partial',
     productIds: products.slice(0, 120).map((p) => p.id),
     productItems: products.slice(0, 120).map((p) => ({ productId: p.id, value: 8 })),
-    storeScope: 'all',
+    groups: [
+      createEmptyMemberPriceOfferGroup({
+        id: 'mpg-sv-1',
+        targetIds: ['sv_test', 'sv_default', 'sv_6'],
+        priceMethod: 'discount',
+        productScope: 'all',
+        productSelectionMode: 'include',
+        productIds: [],
+        productItems: [],
+        allProductsValue: 8,
+      }),
+      createEmptyMemberPriceOfferGroup({
+        id: 'mpg-sv-2',
+        targetIds: ['sv_gold', 'sv_platinum'],
+        priceMethod: 'discount',
+        productScope: 'all',
+        productSelectionMode: 'include',
+        productIds: [],
+        productItems: [],
+        allProductsValue: 8,
+      }),
+      createEmptyMemberPriceOfferGroup({
+        id: 'mpg-sv-3',
+        targetIds: ['sv_l4'],
+        priceMethod: 'discount',
+        productScope: 'all',
+        productSelectionMode: 'include',
+        productIds: [],
+        productItems: [],
+        allProductsValue: 8,
+      }),
+    ],
+    storeScope: 'partial_include',
+    storeIds: ['s2', 's3', 's4'],
     status: 'in_progress',
     startTime: '2026-06-01 00:00:00',
     endTime: '2026-12-31 23:59:59',
@@ -144,16 +289,111 @@ export const initialMemberPriceActivities: MemberPriceActivityForm[] = [
     createdAt: '2026-05-20 10:00:00',
     updatedAt: '2026-06-01 00:00:00',
   }),
+  /** 暂停未过期示意：门店与进行中储值活动错开，保证存量无冲突 */
+  seed({
+    id: 'MP20251030011',
+    name: '储值黄金会员9折（暂停）',
+    title: '储值会员价',
+    tag: '会员价',
+    audienceType: 'specified_stored_value',
+    memberLevels: [],
+    priceMethod: 'discount',
+    productScope: 'partial',
+    productIds: products.slice(0, 60).map((p) => p.id),
+    productItems: products.slice(0, 60).map((p) => ({ productId: p.id, value: 9 })),
+    groups: [
+      createEmptyMemberPriceOfferGroup({
+        id: 'mpg-sv-paused-1',
+        targetIds: ['sv_gold', 'sv_platinum'],
+        priceMethod: 'discount',
+        productScope: 'partial',
+        productSelectionMode: 'include',
+        productIds: products.slice(0, 60).map((p) => p.id),
+        productItems: products.slice(0, 60).map((p) => ({ productId: p.id, value: 9 })),
+        allProductsValue: 9,
+      }),
+    ],
+    storeScope: 'partial_include',
+    storeIds: ['s1'],
+    status: 'paused',
+    pausedAt: '2026-10-20 10:00:00',
+    startTime: '2026-09-01 00:00:00',
+    endTime: '2026-12-31 23:59:59',
+    creator: '10086',
+    creatorPhone: getCreatorProfile('10086').phone,
+    creatorOrg: getCreatorProfile('10086').org,
+    createdAt: '2026-08-28 09:00:00',
+    updatedAt: '2026-10-20 10:00:00',
+  }),
+  /** 待发布示意：门店与进行中储值活动错开，保证存量无冲突 */
+  seed({
+    id: 'MP20251030012',
+    name: '储值测试会员特惠',
+    title: '储值特惠',
+    tag: '会员价',
+    audienceType: 'specified_stored_value',
+    memberLevels: [],
+    priceMethod: 'discount',
+    productScope: 'all',
+    productIds: [],
+    productItems: [],
+    allProductsValue: 8.5,
+    groups: [
+      createEmptyMemberPriceOfferGroup({
+        id: 'mpg-sv-pending-1',
+        targetIds: ['sv_test', 'sv_default'],
+        priceMethod: 'discount',
+        productScope: 'all',
+        productSelectionMode: 'include',
+        productIds: [],
+        productItems: [],
+        allProductsValue: 8.5,
+      }),
+    ],
+    storeScope: 'partial_include',
+    storeIds: ['s1'],
+    status: 'pending',
+    startTime: '2026-11-01 00:00:00',
+    endTime: '2026-11-30 23:59:59',
+    creator: '205110',
+    creatorPhone: getCreatorProfile('205110').phone,
+    creatorOrg: getCreatorProfile('205110').org,
+    createdAt: '2026-10-28 14:00:00',
+    updatedAt: '2026-10-28 16:00:00',
+  }),
   seed({
     id: 'MP20250701002',
-    name: '金卡及以上特价9.9',
-    title: '金卡特价',
-    tag: '金卡价',
-    priceMethod: 'special_price',
-    memberLevels: ['gold', 'platinum', 'diamond'],
+    name: '分等级多组会员价',
+    title: '会员分档价',
+    tag: '会员价',
+    audienceType: 'specified_level',
+    memberLevels: ['gold', 'silver', 'diamond'],
+    priceMethod: 'fixed_reduction',
     productScope: 'partial',
-    productIds: products.slice(0, 80).map((p) => p.id),
-    productItems: products.slice(0, 80).map((p) => ({ productId: p.id, value: 9.9 })),
+    productIds: products.slice(0, 40).map((p) => p.id),
+    productItems: products.slice(0, 40).map((p) => ({ productId: p.id, value: 5 })),
+    groups: [
+      createEmptyMemberPriceOfferGroup({
+        id: 'mpg-demo-1',
+        targetIds: ['gold', 'silver'],
+        priceMethod: 'fixed_reduction',
+        productScope: 'partial',
+        productSelectionMode: 'include',
+        productIds: products.slice(0, 40).map((p) => p.id),
+        productItems: products.slice(0, 40).map((p) => ({ productId: p.id, value: 5 })),
+        allProductsValue: 5,
+      }),
+      createEmptyMemberPriceOfferGroup({
+        id: 'mpg-demo-2',
+        targetIds: ['diamond'],
+        priceMethod: 'discount',
+        productScope: 'partial',
+        productSelectionMode: 'include',
+        productIds: products.slice(40, 80).map((p) => p.id),
+        productItems: products.slice(40, 80).map((p) => ({ productId: p.id, value: 8 })),
+        allProductsValue: 8,
+      }),
+    ],
     storeScope: 'partial_include',
     storeIds: ['s1', 's2'],
     status: 'in_progress',
@@ -166,15 +406,50 @@ export const initialMemberPriceActivities: MemberPriceActivityForm[] = [
     updatedAt: '2026-07-01 08:00:00',
   }),
   seed({
+    id: 'MP20251030008',
+    name: '付费会员专享会员价',
+    title: '付费会员价',
+    tag: '会员价',
+    audienceType: 'paid_member_card_user',
+    memberLevels: [],
+    priceMethod: 'discount',
+    productScope: 'all',
+    productIds: [],
+    productItems: [],
+    allProductsValue: 8.5,
+    groups: [
+      createEmptyMemberPriceOfferGroup({
+        id: 'mpg-paid-1',
+        targetIds: [],
+        priceMethod: 'discount',
+        productScope: 'all',
+        productSelectionMode: 'include',
+        productIds: [],
+        productItems: [],
+        allProductsValue: 8.5,
+      }),
+    ],
+    status: 'in_progress',
+    startTime: '2026-10-01 00:00:00',
+    endTime: '2026-12-31 23:59:59',
+    creator: '10086',
+    creatorPhone: getCreatorProfile('10086').phone,
+    creatorOrg: getCreatorProfile('10086').org,
+    createdAt: '2026-09-28 10:00:00',
+    updatedAt: '2026-10-01 00:00:00',
+  }),
+  seed({
     id: 'MP20250705003',
     name: '银卡会员立减5元',
     priceMethod: 'fixed_reduction',
-    memberLevels: ['silver', 'gold'],
+    memberLevels: ['platinum'],
     productScope: 'partial',
     productIds: products.slice(10, 55).map((p) => p.id),
     productItems: products.slice(10, 55).map((p) => ({ productId: p.id, value: 5 })),
+    storeScope: 'partial_include',
+    storeIds: ['s3'],
     status: 'not_started',
-    startTime: '2026-08-01 00:00:00',
+    startTime: '2026-09-01 00:00:00',
     endTime: '2026-09-30 23:59:59',
     creator: '10086',
     creatorPhone: getCreatorProfile('10086').phone,
@@ -208,7 +483,11 @@ export const initialMemberPriceActivities: MemberPriceActivityForm[] = [
     productIds: products.slice(50, 110).map((p) => p.id),
     productItems: [],
     allProductsValue: 8.5,
+    storeScope: 'partial_include',
+    storeIds: ['s1'],
     status: 'pending',
+    startTime: '2026-12-01 00:00:00',
+    endTime: '2026-12-31 23:59:59',
     creator: '205110',
     creatorPhone: getCreatorProfile('205110').phone,
     creatorOrg: getCreatorProfile('205110').org,
@@ -258,14 +537,14 @@ export const initialMemberPriceActivities: MemberPriceActivityForm[] = [
     productScope: 'partial',
     productIds: ['p4', 'p5', 'p6'],
     productItems: [
-      { productId: 'p4', value: 9 },
+      { productId: 'p4', value: 9, sceneValues: { delivery: 8.5 } },
       { productId: 'p5', value: 9 },
       { productId: 'p6', value: 9 },
     ],
-    storeScope: 'partial_exclude',
+    storeScope: 'partial_include',
     storeIds: ['s3'],
     status: 'in_progress',
-    startTime: '2026-07-01 00:00:00',
+    startTime: '2026-09-01 00:00:00',
     endTime: '2026-10-31 23:59:59',
     creator: '205110',
     creatorPhone: getCreatorProfile('205110').phone,
@@ -292,7 +571,7 @@ export const initialMemberPriceActivities: MemberPriceActivityForm[] = [
     id: 'MP20250715010',
     name: '会员价1',
     priceMethod: 'discount',
-    memberLevels: ['normal', 'silver', 'gold', 'platinum', 'diamond'],
+    memberLevels: ['normal'],
     productScope: 'partial',
     productIds: ['p1', 'p2', 'p3', 'p4'],
     productItems: [
@@ -301,9 +580,11 @@ export const initialMemberPriceActivities: MemberPriceActivityForm[] = [
       { productId: 'p3', value: 9 },
       { productId: 'p4', value: 9 },
     ],
+    storeScope: 'partial_include',
+    storeIds: ['s4'],
     status: 'not_started',
-    startTime: '2026-08-15 00:00:00',
-    endTime: '2026-09-15 23:59:59',
+    startTime: '2026-11-01 00:00:00',
+    endTime: '2026-11-30 23:59:59',
     creator: '205110',
     creatorPhone: getCreatorProfile('205110').phone,
     creatorOrg: getCreatorProfile('205110').org,

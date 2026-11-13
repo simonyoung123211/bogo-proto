@@ -1,3 +1,5 @@
+import { ActivityListSearchPanel } from '../components/ActivityListSearchPanel'
+import { createAdvancedSearchChips } from '../utils/activitySearchChips'
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { ActivityOperationLogModal } from '../components/ActivityOperationLogModal'
 import { MemberPriceScopeSnapshotModal, type MemberPriceScopeSnapshotType } from '../components/MemberPriceScopeSnapshotModal'
@@ -44,6 +46,7 @@ interface PaidMemberPriceActivityListProps {
   activities: PaidMemberPriceActivityForm[]
   cards: PaidMemberCardTemplate[]
   onCreate: () => void
+  onOpenSettings: () => void
   onView: (id: string) => void
   onViewParticipation: (id: string) => void
   onEdit: (id: string) => void
@@ -83,6 +86,7 @@ export function PaidMemberPriceActivityList({
   activities,
   cards,
   onCreate,
+  onOpenSettings,
   onView,
   onViewParticipation,
   onEdit,
@@ -101,7 +105,6 @@ export function PaidMemberPriceActivityList({
   const [resumeTarget, setResumeTarget] = useState<PaidMemberPriceActivityForm | null>(null)
   const [voidTarget, setVoidTarget] = useState<PaidMemberPriceActivityForm | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<PaidMemberPriceActivityForm | null>(null)
-  const [filterExpanded, setFilterExpanded] = useState(false)
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [helpOpen, setHelpOpen] = useState(false)
   const [logTarget, setLogTarget] = useState<PaidMemberPriceActivityForm | null>(null)
@@ -127,7 +130,10 @@ export function PaidMemberPriceActivityList({
   const rangeStart = filtered.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1
   const rangeEnd = Math.min(currentPage * PAGE_SIZE, filtered.length)
 
-  useEffect(() => { setPage(1) }, [filters])
+  const updateFilters: typeof setFilters = (value) => {
+    setFilters(value)
+    setPage(1)
+  }
 
   const statusCounts = useMemo(
     () => countActivitiesByStatus(activities, filters, cards),
@@ -136,12 +142,11 @@ export function PaidMemberPriceActivityList({
   const overdueCount = countOverduePaused(activities, now)
 
   const setStatusTab = (status: PaidMemberPriceStatus | 'all') => {
-    setFilters((f) => ({ ...f, status }))
+    updateFilters((f) => ({ ...f, status }))
   }
 
   const resetFilters = () => {
-    setFilters(EMPTY_FILTERS)
-    setFilterExpanded(false)
+    updateFilters(EMPTY_FILTERS)
   }
 
   const copyActivityId = async (id: string, e: ReactMouseEvent) => {
@@ -185,7 +190,7 @@ export function PaidMemberPriceActivityList({
           <button
             type="button"
             className="link-btn"
-            onClick={() => setFilters((f) => ({ ...f, status: 'paused' }))}
+            onClick={() => updateFilters((f) => ({ ...f, status: 'paused' }))}
           >
             查看这些活动
           </button>
@@ -200,6 +205,10 @@ export function PaidMemberPriceActivityList({
           </div>
         </div>
         <div className="list-page-header__actions">
+          <button type="button" className="btn btn--default btn--icon" onClick={onOpenSettings}>
+            <span aria-hidden>⚙</span>
+            通用设置
+          </button>
           <button type="button" className="btn btn--default btn--icon" onClick={onGoToCards}>
             <IconCard />
             付费权益卡
@@ -221,18 +230,19 @@ export function PaidMemberPriceActivityList({
           ))}
         </div>
 
-        <div className="list-toolbar">
-          <div className="list-toolbar__fields">
-            <div className="filter-item">
-              <label>活动名称/ID</label>
-              <input className="input input--filter" value={filters.keyword} onChange={(e) => setFilters((f) => ({ ...f, keyword: e.target.value }))} placeholder="请输入活动名称或 ID" />
-            </div>
+        <ActivityListSearchPanel
+          values={filters}
+          resultCount={filtered.length}
+          onChange={(field, value) => updateFilters((current) => ({ ...current, [field]: value }))}
+          onReset={resetFilters}
+          advancedFilters={createAdvancedSearchChips(filters, EMPTY_FILTERS, [{ key: 'cardTemplateId', label: '关联权益卡', options: Object.fromEntries(cards.map((card) => [card.id, card.name])) }, { key: 'cardStatus', label: '卡在售状态', options: PAID_MEMBER_CARD_STATUS_LABELS }, { key: 'priceMethod', label: '优惠形式', options: MEMBER_PRICE_METHOD_LABELS }, { key: 'activityCode', label: '活动编码' }], (patch) => updateFilters((current) => ({ ...current, ...patch })))}
+          advancedFields={<>
             <div className="filter-item">
               <label>关联权益卡</label>
-              <select
+              <select aria-label="关联权益卡"
                 className="input input--filter"
                 value={filters.cardTemplateId}
-                onChange={(e) => setFilters((f) => ({ ...f, cardTemplateId: e.target.value }))}
+                onChange={(e) => updateFilters((f) => ({ ...f, cardTemplateId: e.target.value }))}
               >
                 <option value="all">全部</option>
                 {cards.map((c) => (
@@ -242,10 +252,10 @@ export function PaidMemberPriceActivityList({
             </div>
             <div className="filter-item">
               <label>卡在售状态</label>
-              <select
+              <select aria-label="卡在售状态"
                 className="input input--filter"
                 value={filters.cardStatus}
-                onChange={(e) => setFilters((f) => ({ ...f, cardStatus: e.target.value as PaidMemberPriceListFilters['cardStatus'] }))}
+                onChange={(e) => updateFilters((f) => ({ ...f, cardStatus: e.target.value as PaidMemberPriceListFilters['cardStatus'] }))}
               >
                 {(['all', 'on_sale', 'off_shelf', 'stopped'] as const).map((s) => (
                   <option key={s} value={s}>{PAID_MEMBER_CARD_STATUS_LABELS[s]}</option>
@@ -254,10 +264,10 @@ export function PaidMemberPriceActivityList({
             </div>
             <div className="filter-item">
               <label>优惠形式</label>
-              <select
+              <select aria-label="优惠形式"
                 className="input input--filter"
                 value={filters.priceMethod}
-                onChange={(e) => setFilters((f) => ({ ...f, priceMethod: e.target.value as PaidMemberPriceListFilters['priceMethod'] }))}
+                onChange={(e) => updateFilters((f) => ({ ...f, priceMethod: e.target.value as PaidMemberPriceListFilters['priceMethod'] }))}
               >
                 <option value="all">全部</option>
                 {(Object.keys(MEMBER_PRICE_METHOD_LABELS) as MemberPriceMethod[]).map((m) => (
@@ -265,44 +275,12 @@ export function PaidMemberPriceActivityList({
                 ))}
               </select>
             </div>
-          </div>
-          <div className="list-toolbar__actions">
-            <span className="list-toolbar__hint">筛选即时生效</span>
-            <button type="button" className="btn btn--default btn--icon btn--sm" onClick={resetFilters}><IconReset />重置</button>
-            <button type="button" className={`list-toolbar__toggle ${filterExpanded ? 'is-expanded' : ''}`} onClick={() => setFilterExpanded((v) => !v)}>
-              <IconFilter />更多筛选<IconChevron />
-            </button>
-          </div>
-        </div>
-
-        {filterExpanded && (
-          <div className="list-toolbar list-toolbar--expanded">
-            <div className="list-toolbar__fields">
-              <div className="filter-item">
-                <label>活动商品名称</label>
-                <input
-                  className="input input--filter"
-                  value={filters.productName}
-                  onChange={(e) => setFilters((f) => ({ ...f, productName: e.target.value }))}
-                  placeholder="请输入活动商品名称"
-                />
-              </div>
-              <div className="filter-item">
-                <label>活动商品 ID</label>
-                <input
-                  className="input input--filter"
-                  value={filters.productId}
-                  onChange={(e) => setFilters((f) => ({ ...f, productId: e.target.value }))}
-                  placeholder="请输入商品 ID 或 SKU ID"
-                />
-              </div>
-              <div className="filter-item">
+            <div className="filter-item">
                 <label>活动编码</label>
-                <input className="input input--filter" value={filters.activityCode} onChange={(e) => setFilters((f) => ({ ...f, activityCode: e.target.value }))} placeholder="请输入活动编码" />
+                <input aria-label="活动编码" className="input input--filter" value={filters.activityCode} onChange={(e) => updateFilters((f) => ({ ...f, activityCode: e.target.value }))} placeholder="请输入活动编码" />
               </div>
-            </div>
-          </div>
-        )}
+          </>}
+        />
       </div>
 
       <div className="table-wrap table-wrap--list">
@@ -622,8 +600,6 @@ function RowActionMenu({ open, onToggle, onClose, children }: { open: boolean; o
 
 function IconChevron() { return <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M3 4.5l3 3 3-3" /></svg> }
 function IconPlus() { return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><path d="M8 3v10M3 8h10" /></svg> }
-function IconFilter() { return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden><path d="M2 4h12M4 8h8M6 12h4" /></svg> }
-function IconReset() { return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden><path d="M3 8a5 5 0 019-2M13 8a5 5 0 01-9 2" /><path d="M12 3v3h-3M4 13v-3h3" /></svg> }
 function IconView() { return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden><circle cx="8" cy="8" r="2.5" /><path d="M2 8s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4z" /></svg> }
 function IconHelp() { return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden><circle cx="8" cy="8" r="6" /><path d="M6.2 6a2 2 0 013.5 1.5c0 1.5-2 1.5-2 3M8 12h.01" /></svg> }
 function IconCard() { return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden><rect x="2" y="4" width="12" height="8" rx="1.5" /><path d="M2 7h12" /></svg> }
