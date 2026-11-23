@@ -2,8 +2,9 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { STATUS_LABELS } from '../mockData'
 import type { LimitDiscountActivityForm } from '../types'
 import { resolveActivityProducts } from '../utils/activityProductSearch'
-import { channelSummary, formatCreatorDisplay, goodsScopeLabel, isPublishedLimitDiscount, sceneSummary, storeModeLabel } from '../utils/limitDiscountActivity'
+import { channelSummary, formatCreatorDisplay, goodsScopeLabel, isPublishedLimitDiscount, sceneLabel, sceneSummary, storeModeLabel } from '../utils/limitDiscountActivity'
 import { discountConflictCoverage, findDiscountConflicts, planDiscountConflictRemoval, type DiscountConflict } from '../utils/limitDiscountConflicts'
+import { hasSpecifiedDiscountAreas } from '../utils/limitDiscountScope'
 import { filterProductsByKeyword } from '../utils/productSearch'
 import { getResolvedStores } from '../utils/storeRegistry'
 import { DetailTable, limitDiscountTimeSummary } from './LimitDiscountConfigReview'
@@ -28,13 +29,19 @@ function collectStores(conflicts: DiscountConflict[], wholeStore = false): Confl
   for (const { stores: overlap } of conflicts) {
     for (const store of overlap) {
       const previous = stores.get(store.id)
-      if (wholeStore || store.areas === null || previous?.areas === null) {
+      if (wholeStore) {
         stores.set(store.id, { ...store, areas: null, areaIds: null })
         continue
       }
       const namesById = new Map((previous?.areaIds ?? []).map((id, index) => [id, previous?.areas?.[index] ?? id]))
       store.areaIds?.forEach((id, index) => namesById.set(id, store.areas?.[index] ?? id))
-      stores.set(store.id, { ...store, areas: [...namesById.values()], areaIds: [...namesById.keys()] })
+      const storeWideScenes = [...new Set([...(previous?.storeWideScenes ?? []), ...store.storeWideScenes])]
+      stores.set(store.id, {
+        ...store,
+        areas: namesById.size ? [...namesById.values()] : null,
+        areaIds: namesById.size ? [...namesById.keys()] : null,
+        storeWideScenes,
+      })
     }
   }
   return [...stores.values()]
@@ -42,7 +49,7 @@ function collectStores(conflicts: DiscountConflict[], wholeStore = false): Confl
 
 function scopeText(stores: ConflictStore[]) {
   const points = stores.reduce((total, store) => total + (store.areaIds?.length ?? 0), 0)
-  const wholeStores = stores.filter((store) => store.areaIds === null).length
+  const wholeStores = stores.filter((store) => store.areaIds === null || store.storeWideScenes.length > 0).length
   return [`${stores.length} 家门店`, points > 0 && wholeStores > 0 && `${wholeStores} 家整店`, points > 0 && `${points} 个点位`]
     .filter(Boolean).join(' · ')
 }
@@ -65,13 +72,13 @@ export function LimitDiscountConflicts({ conflicts, activity, activityIsSaved = 
   const [reviewing, setReviewing] = useState(false)
   const comparing = conflicts.find(({ activity }) => activity.id === comparisonId)
   const affected = collectStores(conflicts)
-  const specified = activity.areaMode === 'specified'
+  const specified = hasSpecifiedDiscountAreas(activity)
   const plan = onApply ? planDiscountConflictRemoval(activity, conflicts) : undefined
-  const canRemoveAll = plan?.kind === 'ready' && plan.after.stores > 0
-  const canReview = plan?.kind === 'ready' && (canRemoveAll || (
+  const canRemoveAll = plan?.kind === 'ready' && plan.canApply
+  const canReview = Boolean(plan) && (canRemoveAll || (
     conflicts.length > 1 && conflicts.some((conflict) => {
       const single = planDiscountConflictRemoval(activity, [conflict])
-      return single?.kind === 'ready' && single.after.stores > 0
+      return single?.kind === 'ready' && single.canApply
     })
   ))
   const published = isPublishedLimitDiscount(activity.status)
@@ -86,11 +93,11 @@ export function LimitDiscountConflicts({ conflicts, activity, activityIsSaved = 
         <span className="ld-conflict-panel__icon" aria-hidden="true">!</span>
         <div className="ld-conflict-panel__heading">
           <h3>检测到 {conflicts.length} 场冲突，暂不能{onNavigate ? '保存' : '提交'}</h3>
-          <p>涉及 {scopeText(affected)}。{plan?.kind === 'unavailable' && '当前按标签选店，可到参与门店调整范围。'}</p>
+          <p>涉及 {scopeText(affected)}。{plan?.kind === 'unavailable' && plan.message}</p>
           {plan?.kind === 'ready' && (
             <p className={canRemoveAll ? undefined : 'ld-conflict-panel__impact'}>
               全部排除后，覆盖范围从 {formatCoverage(plan.before, specified)} 变为 {formatCoverage(plan.after, specified)}。
-              {!canRemoveAll && (canReview ? '可分批排除，保留至少 1 家参与门店。' : '请调整活动配置，保留至少 1 家参与门店。')}
+              {!canRemoveAll && `${canReview ? '可分批排除' : '请调整活动配置'}，保留${specified ? '至少 1 个参与点位' : '至少 1 家参与门店'}。`}
             </p>
           )}
         </div>
@@ -169,7 +176,7 @@ function ConflictComparison({ activity, isSaved, conflict, onClose, onEdit, onAd
   const creator = formatCreatorDisplay(other)
   const allProducts = activity.goodsScope === 'all' && other.goodsScope === 'all'
   const span = (start: string, end: string) => <>{start}<br />至 {end}</>
-  const coverage = (item: Activity) => <>{storeModeLabel(item)}<small>实际覆盖 {formatCoverage(discountConflictCoverage(item), item.areaMode === 'specified')}</small></>
+  const coverage = (item: Activity) => <>{storeModeLabel(item)}<small>实际覆盖 {formatCoverage(discountConflictCoverage(item), hasSpecifiedDiscountAreas(item))}</small></>
   const jumpTo = (target: HTMLHeadingElement | null) => {
     target?.focus({ preventScroll: true })
     target?.scrollIntoView({ block: 'nearest' })
@@ -245,19 +252,19 @@ function RemovalPreview({ activity, conflicts, selectAllInitially, onClose, onAp
   const selected = conflicts.filter(({ activity }) => selectedIds.has(activity.id))
   const plan = planDiscountConflictRemoval(activity, selected)
   const change = plan?.kind === 'ready' ? plan : undefined
-  const specified = activity.areaMode === 'specified'
+  const specified = hasSpecifiedDiscountAreas(activity)
   const stores = collectStores(selected, !specified)
   const count = change ? (specified ? change.before.areas - change.after.areas : change.before.stores - change.after.stores) : 0
-  const remaining = conflicts.length > 1 && change?.after.stores
+  const remaining = conflicts.length > 1 && change?.canApply
     ? findDiscountConflicts(change.next, conflicts.map(({ activity }) => activity))
     : undefined
   return (
     <LimitDiscountConflictDialog title={specified ? '预览排除点位' : '预览排除门店'} onClose={onClose} footer={
       <>
         <button type="button" className="btn btn--default" onClick={onClose}>取消</button>
-        <button type="button" className="btn btn--primary" disabled={!count || !change?.after.stores}
+        <button type="button" className="btn btn--primary" disabled={!count || !change?.canApply}
           onClick={() => {
-            if (change?.after.stores && count) onApply(change.next, specified ? `已排除 ${count} 个冲突点位` : `已排除 ${count} 家冲突门店`)
+            if (change?.canApply && count) onApply(change.next, specified ? `已排除 ${count} 个冲突点位` : `已排除 ${count} 家冲突门店`)
           }}>确认排除</button>
       </>
     }>
@@ -291,8 +298,8 @@ function RemovalPreview({ activity, conflicts, selectAllInitially, onClose, onAp
             <div><dt>将排除</dt><dd>{specified ? `${count} 个点位 · 涉及 ${stores.length} 家门店` : scopeText(stores)}</dd></div>
             <div><dt>排除后剩余</dt><dd>{formatCoverage(change.after, specified)}</dd></div>
           </dl>
-          {change.after.stores === 0 ? (
-            <p className="alert-banner alert-banner--warning">排除后没有参与门店，请减少排除范围或返回调整配置。</p>
+          {!change.canApply ? (
+            <p className="alert-banner alert-banner--warning">排除后没有参与{specified ? '点位' : '门店'}，请减少排除范围或返回调整配置。</p>
           ) : (
             <>
               {remaining && (
@@ -315,7 +322,7 @@ function RemovalPreview({ activity, conflicts, selectAllInitially, onClose, onAp
           )}
           <ConflictStoreTable stores={stores} wholeStore={!specified} scopeHeading={specified ? '将排除点位' : '排除范围'} />
         </>
-      ) : <p className="field-hint">{selectAllInitially ? '请选择要处理的冲突活动。' : '请选择要先处理的活动。勾选全部会清空覆盖。'}</p>}
+      ) : <p className="field-hint">{plan?.kind === 'unavailable' ? plan.message : '请选择要处理的冲突活动。'}</p>}
     </LimitDiscountConflictDialog>
   )
 }
@@ -328,7 +335,14 @@ function ConflictStoreTable({ stores, wholeStore = false, scopeHeading = '重叠
   const [keyword, setKeyword] = useState('')
   const term = keyword.trim().toLowerCase()
   const storeById = new Map(getResolvedStores().map((store) => [store.id, store]))
-  const rows = stores.map((store) => ({ ...store, code: storeById.get(store.id)?.code ?? '—' }))
+  const rows = stores.map((store) => ({
+    ...store,
+    code: storeById.get(store.id)?.code ?? '—',
+    scope: wholeStore ? '整店' : [
+      store.storeWideScenes.length > 0 && `${store.storeWideScenes.map(sceneLabel).join('、')}（整店）`,
+      store.areas?.join('、'),
+    ].filter(Boolean).join(' · ') || '整店',
+  }))
     .filter(({ id, name, code, areas }) => [id, name, code, ...(areas ?? [])].some((value) => value.toLowerCase().includes(term)))
 
   return (
@@ -337,7 +351,7 @@ function ConflictStoreTable({ stores, wholeStore = false, scopeHeading = '重叠
         totalCount={stores.length} itemLabel="门店" placeholder={wholeStore ? '搜索门店名称、编码或 ID' : '搜索门店名称、编码、ID 或点位'} />
       <DetailTable key={term} rows={rows} rowKey={({ id }) => id} filtering={Boolean(term)} emptyText="未找到匹配的门店或点位" showSinglePageCount={false}
         columns={<><th>门店名称</th><th>门店编码</th><th>门店 ID</th><th>{scopeHeading}</th></>}
-        renderRow={({ name, code, id, areas }) => <><td>{name}</td><td>{code}</td><td>{id}</td><td>{areas?.join('、') ?? '整店'}</td></>} />
+        renderRow={({ name, code, id, scope }) => <><td>{name}</td><td>{code}</td><td>{id}</td><td>{scope}</td></>} />
     </div>
   )
 }

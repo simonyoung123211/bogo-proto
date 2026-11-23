@@ -19,7 +19,7 @@ import { MEMBER_TAG_OPTIONS, getCreatorProfile, products } from '../mockData'
 import { getLegacyLimitDiscountPerspective } from '../mockActivityPerspectives'
 import { createOperationLog, formatActivityDateTime, maskPhone } from './activity'
 import { matchesActivityProductFilters, resolveActivityProducts } from './activityProductSearch'
-import { discountAreaCoverage, resolveDiscountStoreScope } from './limitDiscountScope'
+import { discountAreaCoverage, hasSpecifiedDiscountAreas, isDiscountAreaScene, resolveDiscountStoreScope } from './limitDiscountScope'
 
 const CHANNEL_IDS = new Set<string>(LIMIT_DISCOUNT_CHANNELS.map((item) => item.id))
 const SCENE_IDS = new Set<string>(LIMIT_DISCOUNT_SCENES.map((item) => item.id))
@@ -82,6 +82,10 @@ export function defaultDiscountValue(method: LimitDiscountMethod, salePrice?: nu
 
 export function sceneLabel(sceneId: string): string {
   return LIMIT_DISCOUNT_SCENES.find((item) => item.id === sceneId)?.label ?? sceneId
+}
+
+export function discountAreaSceneSummary(activity: LimitDiscountActivityForm): string {
+  return activity.orderTypes.filter(isDiscountAreaScene).map(sceneLabel).join('、')
 }
 
 /** 商品在已选业务里单独设置过的力度；没有出现的业务按该商品的默认力度 */
@@ -309,8 +313,7 @@ export function previewSceneHint(activity: LimitDiscountActivityForm): string | 
   return `有分业务设置时，预览按${sceneLabel(sceneId)}`
 }
 
-export function previewPrice(product: Product, activity: LimitDiscountActivityForm, item?: LimitDiscountProductItem): number {
-  const sceneId = activity.orderTypes[0]
+export function previewPrice(product: Product, activity: LimitDiscountActivityForm, item?: LimitDiscountProductItem, sceneId = activity.orderTypes[0]): number {
   const value = activity.goodsScope === 'include'
     ? (item ? itemSceneValue(item, sceneId) : null)
     : itemSceneValue(sharedDiscountItem(activity), sceneId)
@@ -433,7 +436,7 @@ export function collectStepErrors(activity: LimitDiscountActivityForm, step: num
       errors.push(scopeError)
     } else if (eligibleStores.length === 0) {
       errors.push('当前范围内没有可参与门店，请调整门店范围')
-    } else if (activity.areaMode === 'specified') {
+    } else if (hasSpecifiedDiscountAreas(activity)) {
       const { availableStoreCount, selected } = discountAreaCoverage(activity, eligibleStores)
       if (!availableStoreCount) {
         errors.push('当前范围内没有可选点餐区，请调整门店范围或选择不限区域')
@@ -540,6 +543,8 @@ export function migrateLimitDiscountActivity(raw: Record<string, unknown>): Limi
   const defaults = createEmptyLimitDiscountActivity()
   const legacy = raw as Partial<LimitDiscountActivityForm>
   const legacyPerspective = getLegacyLimitDiscountPerspective(legacy.id)
+  const orderTypes = (legacy.orderTypes ?? defaults.orderTypes).filter((id) => SCENE_IDS.has(id))
+  const specified = legacy.areaMode === 'specified' && orderTypes.some(isDiscountAreaScene)
   return {
     ...defaults,
     ...legacy,
@@ -547,10 +552,10 @@ export function migrateLimitDiscountActivity(raw: Record<string, unknown>): Limi
     creatorOrg: !legacy.creatorPerspectiveId && legacyPerspective.type === 'store_group'
       ? legacyPerspective.name
       : legacy.creatorOrg ?? defaults.creatorOrg,
-    areaMode: legacy.areaMode === 'specified' ? 'specified' : 'all',
-    areaIdsByStore: legacy.areaIdsByStore ?? {},
+    areaMode: specified ? 'specified' : 'all',
+    areaIdsByStore: specified ? legacy.areaIdsByStore ?? {} : {},
     channels: (legacy.channels ?? defaults.channels).filter((id) => CHANNEL_IDS.has(id)),
-    orderTypes: (legacy.orderTypes ?? defaults.orderTypes).filter((id) => SCENE_IDS.has(id)),
+    orderTypes,
     weekDays: legacy.weekDays ?? defaults.weekDays,
     monthDays: legacy.monthDays ?? defaults.monthDays,
     timeSlots: legacy.timeSlots?.length ? legacy.timeSlots : defaults.timeSlots,

@@ -21,6 +21,7 @@ import {
   participantLabel,
   storeModeLabel,
 } from '../utils/limitDiscountActivity'
+import { hasSpecifiedDiscountAreas } from '../utils/limitDiscountScope'
 
 interface LimitDiscountActivityListProps {
   activities: LimitDiscountActivityForm[]
@@ -174,7 +175,7 @@ export function LimitDiscountActivityList(props: LimitDiscountActivityListProps)
             stores: (
               <>
                 <div>{storeModeLabel(activity)}</div>
-                {activity.areaMode === 'specified' && <div className="text-secondary">指定点餐区域</div>}
+                {hasSpecifiedDiscountAreas(activity) && <div className="text-secondary">指定点餐区域</div>}
               </>
             ),
             audience: participantLabel(activity),

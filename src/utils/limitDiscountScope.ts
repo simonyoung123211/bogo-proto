@@ -4,6 +4,14 @@ import { getResolvedStores } from './storeRegistry'
 
 type Activity = LimitDiscountActivityForm
 
+export function isDiscountAreaScene(sceneId: string) {
+  return sceneId === 'dine_in' || sceneId === 'pack'
+}
+
+export function hasSpecifiedDiscountAreas(activity: Activity) {
+  return activity.areaMode === 'specified' && activity.orderTypes.some(isDiscountAreaScene)
+}
+
 export function discountStoreScopeError(activity: Activity) {
   switch (activity.storeMode) {
     case 'include': return activity.storeIds.length ? undefined : '请先选择参与门店'
@@ -59,11 +67,14 @@ export function discountAreaRows(activity: Activity, catalog = discountAreaCatal
 }
 
 export function discountAreaCoverage(activity: Activity, stores: Store[]) {
-  const catalog = activity.areaMode === 'specified' ? discountAreaCatalog(stores) : []
+  const specified = hasSpecifiedDiscountAreas(activity)
+  const coversWholeStores = !specified || activity.orderTypes.some((scene) => !isDiscountAreaScene(scene))
+  const catalog = specified ? discountAreaCatalog(stores) : []
   const availableStoreCount = catalog.filter(({ areas }) => areas.some((area) => area.allowsDiscount)).length
   const selected = discountAreaRows(activity, catalog)
   const selectedAreaCount = selected.reduce((total, row) => total + row.areas.length, 0)
-  return { catalog, availableStoreCount, selected, selectedAreaCount }
+  const coveredStoreCount = coversWholeStores ? stores.length : selected.length
+  return { specified, coversWholeStores, catalog, availableStoreCount, selected, selectedAreaCount, coveredStoreCount }
 }
 
 export type DiscountAreaCoverage = ReturnType<typeof discountAreaCoverage>
@@ -83,8 +94,10 @@ export function updateAreaSelection(previous: Activity['areaIdsByStore'], groups
   return next
 }
 
-export function matchesDiscountEntry(activity: Activity, storeId: string, areaId: string | null) {
+export function matchesDiscountEntry(activity: Activity, storeId: string, areaId: string | null, sceneId = activity.orderTypes[0]) {
+  if (!activity.orderTypes.includes(sceneId)) return false
   if (!eligibleDiscountStores(activity).some((store) => store.id === storeId)) return false
+  if (!isDiscountAreaScene(sceneId)) return true
   if (areaId === null) return activity.areaMode !== 'specified'
   const areas = activity.areaMode === 'specified' ? selectedDiscountAreas(activity, storeId) : getDiscountAreas(storeId)
   return areas.some((area) => area.id === areaId && area.allowsDiscount)
@@ -92,8 +105,9 @@ export function matchesDiscountEntry(activity: Activity, storeId: string, areaId
 
 /** 已完成的门店配置在保存时移除超出范围的点位。 */
 export function retainEligibleAreaIds(activity: Activity): Activity {
-  if (activity.areaMode === 'specified' && discountStoreScopeError(activity)) return activity
-  const rows = activity.areaMode === 'specified' ? discountAreaRows(activity) : []
+  if (!hasSpecifiedDiscountAreas(activity)) return { ...activity, areaMode: 'all', areaIdsByStore: {} }
+  if (discountStoreScopeError(activity)) return activity
+  const rows = discountAreaRows(activity)
   return {
     ...activity,
     areaIdsByStore: Object.fromEntries(rows.map(({ store, areas }) => [store.id, areas.map((area) => area.id)])),

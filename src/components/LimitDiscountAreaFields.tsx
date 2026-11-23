@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { LimitDiscountActivityForm } from '../types'
+import { discountAreaSceneSummary } from '../utils/limitDiscountActivity'
 import {
   updateAreaSelection,
   type DiscountAreaCoverage,
@@ -18,9 +19,11 @@ interface Props {
 export function LimitDiscountAreaFields({ activity, coverage, scopeError, onChange }: Props) {
   const [picking, setPicking] = useState(false)
   const [marked, setMarked] = useState<LimitDiscountActivityForm['areaIdsByStore']>({})
-  const { catalog, availableStoreCount, selected, selectedAreaCount: count } = coverage
+  const { specified, coversWholeStores, catalog, availableStoreCount, selected, selectedAreaCount: count } = coverage
+  const areaScenes = discountAreaSceneSummary(activity)
+  const hasInactiveSelection = !areaScenes && activity.areaMode === 'specified' && Object.keys(activity.areaIdsByStore).length > 0
   const scopeStoreIds = new Set(catalog.map(({ store }) => store.id))
-  const outsideScope = activity.areaMode === 'specified' && !scopeError
+  const outsideScope = specified && !scopeError
     ? Object.entries(activity.areaIdsByStore).filter(([storeId, ids]) => ids.length && !scopeStoreIds.has(storeId))
     : []
   const outsideAreaCount = outsideScope.reduce((total, [, ids]) => total + ids.length, 0)
@@ -43,17 +46,23 @@ export function LimitDiscountAreaFields({ activity, coverage, scopeError, onChan
   }
 
   return (
-    <PromoFormRow label="区域限制" required>
+    <PromoFormRow label="区域限制" required={Boolean(areaScenes)}>
       <div className="radio-group">
         {(['all', 'specified'] as const).map((mode) => (
           <label className="radio" key={mode}>
-            <input type="radio" name="discountAreaMode" checked={activity.areaMode === mode}
+            <input type="radio" name="discountAreaMode" checked={mode === 'specified' ? specified : !specified}
+              disabled={mode === 'specified' && !areaScenes} aria-describedby="ld-area-scene-hint"
               onChange={() => { setMarked({}); onChange({ ...activity, areaMode: mode }) }} />
             {mode === 'all' ? '不限区域' : '指定区域'}
           </label>
         ))}
       </div>
-      {activity.areaMode === 'specified' && (
+      <p className="field-hint" id="ld-area-scene-hint">
+        {specified ? `${areaScenes}订单仅在已选点餐区域生效。` : '仅堂食和外带支持指定区域。'}
+        {specified && coversWholeStores && '其余已选业务按参与门店范围生效。'}
+        {hasInactiveSelection && '重新选择堂食或外带可恢复已选点位，保存当前配置将清除这些点位。'}
+      </p>
+      {specified && (
         <>
           <div className="ld-area-picker__bar">
             <button type="button" className="btn btn--primary" aria-haspopup="dialog"
@@ -120,7 +129,6 @@ export function LimitDiscountAreaFields({ activity, coverage, scopeError, onChan
               </table>
             </div>
           )}
-          {!scopeError && availableStoreCount > 0 && <p className="field-hint">活动仅在已选点餐区域生效。</p>}
           {picking && availableStoreCount > 0 && (
             <LimitDiscountAreaPicker
               catalog={catalog}

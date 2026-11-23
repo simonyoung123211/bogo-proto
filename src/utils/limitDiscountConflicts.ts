@@ -1,7 +1,10 @@
 import calendar from 'chinese-days/dist/chinese-days.json' with { type: 'json' }
 import type { LimitDiscountActivityForm as Activity } from '../types'
 import { resolveActivityProducts } from './activityProductSearch'
-import { discountAreaCoverage, eligibleDiscountStores, selectedDiscountAreas, updateAreaSelection } from './limitDiscountScope'
+import {
+  discountAreaCoverage, eligibleDiscountStores, hasSpecifiedDiscountAreas, isDiscountAreaScene,
+  selectedDiscountAreas, updateAreaSelection,
+} from './limitDiscountScope'
 
 const DAY = 86_400_000
 
@@ -78,7 +81,13 @@ export interface DiscountConflict {
   channels: string[]
   scenes: string[]
   productIds: string[]
-  stores: { id: string; name: string; areas: string[] | null; areaIds: string[] | null }[]
+  stores: {
+    id: string
+    name: string
+    areas: string[] | null
+    areaIds: string[] | null
+    storeWideScenes: string[]
+  }[]
 }
 
 export function findDiscountConflicts(target: Activity, activities: Activity[]): DiscountConflict[] {
@@ -93,39 +102,49 @@ export function findDiscountConflicts(target: Activity, activities: Activity[]):
     if (!channels.length || !scenes.length) continue
     const productIds = common(targetGoods, goods(other))
     if (!productIds.length) continue
+    const areaScenes = scenes.filter(isDiscountAreaScene)
+    const storeScenes = scenes.filter((scene) => !isDiscountAreaScene(scene))
+    const overlappingScenes = new Set(storeScenes)
     const stores: DiscountConflict['stores'] = []
     for (const store of eligibleDiscountStores(other)) {
       if (!storeIds.has(store.id)) continue
-      const left = target.areaMode === 'specified' ? selectedDiscountAreas(target, store.id) : null
-      const right = other.areaMode === 'specified' ? selectedDiscountAreas(other, store.id) : null
+      const left = areaScenes.length > 0 && target.areaMode === 'specified' ? selectedDiscountAreas(target, store.id) : null
+      const right = areaScenes.length > 0 && other.areaMode === 'specified' ? selectedDiscountAreas(other, store.id) : null
       const areas = left && right ? left.filter((area) => right.some((r) => r.id === area.id)) : left ?? right
-      if (areas?.length === 0) continue
-      stores.push({ id: store.id, name: store.name, areas: areas?.map((area) => area.name) ?? null, areaIds: areas?.map((area) => area.id) ?? null })
+      const hasAreaSceneOverlap = areaScenes.length > 0 && areas?.length !== 0
+      if (!hasAreaSceneOverlap && !storeScenes.length) continue
+      if (hasAreaSceneOverlap) areaScenes.forEach((scene) => overlappingScenes.add(scene))
+      stores.push({
+        id: store.id, name: store.name,
+        areas: areas?.length ? areas.map((area) => area.name) : null,
+        areaIds: areas?.length ? areas.map((area) => area.id) : null,
+        storeWideScenes: hasAreaSceneOverlap && areas === null ? scenes : storeScenes,
+      })
     }
     if (!stores.length) continue
     const time = overlappingTime(target, other)
-    if (time) results.push({ activity: other, stores, ...time, channels, scenes, productIds })
+    if (time) results.push({ activity: other, stores, ...time, channels, scenes: scenes.filter((scene) => overlappingScenes.has(scene)), productIds })
   }
   return results
 }
 
 export function discountConflictCoverage(activity: Activity) {
-  const stores = eligibleDiscountStores(activity)
-  const areas = discountAreaCoverage(activity, stores)
-  return {
-    stores: activity.areaMode === 'specified' ? areas.selected.length : stores.length,
-    areas: areas.selectedAreaCount,
-  }
+  const { coveredStoreCount, selectedAreaCount } = discountAreaCoverage(activity, eligibleDiscountStores(activity))
+  return { stores: coveredStoreCount, areas: selectedAreaCount }
 }
 
 export function planDiscountConflictRemoval(activity: Activity, conflicts: DiscountConflict[]) {
   if (!conflicts.length) return undefined
   const overlapping = conflicts.flatMap((conflict) => conflict.stores)
-  if (activity.areaMode === 'all' && (activity.storeMode === 'tag_include' || activity.storeMode === 'tag_exclude')) {
+  const specified = hasSpecifiedDiscountAreas(activity)
+  if (specified && overlapping.some((store) => store.storeWideScenes.length > 0)) {
+    return { kind: 'unavailable', message: '有业务在整店范围内重叠，请调整参与门店或活动时间。' } as const
+  }
+  if (!specified && (activity.storeMode === 'tag_include' || activity.storeMode === 'tag_exclude')) {
     return { kind: 'unavailable', message: '标签范围可返回「参与门店」调整。' } as const
   }
   let next: Activity
-  if (activity.areaMode === 'specified') {
+  if (specified) {
     const idsByStore = new Map<string, Set<string>>()
     for (const store of overlapping) {
       const ids = idsByStore.get(store.id) ?? new Set<string>()
@@ -144,5 +163,7 @@ export function planDiscountConflictRemoval(activity: Activity, conflicts: Disco
         ...(activity.storeMode === 'exclude' ? activity.storeIds : []), ...storeIds,
       ])] }
   }
-  return { kind: 'ready', next, before: discountConflictCoverage(activity), after: discountConflictCoverage(next) } as const
+  const after = discountConflictCoverage(next)
+  const canApply = after.stores > 0 && (!specified || after.areas > 0)
+  return { kind: 'ready', next, before: discountConflictCoverage(activity), after, canApply } as const
 }

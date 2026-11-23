@@ -8,7 +8,7 @@ try {
   const { findDiscountConflicts, planDiscountConflictRemoval } = await server.ssrLoadModule('/src/utils/limitDiscountConflicts.ts')
   const { discountAreaCoverage, eligibleDiscountStores, matchesDiscountEntry, resolveDiscountStoreScope, retainEligibleAreaIds } =
     await server.ssrLoadModule('/src/utils/limitDiscountScope.ts')
-  const { migrateLimitDiscountActivity, collectStepErrors, publishedLimitDiscountEditError } =
+  const { migrateLimitDiscountActivity, collectStepErrors, previewPrice, publishedLimitDiscountEditError } =
     await server.ssrLoadModule('/src/utils/limitDiscountActivity.ts')
   const original = { ...createEmptyLimitDiscountActivity(), id: 'original', status: 'pending', orderTypes: ['pack'],
     startTime: '2026-11-01 00:00:00', endTime: '2026-12-01 00:00:00',
@@ -124,6 +124,48 @@ try {
   assert.equal(matchesDiscountEntry(target, 's5', 'cafe'), false)
   assert.equal(matchesDiscountEntry(target, 's2', null), false)
   assert.ok(matchesDiscountEntry(old, 's2', null))
+
+  const mixed = { ...target, orderTypes: ['delivery', 'pack', 'dine_in'], storeMode: 'include', storeIds: ['s2', 's5', 's20'] }
+  const mixedCoverage = discountAreaCoverage(mixed, eligibleDiscountStores(mixed))
+  assert.equal(mixedCoverage.coveredStoreCount, 3)
+  assert.equal(mixedCoverage.selectedAreaCount, 2)
+  for (const scene of ['pack', 'dine_in']) {
+    assert.ok(matchesDiscountEntry(mixed, 's2', 'cafe', scene))
+    assert.equal(matchesDiscountEntry(mixed, 's2', null, scene), false)
+    assert.equal(matchesDiscountEntry(mixed, 's20', null, scene), false)
+  }
+  assert.ok(matchesDiscountEntry(mixed, 's20', null, 'delivery'))
+  assert.equal(matchesDiscountEntry(mixed, 's3', null, 'delivery'), false)
+  assert.equal(matchesDiscountEntry(mixed, 's2', 'cafe', 'group_pack'), false)
+  const scenePrices = { ...mixed, discountValue: 8, sceneDiscountValues: { delivery: 7, pack: 9 } }
+  assert.equal(previewPrice({ price: 20 }, scenePrices, undefined, 'pack'), 18)
+  assert.equal(previewPrice({ price: 20 }, scenePrices, undefined, 'delivery'), 14)
+
+  const nonAreaOnly = { ...mixed, orderTypes: ['delivery', 'delivery_pickup', 'group_dine_in', 'group_pack'] }
+  assert.deepEqual(collectStepErrors({ ...nonAreaOnly, areaIdsByStore: {} }, 1), [])
+  assert.equal(discountAreaCoverage(nonAreaOnly, eligibleDiscountStores(nonAreaOnly)).specified, false)
+  assert.ok(matchesDiscountEntry(nonAreaOnly, 's20', null, 'group_dine_in'))
+  for (const normalized of [migrateLimitDiscountActivity(nonAreaOnly), retainEligibleAreaIds(nonAreaOnly)]) {
+    assert.equal(normalized.areaMode, 'all')
+    assert.deepEqual(normalized.areaIdsByStore, {})
+  }
+
+  const mixedPeer = { ...original, orderTypes: ['pack', 'delivery'], storeMode: 'include', storeIds: mixed.storeIds }
+  const storeOverlap = hits(mixed, mixedPeer)[0]
+  assert.deepEqual(storeOverlap.scenes, ['delivery'])
+  assert.deepEqual(storeOverlap.stores.map(({ id, areaIds, storeWideScenes }) => [id, areaIds, storeWideScenes]),
+    [['s2', null, ['delivery']], ['s5', null, ['delivery']], ['s20', null, ['delivery']]])
+  assert.equal(planDiscountConflictRemoval(mixed, [storeOverlap]).kind, 'unavailable')
+  const bothScopes = hits({ ...mixed, areaIdsByStore: overlapping.areaIdsByStore }, mixedPeer)[0]
+  assert.deepEqual(bothScopes.scenes, ['delivery', 'pack'])
+  assert.deepEqual(bothScopes.stores[0].areaIds, ['library'])
+  assert.deepEqual(bothScopes.stores[0].storeWideScenes, ['delivery'])
+  const lastPoint = { ...mixed, areaIdsByStore: { s2: ['library'] } }
+  const lastPointPlan = planDiscountConflictRemoval(lastPoint, hits(lastPoint))
+  assert.equal(lastPointPlan.kind, 'ready')
+  assert.deepEqual(lastPointPlan.after, { stores: 3, areas: 0 })
+  assert.equal(lastPointPlan.canApply, false)
+
   const existingProduct = { productId: 'p1', discountValue: 8, sceneDiscountValues: { pack: 7 }, stock: 10 }
   const live = { ...target, status: 'in_progress', goodsScope: 'include', channels: ['wechat_mp'], productItems: [existingProduct] }
   const extend = { ...live, endTime: '2026-12-02 00:00:00', channels: [...live.channels, 'pos'],
@@ -134,7 +176,7 @@ try {
   assert.ok(publishedLimitDiscountEditError(live, { ...extend, channels: ['pos'] }))
   assert.ok(publishedLimitDiscountEditError(live, { ...extend, productItems: [{ ...existingProduct, discountValue: 7 }] }))
   assert.ok(publishedLimitDiscountEditError(live, { ...extend, productItems: extend.productItems.slice(1) }))
-  console.log('通过：区域范围、多场冲突去重与分批重算、发布后锁定、时段周期、门店策略、标签去重和点餐入口。')
+  console.log('通过：业务与区域联动、区域范围、多场冲突与分批重算、发布后锁定、时段周期、门店策略、标签去重和点餐入口。')
 } finally {
   await server.close()
 }

@@ -6,7 +6,7 @@ import { discountAreaCoverage, resolveDiscountStoreScope } from '../utils/limitD
 import { matchesProductKeyword } from '../utils/productSearch'
 import { getResolvedStores } from '../utils/storeRegistry'
 import {
-  channelSummary, discountStrengthSummary, discountValueLabel, formatDiscountValue, goodsScopeLabel,
+  channelSummary, discountAreaSceneSummary, discountStrengthSummary, discountValueLabel, formatDiscountValue, goodsScopeLabel,
   memberTagLabels, participantLabel, sceneLabel, sceneOverrides, sceneSummary, sharedDiscountItem,
   storeModeLabel, storeTagLabels,
 } from '../utils/limitDiscountActivity'
@@ -44,7 +44,7 @@ export function LimitDiscountConfigReview({ activity, onEdit, showTrial = false 
   showTrial?: boolean
 }) {
   const { eligibleStores, policyExcludedStores } = resolveDiscountStoreScope(activity)
-  const { selected, selectedAreaCount } = discountAreaCoverage(activity, eligibleStores)
+  const { specified, coversWholeStores, selected, selectedAreaCount, coveredStoreCount } = discountAreaCoverage(activity, eligibleStores)
   const activeTags = activity.storeMode === 'tag_include' || activity.storeMode === 'tag_exclude'
     ? storeTagLabels(activity.storeTagIds) : ''
   const overrides = activity.goodsScope === 'include' ? [] : sceneOverrides(activity, sharedDiscountItem(activity))
@@ -86,14 +86,15 @@ export function LimitDiscountConfigReview({ activity, onEdit, showTrial = false 
       <Review title="参与门店与点餐区域" editLabel="修改门店与点位" onEdit={onEdit && (() => onEdit(1))} rows={[
         ['门店范围', `${storeModeLabel(activity)}${activeTags ? `（${activeTags}）` : ''}`],
         ['门店策略扣除', `${policyExcludedStores.length} 家`],
-        ['区域限制', activity.areaMode === 'specified' ? `指定区域 · ${selectedAreaCount} 个点位` : '不限区域'],
-        ['配置覆盖', `${activity.areaMode === 'specified' ? selected.length : eligibleStores.length} 家门店`],
+        ['区域限制', specified ? `${discountAreaSceneSummary(activity)} · 指定 ${selectedAreaCount} 个点位` : '不限区域'],
+        ['配置覆盖', `${coveredStoreCount} 家门店`],
       ]}>
+        {specified && coversWholeStores && <p className="field-hint">其余已选业务按参与门店范围生效。</p>}
         <StoreDetail activity={activity} />
         {selected.length > 0 && (
           <ul className="ld-area-summary">{selected.map(({ store, areas }) => <li key={store.id}>{store.name} · {areas.map(({ name }) => name).join('、')}</li>)}</ul>
         )}
-        {showTrial && activity.areaMode === 'specified' && <LimitDiscountAreaPreview activity={activity} />}
+        {showTrial && specified && <LimitDiscountAreaPreview activity={activity} />}
       </Review>
       <Review title="商品与优惠" editLabel="修改商品与优惠" onEdit={onEdit && (() => onEdit(2))} rows={[
         ['参与商品', goodsScopeLabel(activity)],

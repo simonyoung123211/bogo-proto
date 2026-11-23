@@ -39,7 +39,7 @@ export function LimitDiscountStoreScopeFields({ activity, onChange }: Props) {
   const [details, setDetails] = useState<StoreDetails | null>(null)
   const [pickingTags, setPickingTags] = useState(false)
   const [reversed, setReversed] = useState(false)
-  const { storeMode, storeIds, storeTagIds, areaMode } = activity
+  const { storeMode, storeIds, storeTagIds } = activity
   const { scopeError, openStores, tagMatches, matchedStores, policyExcludedStores, eligibleStores } = resolveDiscountStoreScope(activity)
   const coverage = discountAreaCoverage(activity, eligibleStores)
   const byStore = storeMode === 'include' || storeMode === 'exclude'
@@ -166,7 +166,7 @@ export function LimitDiscountStoreScopeFields({ activity, onChange }: Props) {
               </dd>
             </div>
             <div><dt>实际可参与</dt><dd>{eligibleStores.length} 家</dd></div>
-            {areaMode === 'specified' && (
+            {coverage.specified && (
               <>
                 <div><dt>有可选点餐区</dt><dd>{coverage.availableStoreCount} 家</dd></div>
                 <div><dt>已选点位覆盖</dt><dd>{coverage.selected.length} 家 · {coverage.selectedAreaCount} 个区域</dd></div>

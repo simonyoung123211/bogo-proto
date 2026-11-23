@@ -7,7 +7,7 @@ import { STATUS_LABELS } from '../mockData'
 import type { LimitDiscountActivityForm } from '../types'
 import { maskPhone } from '../utils/activity'
 import { canPause, canResume, isExpired } from '../utils/activityPause'
-import { canEditLimitDiscount, channelSummary, discountStrengthSummary, isPublishedLimitDiscount } from '../utils/limitDiscountActivity'
+import { canEditLimitDiscount, channelSummary, discountAreaSceneSummary, discountStrengthSummary, isPublishedLimitDiscount } from '../utils/limitDiscountActivity'
 import { discountAreaCoverage, resolveDiscountStoreScope } from '../utils/limitDiscountScope'
 
 const TABS = [
@@ -45,7 +45,7 @@ export function LimitDiscountActivityDetail({
   const logs = [...(activity.operationLogs ?? [])].sort((left, right) => right.operatedAt.localeCompare(left.operatedAt))
   const scope = resolveDiscountStoreScope(activity)
   const coverage = discountAreaCoverage(activity, scope.eligibleStores)
-  const coveredStores = activity.areaMode === 'specified' ? coverage.selected.length : scope.eligibleStores.length
+  const areaScenes = discountAreaSceneSummary(activity)
   const now = Date.now()
   const expired = isExpired(activity, now)
 
@@ -109,7 +109,7 @@ export function LimitDiscountActivityDetail({
                 {(published || status === 'ended') && <ActivityProgress activity={activity} now={now} />}
                 <dl className="ld-review-card__rows">
                   <div><dt>投放渠道</dt><dd>{channelSummary(activity)}</dd></div>
-                  <div><dt>配置覆盖</dt><dd><button type="button" className="link-btn" onClick={() => setTab('stores')}>{coveredStores} 家门店</button></dd></div>
+                  <div><dt>配置覆盖</dt><dd><button type="button" className="link-btn" onClick={() => setTab('stores')}>{coverage.coveredStoreCount} 家门店</button></dd></div>
                 </dl>
               </div>
             </section>
@@ -123,7 +123,7 @@ export function LimitDiscountActivityDetail({
                   <div><dt>商品优惠</dt><dd>{discountStrengthSummary(activity)}</dd></div>
                   <div><dt>消费门槛</dt><dd>{activity.thresholdType === 'limited' ? `满 ${activity.thresholdAmount} 元` : '不限'}</dd></div>
                   <div><dt>用户限购</dt><dd>{limitDiscountUserLimits(activity)}</dd></div>
-                  <div><dt>区域限制</dt><dd>{activity.areaMode === 'specified' ? `已选 ${coverage.selectedAreaCount} 个点位` : '不限区域'}</dd></div>
+                  <div><dt>区域限制</dt><dd>{coverage.specified ? `${areaScenes} · 已选 ${coverage.selectedAreaCount} 个点位` : '不限区域'}</dd></div>
                 </dl>
               </div>
             </section>
@@ -203,10 +203,10 @@ function StoreCoverage({ activity, scope, coverage }: {
   coverage: ReturnType<typeof discountAreaCoverage>
 }) {
   const [keyword, setKeyword] = useState('')
-  const specified = activity.areaMode === 'specified'
-  const members = specified
-    ? coverage.selected.map(({ store, areas }) => ({ store, pointNames: areas.map(({ name }) => name).join('、') }))
-    : scope.eligibleStores.map((store) => ({ store, pointNames: '不限区域' }))
+  const { specified, coversWholeStores } = coverage
+  const pointsByStore = new Map(coverage.selected.map(({ store, areas }) => [store.id, areas.map(({ name }) => name).join('、')]))
+  const stores = coversWholeStores ? scope.eligibleStores : coverage.selected.map(({ store }) => store)
+  const members = stores.map((store) => ({ store, pointNames: specified ? pointsByStore.get(store.id) ?? '未选点位' : '不限区域' }))
   const term = keyword.trim().toLowerCase()
   const filtered = members.filter(({ store, pointNames }) =>
     [store.name, store.code, store.id, pointNames].some((value) => value.toLowerCase().includes(term)))
@@ -223,6 +223,7 @@ function StoreCoverage({ activity, scope, coverage }: {
             <div><dt>配置覆盖</dt><dd>{members.length} 家{specified && ` · ${coverage.selectedAreaCount} 个点位`}</dd></div>
           </dl>
         )}
+        {specified && coversWholeStores && <p className="field-hint">其余已选业务按参与门店范围生效。</p>}
         {activity.status !== 'in_progress' && <p className="field-hint">以上是按当前配置核对的范围。</p>}
         {scope.policyExcludedStores.length > 0 && (
           <details className="ld-entry-preview">
@@ -238,7 +239,10 @@ function StoreCoverage({ activity, scope, coverage }: {
               totalCount={members.length} itemLabel="门店" placeholder="搜索门店名称、编码、ID 或点位" />
             <DetailTable key={term} rows={filtered} rowKey={({ store }) => store.id} filtering={Boolean(term)}
               emptyText="未找到匹配的门店或点位"
-              columns={<><th>可参与门店</th><th>门店编码</th><th>门店 ID</th><th>适用点餐区域</th></>}
+              columns={<>
+                <th scope="col">可参与门店</th><th scope="col">门店编码</th><th scope="col">门店 ID</th>
+                <th scope="col">{specified ? `${discountAreaSceneSummary(activity)}点餐区域` : '适用点餐区域'}</th>
+              </>}
               renderRow={({ store, pointNames }) => <><td>{store.name}</td><td>{store.code}</td><td>{store.id}</td><td>{pointNames}</td></>} />
           </>
         )}
