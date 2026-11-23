@@ -1,35 +1,72 @@
-import { getDiscountAreas, storeHasDiscountTag } from '../mockLimitDiscountAreas'
-import type { LimitDiscountActivityForm } from '../types'
+import { DISCOUNT_STORE_POLICY_REASONS, getDiscountAreas, storeHasDiscountTag } from '../mockLimitDiscountAreas'
+import type { LimitDiscountActivityForm, Store } from '../types'
 import { getResolvedStores } from './storeRegistry'
 
 type Activity = LimitDiscountActivityForm
 
-export function eligibleDiscountStores(activity: Activity) {
-  return getResolvedStores().filter((store) => {
-    if (store.status === 'closed') return false
+export function discountStoreScopeError(activity: Activity) {
+  switch (activity.storeMode) {
+    case 'include': return activity.storeIds.length ? undefined : '请先选择参与门店'
+    case 'exclude': return activity.storeIds.length ? undefined : '请先选择不参与门店'
+    case 'tag_include': return activity.storeTagIds.length ? undefined : '请先选择参与活动的门店标签'
+    case 'tag_exclude': return activity.storeTagIds.length ? undefined : '请先选择不参与活动的门店标签'
+  }
+}
+
+export function resolveDiscountStoreScope(activity: Activity) {
+  const openStores = getResolvedStores().filter((store) => store.status === 'open')
+  const scopeError = discountStoreScopeError(activity)
+  const tagsApply = activity.storeMode === 'tag_include' || activity.storeMode === 'tag_exclude'
+  const tagMatches = tagsApply
+    ? openStores.filter((store) => activity.storeTagIds.some((tag) => storeHasDiscountTag(store.id, tag)))
+    : []
+  const taggedIds = new Set(tagMatches.map((store) => store.id))
+  const selectedIds = new Set(activity.storeIds)
+  const matchedStores = scopeError ? [] : openStores.filter(({ id }) => {
     switch (activity.storeMode) {
-      case 'include': return activity.storeIds.includes(store.id)
-      case 'exclude': return !activity.storeIds.includes(store.id)
-      case 'tag_include': return activity.storeTagIds.some((tag) => storeHasDiscountTag(store.id, tag))
-      case 'tag_exclude': return !activity.storeTagIds.some((tag) => storeHasDiscountTag(store.id, tag))
+      case 'include': return selectedIds.has(id)
+      case 'exclude': return !selectedIds.has(id)
+      case 'tag_include': return taggedIds.has(id)
+      case 'tag_exclude': return !taggedIds.has(id)
       default: return true
     }
   })
+  const policyExcludedStores = matchedStores.filter((store) => DISCOUNT_STORE_POLICY_REASONS[store.id])
+  const eligibleStores = matchedStores.filter((store) => !DISCOUNT_STORE_POLICY_REASONS[store.id])
+  return { scopeError, openStores, tagMatches, matchedStores, policyExcludedStores, eligibleStores }
 }
 
-export function selectedDiscountAreas(activity: Activity, storeId: string) {
+export function eligibleDiscountStores(activity: Activity) {
+  return resolveDiscountStoreScope(activity).eligibleStores
+}
+
+function discountAreaCatalog(stores: Store[]) {
+  return stores.map((store) => ({ store, areas: getDiscountAreas(store.id) }))
+}
+
+export type DiscountAreaRows = ReturnType<typeof discountAreaCatalog>
+
+export function selectedDiscountAreas(activity: Activity, storeId: string, areas = getDiscountAreas(storeId)) {
   const selected = activity.areaIdsByStore?.[storeId] ?? []
-  return getDiscountAreas(storeId).filter((area) => selected.includes(area.id) && area.allowsDiscount)
+  return areas.filter((area) => selected.includes(area.id) && area.allowsDiscount)
 }
 
-export function discountAreaRows(activity: Activity) {
-  return eligibleDiscountStores(activity).map((store) => ({
+export function discountAreaRows(activity: Activity, catalog = discountAreaCatalog(eligibleDiscountStores(activity))) {
+  return catalog.map(({ store, areas }) => ({
     store,
-    areas: selectedDiscountAreas(activity, store.id),
+    areas: selectedDiscountAreas(activity, store.id, areas),
   })).filter((row) => row.areas.length > 0)
 }
 
-export type DiscountAreaRows = ReturnType<typeof discountAreaRows>
+export function discountAreaCoverage(activity: Activity, stores: Store[]) {
+  const catalog = activity.areaMode === 'specified' ? discountAreaCatalog(stores) : []
+  const availableStoreCount = catalog.filter(({ areas }) => areas.some((area) => area.allowsDiscount)).length
+  const selected = discountAreaRows(activity, catalog)
+  const selectedAreaCount = selected.reduce((total, row) => total + row.areas.length, 0)
+  return { catalog, availableStoreCount, selected, selectedAreaCount }
+}
+
+export type DiscountAreaCoverage = ReturnType<typeof discountAreaCoverage>
 
 export function updateAreaSelection(previous: Activity['areaIdsByStore'], groups: DiscountAreaRows, checked: boolean) {
   const next = { ...previous }
@@ -53,8 +90,9 @@ export function matchesDiscountEntry(activity: Activity, storeId: string, areaId
   return areas.some((area) => area.id === areaId && area.allowsDiscount)
 }
 
-/** 门店范围改变时移除超出新范围的点位。 */
+/** 已完成的门店配置在保存时移除超出范围的点位。 */
 export function retainEligibleAreaIds(activity: Activity): Activity {
+  if (activity.areaMode === 'specified' && discountStoreScopeError(activity)) return activity
   const rows = activity.areaMode === 'specified' ? discountAreaRows(activity) : []
   return {
     ...activity,

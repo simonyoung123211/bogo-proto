@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { getDiscountAreas } from '../mockLimitDiscountAreas'
 import type { LimitDiscountActivityForm } from '../types'
-import { eligibleDiscountStores, updateAreaSelection, type DiscountAreaRows } from '../utils/limitDiscountScope'
+import { updateAreaSelection, type DiscountAreaRows } from '../utils/limitDiscountScope'
 
 type AreaSelection = LimitDiscountActivityForm['areaIdsByStore']
+type Area = DiscountAreaRows[number]['areas'][number]
 
 interface Props {
-  activity: LimitDiscountActivityForm
+  catalog: DiscountAreaRows
+  selectedAreas: AreaSelection
   onConfirm: (value: AreaSelection) => void
   onClose: () => void
 }
@@ -22,8 +23,8 @@ export function AreaBatchCheckbox({ selected, total, label, onChange }: {
   )
 }
 
-export function LimitDiscountAreaPicker({ activity, onConfirm, onClose }: Props) {
-  const [draft, setDraft] = useState<AreaSelection>(activity.areaIdsByStore)
+export function LimitDiscountAreaPicker({ catalog, selectedAreas, onConfirm, onClose }: Props) {
+  const [draft, setDraft] = useState<AreaSelection>(selectedAreas)
   const [keyword, setKeyword] = useState('')
   const dialogRef = useRef<HTMLDialogElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
@@ -39,13 +40,12 @@ export function LimitDiscountAreaPicker({ activity, onConfirm, onClose }: Props)
   }, [])
 
   const term = keyword.trim().toLowerCase()
-  const catalog = eligibleDiscountStores(activity).map((store) => ({ store, areas: getDiscountAreas(store.id) }))
   const visible = catalog.flatMap(({ store, areas }) => {
     if ([store.name, store.code, store.id].some((value) => value.toLowerCase().includes(term))) return [{ store, areas }]
     const matches = areas.filter((area) => area.name.toLowerCase().includes(term))
     return matches.length ? [{ store, areas: matches }] : []
   })
-  const isSelected = (storeId: string, area: ReturnType<typeof getDiscountAreas>[number]) =>
+  const isSelected = (storeId: string, area: Area) =>
     area.allowsDiscount && !!draft[storeId]?.includes(area.id)
   const chosen = catalog.map(({ store, areas }) => ({
     store, areas: areas.filter((area) => isSelected(store.id, area)),
@@ -108,7 +108,7 @@ export function LimitDiscountAreaPicker({ activity, onConfirm, onClose }: Props)
                 </div>
               )
             })}
-            {!visible.length && <p className="ld-area-dialog__empty">{catalog.length ? '没有匹配的门店或区域' : '请先选择参与门店'}</p>}
+            {!visible.length && <p className="ld-area-dialog__empty">当前门店范围内没有匹配的门店或区域</p>}
           </div>
         </section>
         <aside className="ld-area-dialog__selected" aria-label="已选区域">

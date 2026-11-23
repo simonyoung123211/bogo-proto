@@ -1,19 +1,33 @@
 import { useState } from 'react'
 import type { LimitDiscountActivityForm } from '../types'
-import { discountAreaRows, updateAreaSelection, type DiscountAreaRows } from '../utils/limitDiscountScope'
+import {
+  updateAreaSelection,
+  type DiscountAreaCoverage,
+  type DiscountAreaRows,
+} from '../utils/limitDiscountScope'
 import { AreaBatchCheckbox, LimitDiscountAreaPicker } from './LimitDiscountAreaPicker'
 import { PromoFormRow } from './promoWizardUi'
 
 interface Props {
   activity: LimitDiscountActivityForm
+  coverage: DiscountAreaCoverage
+  scopeError?: string
   onChange: (value: LimitDiscountActivityForm) => void
 }
 
-export function LimitDiscountAreaFields({ activity, onChange }: Props) {
+export function LimitDiscountAreaFields({ activity, coverage, scopeError, onChange }: Props) {
   const [picking, setPicking] = useState(false)
   const [marked, setMarked] = useState<LimitDiscountActivityForm['areaIdsByStore']>({})
-  const selected = discountAreaRows(activity)
-  const count = selected.reduce((total, row) => total + row.areas.length, 0)
+  const { catalog, availableStoreCount, selected, selectedAreaCount: count } = coverage
+  const scopeStoreIds = new Set(catalog.map(({ store }) => store.id))
+  const outsideScope = activity.areaMode === 'specified' && !scopeError
+    ? Object.entries(activity.areaIdsByStore).filter(([storeId, ids]) => ids.length && !scopeStoreIds.has(storeId))
+    : []
+  const outsideAreaCount = outsideScope.reduce((total, [, ids]) => total + ids.length, 0)
+  const scopeHint = scopeError ?? (catalog.length === 0
+    ? '当前范围内没有可参与门店'
+    : availableStoreCount === 0 ? '当前范围内没有可选点餐区' : `${availableStoreCount} 家门店可选点餐区`)
+
   const toRemove = selected.map(({ store, areas }) => ({
     store, areas: areas.filter((area) => marked[store.id]?.includes(area.id)),
   })).filter((row) => row.areas.length > 0)
@@ -42,14 +56,26 @@ export function LimitDiscountAreaFields({ activity, onChange }: Props) {
       {activity.areaMode === 'specified' && (
         <>
           <div className="ld-area-picker__bar">
-            <button type="button" className="btn btn--primary" aria-haspopup="dialog" onClick={() => setPicking(true)}>选择区域</button>
+            <button type="button" className="btn btn--primary" aria-haspopup="dialog"
+              aria-describedby="ld-area-scope-hint" disabled={!availableStoreCount}
+              onClick={() => setPicking(true)}>选择区域</button>
             {count > 0 && (
               <button type="button" className="btn btn--default ld-area-remove" disabled={!removeCount} onClick={removeMarked}>
                 批量移除{removeCount > 0 && `（${removeCount}）`}
               </button>
             )}
-            <span aria-live="polite">已选 {selected.length} 家门店 · {count} 个区域</span>
+            <span id="ld-area-scope-hint" role="status">{scopeHint}</span>
+            {!scopeError && <span aria-live="polite">已选 {selected.length} 家门店 · {count} 个区域</span>}
           </div>
+          {availableStoreCount > 0 && availableStoreCount < catalog.length && (
+            <p className="field-hint">实际可参与的 {catalog.length} 家门店中，有 {catalog.length - availableStoreCount} 家暂无可选点餐区。</p>
+          )}
+          {outsideAreaCount > 0 && (
+            <div className="alert-banner alert-banner--warning" role="status">
+              <span className="alert-banner__icon" aria-hidden="true">!</span>
+              <span>{outsideScope.length} 家门店的 {outsideAreaCount} 个已选区域已超出当前门店范围，保存时将移除。</span>
+            </div>
+          )}
           {count > 0 && (
             <div className="ld-selected-areas">
               <table className="table table--compact" aria-label="已选区域明细">
@@ -94,10 +120,11 @@ export function LimitDiscountAreaFields({ activity, onChange }: Props) {
               </table>
             </div>
           )}
-          <p className="field-hint">仅从已选门店的指定区域进入点餐时可享受本活动。</p>
-          {picking && (
+          {!scopeError && availableStoreCount > 0 && <p className="field-hint">活动仅在已选点餐区域生效。</p>}
+          {picking && availableStoreCount > 0 && (
             <LimitDiscountAreaPicker
-              activity={activity}
+              catalog={catalog}
+              selectedAreas={activity.areaIdsByStore}
               onClose={() => setPicking(false)}
               onConfirm={(areaIdsByStore) => {
                 onChange({ ...activity, areaIdsByStore })

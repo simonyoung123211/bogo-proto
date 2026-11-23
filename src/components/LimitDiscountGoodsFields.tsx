@@ -8,10 +8,11 @@ import { matchesProductKeyword } from '../utils/productSearch'
 interface LimitDiscountGoodsFieldsProps {
   activity: LimitDiscountActivityForm
   readOnly?: boolean
+  published?: LimitDiscountActivityForm
   onChange: (activity: LimitDiscountActivityForm) => void
 }
 
-export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: LimitDiscountGoodsFieldsProps) {
+export function LimitDiscountGoodsFields({ activity, readOnly, published, onChange }: LimitDiscountGoodsFieldsProps) {
   const [picking, setPicking] = useState(false)
   const [keyword, setKeyword] = useState('')
   const [checked, setChecked] = useState<string[]>([])
@@ -25,6 +26,10 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
   const perProduct = activity.goodsScope === 'include'
   const scenes = activity.orderTypes
   const sharedItem = sharedDiscountItem(activity)
+  const fixedIds = published?.productItems.map((item) => item.productId)
+  const itemLocked = (id: string) => Boolean(readOnly || fixedIds?.includes(id))
+  const sharedLocked = readOnly || Boolean(published)
+  const canPick = !readOnly && (!published || perProduct)
 
   const rows = useMemo(() => {
     const kw = keyword.trim().toLowerCase()
@@ -80,7 +85,7 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
             ['special_price', '指定价格'],
           ] as const).map(([value, label]) => (
             <label key={value} className="radio">
-              <input type="radio" disabled={readOnly} checked={activity.discountMethod === value} onChange={() => onChange(applyDiscountMethod(activity, value as LimitDiscountMethod))} />
+              <input type="radio" disabled={sharedLocked} checked={activity.discountMethod === value} onChange={() => onChange(applyDiscountMethod(activity, value as LimitDiscountMethod))} />
               {label}
             </label>
           ))}
@@ -94,6 +99,7 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
               ? '余下商品共用一个默认力度，所有业务都按它执行。个别业务需要不同力度时，点「分业务设置」单独填写，没填的业务仍按默认力度。'
               : '全部商品共用一个默认力度，所有业务都按它执行。个别业务需要不同力度时，点「分业务设置」单独填写，没填的业务仍按默认力度。'}
         </p>
+        {published && <p className="field-hint">活动已发布，已投放商品的优惠和库存已锁定。指定商品仍可追加。</p>}
         {scenes.length === 0 && (
           <p className="field-hint">分业务设置前，请先在基础信息里选择参与业务/场景。</p>
         )}
@@ -106,7 +112,7 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
             ['exclude', '指定商品不参与'],
           ] as const).map(([value, label]) => (
             <label key={value} className="radio">
-              <input type="radio" disabled={readOnly} checked={activity.goodsScope === value} onChange={() => { setKeyword(''); setChecked([]); onChange({ ...activity, goodsScope: value }) }} />
+              <input type="radio" disabled={sharedLocked} checked={activity.goodsScope === value} onChange={() => { setKeyword(''); setChecked([]); onChange({ ...activity, goodsScope: value }) }} />
               {label}
             </label>
           ))}
@@ -125,13 +131,13 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
                   min={activity.discountMethod === 'discount' ? 0.1 : 0.01}
                   max={activity.discountMethod === 'discount' ? 9.9 : undefined}
                   step={activity.discountMethod === 'discount' ? 0.1 : 0.01}
-                  disabled={readOnly}
+                  disabled={sharedLocked}
                   aria-label={`默认${valueLabel}`}
                   value={activity.discountValue ?? ''}
                   onChange={(e) => onChange(writeSharedDiscount(activity, { discountValue: e.target.value === '' ? null : Number(e.target.value) }))}
                 />
                 <span className="field-hint">{unit}</span>
-                {(!readOnly || sceneOverrides(activity, sharedItem).length > 0) && (
+                {(!sharedLocked || sceneOverrides(activity, sharedItem).length > 0) && (
                   <button
                     type="button"
                     className="link-btn"
@@ -139,7 +145,7 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
                     title={scenes.length === 0 ? '请先在基础信息里选择参与业务/场景' : undefined}
                     onClick={() => setEditingShared(true)}
                   >
-                    {readOnly ? '查看分业务' : '分业务设置'}
+                    {sharedLocked ? '查看分业务' : '分业务设置'}
                   </button>
                 )}
               </div>
@@ -156,7 +162,7 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
                 type="number"
                 min={1}
                 placeholder="不限量"
-                disabled={readOnly}
+                disabled={sharedLocked}
                 value={activity.activityStock ?? ''}
                 onChange={(e) => onChange({ ...activity, activityStock: e.target.value === '' ? null : Number(e.target.value) })}
               />
@@ -169,7 +175,7 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
       {activity.goodsScope !== 'all' && (
         <>
           <div className="section-toolbar">
-            {!readOnly && <button type="button" className="btn btn--primary" onClick={() => setPicking(true)}>选择商品</button>}
+            {canPick && <button type="button" className="btn btn--primary" onClick={() => setPicking(true)}>{published ? '追加商品' : '选择商品'}</button>}
             <span className="field-hint">{activity.goodsScope === 'exclude' ? '不参与商品如下：' : `已设置 ${setCount}/${activity.productItems.length} 个商品的优惠`}</span>
           </div>
           {perProduct && checked.length > 0 && !readOnly && (
@@ -229,7 +235,7 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
                     <td colSpan={perProduct ? 10 : 7}>
                       <div className="table-empty-state">
                         <p className="table-empty-state__title">{keyword ? '未找到匹配商品' : '还没有选择商品'}</p>
-                        {!keyword && !readOnly && <button type="button" className="link-btn" onClick={() => setPicking(true)}>立即选择商品</button>}
+                        {!keyword && canPick && <button type="button" className="link-btn" onClick={() => setPicking(true)}>立即选择商品</button>}
                       </div>
                     </td>
                   </tr>
@@ -237,7 +243,8 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
                   <tr key={item.productId}>
                     {perProduct && !readOnly && (
                       <td>
-                        <input type="checkbox" checked={checked.includes(item.productId)} onChange={() => setChecked((ids) => ids.includes(item.productId) ? ids.filter((id) => id !== item.productId) : [...ids, item.productId])} />
+                        <input type="checkbox" disabled={itemLocked(item.productId)} checked={checked.includes(item.productId)}
+                          onChange={() => setChecked((ids) => ids.includes(item.productId) ? ids.filter((id) => id !== item.productId) : [...ids, item.productId])} />
                       </td>
                     )}
                     <td>{product.name}</td>
@@ -255,12 +262,12 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
                               style={{ width: 88 }}
                               type="number"
                               aria-label={`${product.name}默认${valueLabel}`}
-                              disabled={readOnly}
+                              disabled={itemLocked(item.productId)}
                               value={item.discountValue ?? ''}
                               onChange={(e) => updateItem(item.productId, { discountValue: e.target.value === '' ? null : Number(e.target.value) })}
                             />
                             <span className="field-hint">{unit}</span>
-                            {(!readOnly || sceneOverrides(activity, item).length > 0) && (
+                            {(!itemLocked(item.productId) || sceneOverrides(activity, item).length > 0) && (
                               <button
                                 type="button"
                                 className="link-btn"
@@ -268,7 +275,7 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
                                 title={scenes.length === 0 ? '请先在基础信息里选择参与业务/场景' : undefined}
                                 onClick={() => setEditingProductId(item.productId)}
                               >
-                                {readOnly ? '查看分业务' : '分业务设置'}
+                                {itemLocked(item.productId) ? '查看分业务' : '分业务设置'}
                               </button>
                             )}
                           </div>
@@ -289,7 +296,7 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
                           type="number"
                           min={1}
                           placeholder="不限量"
-                          disabled={readOnly}
+                          disabled={itemLocked(item.productId)}
                           value={item.stock ?? ''}
                           onChange={(e) => updateItem(item.productId, { stock: e.target.value === '' ? null : Number(e.target.value) })}
                         />
@@ -297,7 +304,9 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
                     )}
                     {!readOnly && (
                       <td>
-                        <button type="button" className="link-btn" onClick={() => onChange(syncProductItems(activity, activity.productItems.filter((row) => row.productId !== item.productId).map((row) => row.productId)))}>取消参与</button>
+                        {itemLocked(item.productId) ? '已锁定' : (
+                          <button type="button" className="link-btn" onClick={() => onChange(syncProductItems(activity, activity.productItems.filter((row) => row.productId !== item.productId).map((row) => row.productId)))}>取消参与</button>
+                        )}
                       </td>
                     )}
                   </tr>
@@ -310,8 +319,10 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
       <p className="field-hint">特价不要高于门店售价，否则不生效、按门店售价执行。活动库存留空=不限量。</p>
       {picking && (
         <ProductPicker
-          selectedIds={activity.productItems.map((item) => item.productId)}
-          onChange={(ids) => { setKeyword(''); setChecked([]); onChange(syncProductItems(activity, ids)) }}
+          title={published ? '追加商品' : '选择商品'}
+          hiddenProductIds={fixedIds}
+          selectedIds={activity.productItems.map((item) => item.productId).filter((id) => !fixedIds?.includes(id))}
+          onChange={(ids) => { setKeyword(''); setChecked([]); onChange(syncProductItems(activity, [...(fixedIds ?? []), ...ids])) }}
           onClose={() => setPicking(false)}
         />
       )}
@@ -319,7 +330,7 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
         <SceneDiscountDialog
           activity={activity}
           productId={editingProductId}
-          readOnly={readOnly}
+          readOnly={itemLocked(editingProductId)}
           onChange={updateItem}
           onActivity={onChange}
           onClose={() => setEditingProductId(null)}
@@ -329,7 +340,7 @@ export function LimitDiscountGoodsFields({ activity, readOnly, onChange }: Limit
         <SceneDiscountDialog
           activity={activity}
           shared
-          readOnly={readOnly}
+          readOnly={sharedLocked}
           onChange={updateItem}
           onActivity={onChange}
           onClose={() => setEditingShared(false)}

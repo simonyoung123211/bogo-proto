@@ -2,7 +2,7 @@ import { matchesActivityProductFilters, resolveActivityProducts } from './activi
 import type { ActivityForm, ActivityOperationLog, ActivityStatus, CouponGiftConfig, GiftGroup, ListFilters } from '../types'
 import { PARTICIPANT_USER_OPTIONS, createEmptyActivity, createEmptyCouponGift, createEmptyGiftGroup, DEFAULT_PHYSICAL_GIFT_DISPLAY_TITLE, DEFAULT_STORAGE_COUPON_DISPLAY_TITLE, getCreatorProfile, products, stores } from '../mockData'
 
-export function getParticipantUserLabel(activity: ActivityForm): string {
+export function getParticipantUserLabel(activity: Pick<ActivityForm, 'participantUser'>): string {
   return PARTICIPANT_USER_OPTIONS.find((o) => o.value === activity.participantUser)?.label ?? '-'
 }
 
@@ -303,21 +303,10 @@ export function maskPhone(phone: string): string {
   return `${digits.slice(0, 3)}****${digits.slice(-4)}`
 }
 
-export function formatCreatorDisplay(activity: ActivityForm): { maskedPhone: string; org: string } {
+export function formatCreatorDisplay(activity: Pick<ActivityForm, 'creatorPhone' | 'creatorOrg' | 'creator'>): { maskedPhone: string; org: string } {
   const phone = activity.creatorPhone || getCreatorProfile(activity.creator).phone
   const org = activity.creatorOrg || getCreatorProfile(activity.creator).org
   return { maskedPhone: maskPhone(phone), org }
-}
-
-/** 进行中活动的剩余天数文案，非进行中返回 null */
-export function getActivityRemainingLabel(activity: ActivityForm): string | null {
-  if (activity.status !== 'in_progress') return null
-  const end = new Date(activity.endTime.replace(/-/g, '/'))
-  const diffMs = end.getTime() - Date.now()
-  if (diffMs < 0) return null
-  const days = Math.ceil(diffMs / 86_400_000)
-  if (days === 0) return '今日结束'
-  return `剩余 ${days} 天`
 }
 
 export function countActivitiesByStatus(

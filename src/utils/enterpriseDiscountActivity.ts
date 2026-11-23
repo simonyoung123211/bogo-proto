@@ -79,16 +79,6 @@ export function getStoreSummary(activity: EnterpriseDiscountActivityForm): strin
   return `${count}个门店参与`
 }
 
-export function getActivityRemainingLabel(activity: EnterpriseDiscountActivityForm): string | null {
-  if (activity.status !== 'in_progress') return null
-  const end = new Date(activity.endTime.replace(/-/g, '/'))
-  const diffMs = end.getTime() - Date.now()
-  if (diffMs < 0) return null
-  const days = Math.ceil(diffMs / 86_400_000)
-  if (days === 0) return '今日结束'
-  return `剩余 ${days} 天`
-}
-
 export function formatCreatorDisplay(activity: EnterpriseDiscountActivityForm) {
   const phone = activity.creatorPhone || getCreatorProfile(activity.creator).phone
   const org = activity.creatorOrg || getCreatorProfile(activity.creator).org

@@ -14,8 +14,12 @@ const areaIds: Record<string, string[]> = {
 
 const storesByTag: Record<string, string[]> = {
   flagship: ['s5', 's6', 's7', 's8'],
-  mall: ['s9', 's10', 's11', 's12', 's21', 's22', 's23', 's24'],
+  mall: ['s7', 's9', 's10', 's11', 's12', 's21', 's22', 's23', 's24'],
   campus: ['s17', 's18', 's19', 's20'],
+}
+
+export const DISCOUNT_STORE_POLICY_REASONS: Readonly<Record<string, string>> = {
+  s8: '门店策略设为不适用限时折扣',
 }
 
 export function storeHasDiscountTag(storeId: string, tagId: string) {

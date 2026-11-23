@@ -33,11 +33,13 @@ import { BundlePriceActivityList } from './pages/BundlePriceActivityList'
 import { BundlePriceActivityWizard } from './pages/BundlePriceActivityWizard'
 import { BundlePriceParticipationRecords } from './pages/BundlePriceParticipationRecords'
 import { LimitDiscountActivityList } from './pages/LimitDiscountActivityList'
-import { LimitDiscountConflicts } from './components/LimitDiscountConflicts'
-import { findDiscountConflicts, type DiscountConflict } from './utils/limitDiscountConflicts'
+import { DEFAULT_LIMIT_DISCOUNT_PERSPECTIVE, canManageLimitDiscountActivity } from './mockActivityPerspectives'
+import { LimitDiscountConflicts, LimitDiscountConflictDialog, type DiscountConflictActivityActions } from './components/LimitDiscountConflicts'
+import { findDiscountConflicts } from './utils/limitDiscountConflicts'
 import { collectStepErrors as discountStepErrors } from './utils/limitDiscountActivity'
 import { retainEligibleAreaIds } from './utils/limitDiscountScope'
 import { LimitDiscountActivityWizard } from './pages/LimitDiscountActivityWizard'
+import { LimitDiscountActivityDetail } from './pages/LimitDiscountActivityDetail'
 import { LimitDiscountParticipationRecords } from './pages/LimitDiscountParticipationRecords'
 import { OrderList } from './pages/OrderList'
 import { OrderDetail } from './pages/OrderDetail'
@@ -68,6 +70,7 @@ import type {
 } from './types'
 import { appendActivityLog, cloneActivity, computePublishStatus, formatActivityDateTime } from './utils/activity'
 import {
+  isExpired,
   isPausedExpired,
   resolveResumeStatus,
   type PausableActivity,
@@ -120,8 +123,10 @@ import {
 } from './utils/bundlePriceActivity'
 import {
   appendActivityLog as appendLimitDiscountLog,
+  canEditLimitDiscount,
   cloneActivity as cloneLimitDiscountActivity,
   computePublishStatus as computeLimitDiscountPublishStatus,
+  publishedLimitDiscountEditError,
 } from './utils/limitDiscountActivity'
 import {
   loadActivities,
@@ -167,6 +172,24 @@ import {
 import { InboxDrawer } from './components/InboxDrawer'
 import './styles.css'
 
+type DiscountBlockedAction = { label: '发布' | '启用'; activityId: string }
+type LimitDiscountWizardView = Extract<PageView, { type: 'limit-discount-wizard' }>
+type DiscountConflictOrigin =
+  | { view: LimitDiscountWizardView; draft: LimitDiscountActivityForm }
+  | { view: PageView; action: DiscountBlockedAction; activityName: string }
+
+function getBlockedDiscountActivity(action: DiscountBlockedAction, activities: LimitDiscountActivityForm[]) {
+  const activity = activities.find(({ id }) => id === action.activityId)
+  if (!activity) return undefined
+  if (action.label === '发布') return ['draft', 'pending'].includes(activity.status) ? activity : undefined
+  return activity.status === 'paused' && !isExpired(activity) ? activity : undefined
+}
+
+/** 演示暂停超时分级时使用的暂停起始时间。 */
+function shiftedPausedAt(minutes: number) {
+  return formatActivityDateTime(new Date(Date.now() - minutes * 60_000))
+}
+
 function App() {
   const [activities, setActivities] = useState<ActivityForm[]>(loadActivities)
   const [multiItemActivities, setMultiItemActivities] = useState<MultiItemActivityForm[]>(loadMultiItemActivities)
@@ -178,16 +201,21 @@ function App() {
   const [enterpriseDiscountActivities, setEnterpriseDiscountActivities] = useState<EnterpriseDiscountActivityForm[]>(loadEnterpriseDiscountActivities)
   const [bundlePriceActivities, setBundlePriceActivities] = useState<BundlePriceActivityForm[]>(loadBundlePriceActivities)
   const [limitDiscountActivities, setLimitDiscountActivities] = useState<LimitDiscountActivityForm[]>(loadLimitDiscountActivities)
+  const [limitDiscountPerspective, setLimitDiscountPerspective] = useState(DEFAULT_LIMIT_DISCOUNT_PERSPECTIVE)
   const [paidMemberCards, setPaidMemberCards] = useState<PaidMemberCardTemplate[]>(loadPaidMemberCards)
   const [view, setView] = useState<PageView>(() => {
     const fromQuery = readActivityListQuery(window.location.search)
     return fromQuery && 'view' in fromQuery ? fromQuery.view : { type: 'list' }
   })
+  const [discountBlock, setDiscountBlock] = useState<DiscountBlockedAction | null>(null)
+  const [discountConflictOrigin, setDiscountConflictOrigin] = useState<DiscountConflictOrigin | null>(null)
 
   useEffect(() => {
     const followHistory = () => {
       const route = readActivityListQuery(window.location.search)
       setView(route && 'view' in route ? route.view : { type: 'list' })
+      setDiscountConflictOrigin(null)
+      setDiscountBlock(null)
     }
     window.addEventListener('popstate', followHistory)
     return () => window.removeEventListener('popstate', followHistory)
@@ -223,7 +251,6 @@ function App() {
   const [enterpriseDiscountDraft, setEnterpriseDiscountDraft] = useState<EnterpriseDiscountActivityForm | null>(null)
   const [bundlePriceDraft, setBundlePriceDraft] = useState<BundlePriceActivityForm | null>(null)
   const [limitDiscountDraft, setLimitDiscountDraft] = useState<LimitDiscountActivityForm | null>(null)
-  const [discountBlock, setDiscountBlock] = useState<{ label: string; conflicts: DiscountConflict[] } | null>(null)
   useEffect(() => {
     const refresh = (event: StorageEvent) => {
       if (event.key === LIMIT_DISCOUNT_STORAGE_KEY || event.key === null) {
@@ -251,7 +278,19 @@ function App() {
   }, [showToast])
 
   const currentOperator = getCreatorProfile('10086')
+  const limitDiscountOperator = { ...currentOperator, org: limitDiscountPerspective.name }
   const inboxUnread = countUnreadInbox(inboxMessages, '10086')
+
+  const checkLimitDiscountManagement = (activity: LimitDiscountActivityForm) => {
+    if (canManageLimitDiscountActivity(activity, limitDiscountPerspective)) return true
+    showToast('当前操作视角无权管理这项活动')
+    return false
+  }
+
+  const findManageableLimitDiscount = (id: string) => {
+    const activity = loadLimitDiscountActivities().find((item) => item.id === id)
+    return activity && checkLimitDiscountManagement(activity) ? activity : undefined
+  }
 
   const persistInbox = (next: InboxMessage[]) => {
     setInboxMessages(next)
@@ -476,7 +515,7 @@ function App() {
   }
 
   const handleLimitDiscountCreate = () => {
-    setLimitDiscountDraft(createEmptyLimitDiscountActivity())
+    setLimitDiscountDraft(createEmptyLimitDiscountActivity(limitDiscountPerspective))
     setView({ type: 'limit-discount-wizard', mode: 'create' })
   }
 
@@ -532,12 +571,81 @@ function App() {
     setView({ type: 'bundle-price-wizard', mode: 'edit' })
   }
 
-  const handleLimitDiscountEdit = (id: string) => {
-    const activity = limitDiscountActivities.find((a) => a.id === id)
-    if (!activity) return
+  const handleLimitDiscountEdit = (id: string, options?: Pick<LimitDiscountWizardView, 'fromDetail' | 'focusEndTime' | 'startAtStoreScope'>) => {
+    const activity = findManageableLimitDiscount(id)
+    if (!activity) return false
+    if (!canEditLimitDiscount(activity.status)) {
+      showToast('当前活动状态不可编辑')
+      return false
+    }
     setLimitDiscountDraft({ ...activity })
-    setView({ type: 'limit-discount-wizard', mode: 'edit' })
+    setView({ type: 'limit-discount-wizard', mode: 'edit', ...options })
+    return true
   }
+
+  const refreshLimitDiscountActivities = () => {
+    const latest = loadLimitDiscountActivities()
+    setLimitDiscountActivities(latest)
+    return latest
+  }
+
+  const recheckDiscountBlock = (action: DiscountBlockedAction) => {
+    const latest = refreshLimitDiscountActivities()
+    const activity = getBlockedDiscountActivity(action, latest)
+    if (!activity) {
+      setDiscountBlock(null)
+      showToast('活动状态已变化，请查看当前状态')
+      return
+    }
+    const conflicts = findDiscountConflicts(activity, latest)
+    setDiscountBlock(conflicts.length ? action : null)
+    showToast(conflicts.length ? `仍有 ${conflicts.length} 场冲突待处理` : `冲突已解除，可重新${action.label}`)
+  }
+
+  const handleLimitDiscountConflictEdit = (id: string) => {
+    if (discountConflictOrigin) return
+    const latest = refreshLimitDiscountActivities()
+    const other = latest.find((activity) => activity.id === id)
+    const current = view.type === 'limit-discount-wizard' ? limitDiscountDraft
+      : discountBlock && getBlockedDiscountActivity(discountBlock, latest)
+    if (!current || !other || !findDiscountConflicts(current, [other]).length) {
+      showToast('冲突结果已更新，请重新核对')
+      return
+    }
+    const origin: DiscountConflictOrigin | undefined = view.type === 'limit-discount-wizard' && limitDiscountDraft
+      ? { view, draft: limitDiscountDraft }
+      : discountBlock ? { view, action: discountBlock, activityName: current.name } : undefined
+    if (!origin || !handleLimitDiscountEdit(id, { startAtStoreScope: true })) return
+    setDiscountConflictOrigin(origin)
+    setDiscountBlock(null)
+  }
+
+  const leaveLimitDiscountEdit = (id: string) => {
+    if (discountConflictOrigin) {
+      setDiscountConflictOrigin(null)
+      if ('draft' in discountConflictOrigin) {
+        refreshLimitDiscountActivities()
+        setLimitDiscountDraft(discountConflictOrigin.draft)
+        setView({ ...discountConflictOrigin.view, focusEndTime: false, returnedFromConflict: true })
+      } else {
+        setLimitDiscountDraft(null)
+        setView(discountConflictOrigin.view)
+        recheckDiscountBlock(discountConflictOrigin.action)
+      }
+      return
+    }
+    setView(view.type === 'limit-discount-wizard' && view.fromDetail
+      ? { type: 'limit-discount-detail', activityId: id }
+      : { type: 'limit-discount-list' })
+    setLimitDiscountDraft(null)
+  }
+
+  const discountConflictActions: DiscountConflictActivityActions | undefined = discountConflictOrigin ? undefined : {
+    canEdit: (activity) => canManageLimitDiscountActivity(activity, limitDiscountPerspective) && canEditLimitDiscount(activity.status),
+    onEdit: handleLimitDiscountConflictEdit,
+  }
+  const blockedDiscount = discountBlock && getBlockedDiscountActivity(discountBlock, limitDiscountActivities)
+  const blockedConflicts = blockedDiscount ? findDiscountConflicts(blockedDiscount, limitDiscountActivities) : []
 
   const handleFullReductionEdit = (id: string) => {
     const activity = fullReductionActivities.find((a) => a.id === id)
@@ -615,10 +723,9 @@ function App() {
   }
 
   const handleLimitDiscountView = (id: string) => {
-    const activity = limitDiscountActivities.find((a) => a.id === id)
-    if (!activity) return
-    setLimitDiscountDraft({ ...activity })
-    setView({ type: 'limit-discount-wizard', mode: 'view' })
+    if (!limitDiscountActivities.some((a) => a.id === id)) return
+    setLimitDiscountDraft(null)
+    setView({ type: 'limit-discount-detail', activityId: id })
   }
 
   const handleFullReductionView = (id: string) => {
@@ -698,7 +805,7 @@ function App() {
   const handleLimitDiscountCopy = (id: string) => {
     const activity = limitDiscountActivities.find((a) => a.id === id)
     if (!activity) return
-    const copy = cloneLimitDiscountActivity(activity)
+    const copy = cloneLimitDiscountActivity(activity, limitDiscountPerspective)
     upsertLimitDiscount(copy)
     setLimitDiscountDraft(copy)
     setView({ type: 'limit-discount-wizard', mode: 'copy' })
@@ -802,7 +909,7 @@ function App() {
     showToast('活动发布成功')
   }
 
-  const validateDiscountTransition = (activity: LimitDiscountActivityForm, label: string) => {
+  const validateDiscountTransition = (activity: LimitDiscountActivityForm, label: DiscountBlockedAction['label'] | '保存') => {
     const error = [0, 1, 2].flatMap((step) => discountStepErrors(activity, step))[0]
     if (error) {
       showToast(`无法${label}：${error}`)
@@ -812,7 +919,8 @@ function App() {
     const conflicts = findDiscountConflicts(activity, latest)
     if (conflicts.length) {
       setLimitDiscountActivities(latest)
-      setDiscountBlock({ label, conflicts })
+      if (label === '保存') showToast('发现最新冲突，请处理后再保存')
+      else setDiscountBlock({ label, activityId: activity.id })
       return false
     }
     return true
@@ -825,14 +933,14 @@ function App() {
   }
 
   const handleLimitDiscountPublishFromList = (id: string) => {
-    const activity = loadLimitDiscountActivities().find((a) => a.id === id)
+    const activity = findManageableLimitDiscount(id)
     if (!activity || !['draft', 'pending'].includes(activity.status)) return
     if (!validateDiscountTransition(activity, '发布')) return
     upsertLimitDiscount(appendLimitDiscountLog(
-      { ...activity, status: computeLimitDiscountPublishStatus(activity) },
+      { ...retainEligibleAreaIds(activity), status: computeLimitDiscountPublishStatus(activity) },
       '发布活动',
       `发布活动「${activity.name}」`,
-      currentOperator,
+      limitDiscountOperator,
     ))
     showToast('活动发布成功')
   }
@@ -909,9 +1017,9 @@ function App() {
   }
 
   const handleLimitDiscountVoid = (id: string) => {
-    const activity = limitDiscountActivities.find((a) => a.id === id)
-    if (!activity) return
-    upsertLimitDiscount(appendLimitDiscountLog({ ...activity, status: 'voided' }, '作废活动', `作废活动「${activity.name}」`, currentOperator))
+    const activity = findManageableLimitDiscount(id)
+    if (!activity || !canEditLimitDiscount(activity.status) || activity.status === 'draft') return
+    upsertLimitDiscount(appendLimitDiscountLog({ ...activity, status: 'voided' }, '作废活动', `作废活动「${activity.name}」`, limitDiscountOperator))
     showToast('活动已作废')
   }
 
@@ -935,10 +1043,6 @@ function App() {
   }
 
   /* ============ 暂停 / 恢复（四个活动类型同一套口径） ============ */
-
-  /** 演示用：把暂停起始时间往前拨，便于现场查看超时分级的三档颜色 */
-  const shiftedPausedAt = (minutes: number) =>
-    formatActivityDateTime(new Date(Date.now() - minutes * 60_000))
 
   /**
    * 恢复时按当前时刻重新落状态：暂停不顺延活动时间，
@@ -1139,13 +1243,13 @@ function App() {
   }
 
   const handleLimitDiscountPause = (id: string) => {
-    const activity = limitDiscountActivities.find((a) => a.id === id)
-    if (!activity) return
+    const activity = findManageableLimitDiscount(id)
+    if (!activity || activity.status !== 'in_progress' || isExpired(activity)) return
     upsertLimitDiscount(appendLimitDiscountLog(
       { ...activity, status: 'paused', pausedAt: formatActivityDateTime() },
       '暂停活动',
       `暂停活动「${activity.name}」，顾客暂时无法享受限时折扣`,
-      currentOperator,
+      limitDiscountOperator,
     ))
     showToast('活动已暂停，顾客暂时无法享受限时折扣')
   }
@@ -1177,7 +1281,7 @@ function App() {
   }
 
   const handleLimitDiscountResume = (id: string) => {
-    const activity = loadLimitDiscountActivities().find((a) => a.id === id)
+    const activity = findManageableLimitDiscount(id)
     if (!activity || activity.status !== 'paused') return
     const plan = buildResumePlan(activity, '限时折扣立即重新生效')
     if (plan.status !== 'ended' && !validateDiscountTransition(activity, '启用')) return
@@ -1185,7 +1289,7 @@ function App() {
       { ...activity, status: plan.status, pausedAt: plan.keepPausedAt ? activity.pausedAt : undefined },
       plan.action,
       `活动「${activity.name}」${plan.detail}`,
-      currentOperator,
+      limitDiscountOperator,
     ))
     showToast(plan.toast)
   }
@@ -1205,7 +1309,7 @@ function App() {
   }
 
   const handleLimitDiscountDemoSetPausedMinutes = (id: string, minutes: number) => {
-    const activity = limitDiscountActivities.find((a) => a.id === id)
+    const activity = findManageableLimitDiscount(id)
     if (!activity || activity.status !== 'paused') return
     upsertLimitDiscount({ ...activity, pausedAt: shiftedPausedAt(minutes) })
     showToast(minutes === 0 ? '已重置为「刚暂停」' : `已模拟暂停 ${minutes} 分钟`)
@@ -1321,7 +1425,8 @@ function App() {
   }
 
   const handleLimitDiscountDelete = (id: string) => {
-    persistLimitDiscount(limitDiscountActivities.filter((a) => a.id !== id))
+    if (!findManageableLimitDiscount(id)) return
+    persistLimitDiscount(loadLimitDiscountActivities().filter((a) => a.id !== id))
     showToast('活动已删除')
   }
 
@@ -1423,15 +1528,24 @@ function App() {
 
   const handleLimitDiscountSaveDraft = () => {
     if (!limitDiscountDraft) return
+    const existing = loadLimitDiscountActivities().find((a) => a.id === limitDiscountDraft.id)
+    if (!checkLimitDiscountManagement(existing ?? limitDiscountDraft)) return
+    if (limitDiscountDraft.status !== 'draft' || (existing && existing.status !== 'draft')) {
+      showToast('当前活动状态不能保存为草稿')
+      return
+    }
+    if (view.type === 'limit-discount-wizard' && view.mode === 'edit' && !existing
+      || existing && existing.updatedAt !== limitDiscountDraft.updatedAt) {
+      showToast('活动已发生变化，请返回后重新打开')
+      return
+    }
     const draft = retainEligibleAreaIds(limitDiscountDraft)
-    const exists = limitDiscountActivities.some((a) => a.id === limitDiscountDraft.id)
-    const saved = exists
-      ? appendLimitDiscountLog({ ...draft, status: 'draft' }, '编辑活动', `保存草稿「${draft.name}」`, currentOperator)
+    const saved = existing
+      ? appendLimitDiscountLog({ ...draft, status: 'draft' }, '编辑活动', `保存草稿「${draft.name}」`, limitDiscountOperator)
       : { ...draft, status: 'draft' as const }
     upsertLimitDiscount(saved)
     showToast('草稿保存成功')
-    setView({ type: 'limit-discount-list' })
-    setLimitDiscountDraft(null)
+    leaveLimitDiscountEdit(draft.id)
   }
 
   const handleFullReductionSaveDraft = () => {
@@ -1535,12 +1649,25 @@ function App() {
 
   const handleLimitDiscountSave = () => {
     if (!limitDiscountDraft) return
+    const latest = loadLimitDiscountActivities()
+    const existing = latest.find((a) => a.id === limitDiscountDraft.id)
+    if (!checkLimitDiscountManagement(existing ?? limitDiscountDraft)) return
+    if (view.type === 'limit-discount-wizard' && view.mode === 'edit' && !existing
+      || existing && (!canEditLimitDiscount(existing.status)
+        || existing.status !== limitDiscountDraft.status || existing.updatedAt !== limitDiscountDraft.updatedAt)) {
+      showToast('活动已发生变化，请返回后重新打开')
+      return
+    }
+    const editError = existing && publishedLimitDiscountEditError(existing, limitDiscountDraft)
+    if (editError) {
+      showToast(editError)
+      return
+    }
     if (!validateDiscountTransition(limitDiscountDraft, '保存')) return
-    const { status, keep } = resolveSavedStatus(loadLimitDiscountActivities(), limitDiscountDraft)
-    upsertLimitDiscount(appendLimitDiscountLog({ ...retainEligibleAreaIds(limitDiscountDraft), status }, keep ? '编辑活动' : '保存活动', `保存活动「${limitDiscountDraft.name}」`, currentOperator))
+    const { status, keep } = resolveSavedStatus(latest, limitDiscountDraft)
+    upsertLimitDiscount(appendLimitDiscountLog({ ...retainEligibleAreaIds(limitDiscountDraft), status }, keep ? '编辑活动' : '保存活动', `保存活动「${limitDiscountDraft.name}」`, limitDiscountOperator))
     showToast(keep ? '活动已保存' : '活动保存成功，请前往活动列表发布')
-    setView({ type: 'limit-discount-list' })
-    setLimitDiscountDraft(null)
+    leaveLimitDiscountEdit(limitDiscountDraft.id)
   }
 
   const handleFullReductionSave = () => {
@@ -1864,6 +1991,8 @@ function App() {
     setEnterpriseDiscountDraft(null)
     setBundlePriceDraft(null)
     setLimitDiscountDraft(null)
+    setDiscountConflictOrigin(null)
+    setDiscountBlock(null)
     setFullReductionDraft(null)
     setDeliveryFeeDraft(null)
     setPaidMemberPriceDraft(null)
@@ -1927,6 +2056,7 @@ function App() {
     || view.type === 'bundle-price-participation'
   const isLimitDiscountModule = view.type === 'limit-discount-list'
     || view.type === 'limit-discount-wizard'
+    || view.type === 'limit-discount-detail'
     || view.type === 'limit-discount-participation'
   const isPaidMemberPriceModule = view.type === 'paid-member-price-list'
     || view.type === 'paid-member-price-settings'
@@ -2072,8 +2202,8 @@ function App() {
           : view.type === 'limit-discount-participation'
             ? ['营销管理', '促销活动', '限时折扣', '参与记录']
             : view.type === 'limit-discount-wizard'
-              ? ['营销管理', '促销活动', '限时折扣', view.mode === 'create' ? '新建活动' : view.mode === 'view' ? '查看活动' : '编辑活动']
-              : ['营销管理', '促销活动', '限时折扣']
+              ? ['营销管理', '促销活动', '限时折扣', view.mode === 'create' ? '新建活动' : '编辑活动']
+              : ['营销管理', '促销活动', '限时折扣', '查看活动']
       : isDeliveryFeeModule
         ? view.type === 'delivery-fee-list'
           ? ['营销管理', '促销活动', '减配送费']
@@ -2432,15 +2562,40 @@ function App() {
           onDelete={handleBundlePriceDelete}
           onToast={showToast}
         />
+      ) : view.type === 'limit-discount-detail' ? (
+        (() => {
+          const activity = limitDiscountActivities.find((item) => item.id === view.activityId)
+          const back = () => setView({ type: 'limit-discount-list' })
+          if (!activity) return <div className="page-card">活动已不存在。 <button type="button" className="link-btn" onClick={back}>返回列表</button></div>
+          return <LimitDiscountActivityDetail
+            key={activity.id}
+            activity={activity}
+            perspectiveName={limitDiscountPerspective.name}
+            canManage={canManageLimitDiscountActivity(activity, limitDiscountPerspective)}
+            onBack={back}
+            onEdit={() => handleLimitDiscountEdit(activity.id, { fromDetail: true })}
+            onExtend={() => handleLimitDiscountEdit(activity.id, { fromDetail: true, focusEndTime: true })}
+            onCopy={() => handleLimitDiscountCopy(activity.id)}
+            onParticipation={() => setView({ type: 'limit-discount-participation', activityId: activity.id, fromDetail: true })}
+            onPause={() => withLimitDiscountLock(() => handleLimitDiscountPause(activity.id))}
+            onResume={() => withLimitDiscountLock(() => handleLimitDiscountResume(activity.id))}
+            onVoid={() => withLimitDiscountLock(() => handleLimitDiscountVoid(activity.id))}
+          />
+        })()
       ) : view.type === 'limit-discount-participation' ? (
         <LimitDiscountParticipationRecords
           activities={limitDiscountActivities}
           initialActivityId={view.activityId}
-          onBack={() => setView({ type: 'limit-discount-list' })}
+          backLabel={view.fromDetail ? '返回活动详情' : undefined}
+          onBack={() => setView(view.fromDetail && view.activityId
+            ? { type: 'limit-discount-detail', activityId: view.activityId }
+            : { type: 'limit-discount-list' })}
         />
       ) : view.type === 'limit-discount-list' ? (
         <LimitDiscountActivityList
           activities={limitDiscountActivities}
+          perspective={limitDiscountPerspective}
+          onPerspectiveChange={setLimitDiscountPerspective}
           onCreate={handleLimitDiscountCreate}
           onView={handleLimitDiscountView}
           onViewParticipation={(id) => setView({ type: 'limit-discount-participation', activityId: id })}
@@ -2448,10 +2603,10 @@ function App() {
           onEdit={handleLimitDiscountEdit}
           onCopy={handleLimitDiscountCopy}
           onPublish={(id) => withLimitDiscountLock(() => handleLimitDiscountPublishFromList(id))}
-          onPause={handleLimitDiscountPause}
+          onPause={(id) => withLimitDiscountLock(() => handleLimitDiscountPause(id))}
           onResume={(id) => withLimitDiscountLock(() => handleLimitDiscountResume(id))}
           onDemoSetPausedMinutes={handleLimitDiscountDemoSetPausedMinutes}
-          onVoid={handleLimitDiscountVoid}
+          onVoid={(id) => withLimitDiscountLock(() => handleLimitDiscountVoid(id))}
           onDelete={handleLimitDiscountDelete}
           onToast={showToast}
         />
@@ -2548,14 +2703,21 @@ function App() {
         />
       ) : limitDiscountDraft ? (
         <LimitDiscountActivityWizard
+          key={limitDiscountDraft.id}
           activity={limitDiscountDraft}
           activities={limitDiscountActivities}
-          mode={view.type === 'limit-discount-wizard' ? view.mode : 'create'}
+          perspectiveName={limitDiscountPerspective.name}
+          focusEndTime={view.type === 'limit-discount-wizard' && view.focusEndTime}
+          startAtStoreScope={view.type === 'limit-discount-wizard' && view.startAtStoreScope}
+          returnedFromConflict={view.type === 'limit-discount-wizard' && view.returnedFromConflict}
+          conflictOriginName={discountConflictOrigin ? ('draft' in discountConflictOrigin
+            ? discountConflictOrigin.draft.name : discountConflictOrigin.activityName) : undefined}
+          conflictActivityActions={discountConflictActions}
+          onRecheckConflicts={refreshLimitDiscountActivities}
           onChange={setLimitDiscountDraft}
-          onCancel={() => { setView({ type: 'limit-discount-list' }); setLimitDiscountDraft(null) }}
-          onSaveDraft={handleLimitDiscountSaveDraft}
+          onCancel={() => leaveLimitDiscountEdit(limitDiscountDraft.id)}
+          onSaveDraft={() => withLimitDiscountLock(handleLimitDiscountSaveDraft)}
           onSave={() => withLimitDiscountLock(handleLimitDiscountSave)}
-          onSwitchToEdit={view.type === 'limit-discount-wizard' && view.mode === 'view' ? () => setView({ type: 'limit-discount-wizard', mode: 'edit' }) : undefined}
         />
       ) : deliveryFeeDraft ? (
         <DeliveryFeeActivityWizard
@@ -2570,13 +2732,21 @@ function App() {
         />
       ) : null}
       {discountBlock && (
-        <div className="modal-overlay">
-          <div className="modal" role="dialog" aria-modal="true" aria-label={`无法${discountBlock.label}活动`}>
-            <div className="modal__header"><h3>无法{discountBlock.label}活动</h3></div>
-            <div className="modal__body modal__body--scroll"><LimitDiscountConflicts conflicts={discountBlock.conflicts} /></div>
-            <div className="modal__footer"><button type="button" autoFocus className="btn btn--primary" onClick={() => setDiscountBlock(null)}>返回调整</button></div>
-          </div>
-        </div>
+        <LimitDiscountConflictDialog title={`活动${discountBlock.label}校验`} onClose={() => setDiscountBlock(null)} footer={
+          <>
+            <button type="button" className="btn btn--default" onClick={() => setDiscountBlock(null)}>关闭</button>
+            <button type="button" className="btn btn--default" onClick={() => recheckDiscountBlock(discountBlock)}>重新校验</button>
+            {blockedDiscount && canManageLimitDiscountActivity(blockedDiscount, limitDiscountPerspective) && (
+              <button type="button" className="btn btn--primary" onClick={() => {
+                if (handleLimitDiscountEdit(blockedDiscount.id, { fromDetail: view.type === 'limit-discount-detail', startAtStoreScope: true })) setDiscountBlock(null)
+              }}>调整本活动</button>
+            )}
+          </>
+        }>
+          {blockedDiscount && blockedConflicts.length > 0 ? (
+            <LimitDiscountConflicts activity={blockedDiscount} conflicts={blockedConflicts} activityActions={discountConflictActions} />
+          ) : <p role="status">{blockedDiscount ? `冲突已解除，可以重新${discountBlock.label}。` : '活动状态已变化，请查看当前状态。'}</p>}
+        </LimitDiscountConflictDialog>
       )}
       {toast && (
         <Toast

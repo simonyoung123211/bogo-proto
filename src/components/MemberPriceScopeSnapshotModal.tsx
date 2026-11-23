@@ -28,7 +28,7 @@ export function MemberPriceScopeSnapshotModal({ activity, type, onClose }: Membe
           <h3>{title}</h3>
           <button type="button" className="modal__close" onClick={onClose}>×</button>
         </div>
-        <div className="modal__body modal__body--flush">
+        <div className="modal__body modal__body--flush modal__body--scroll">
           <div className="activity-log-head">
             <div className="activity-log-head__name">{activity.name || '未命名活动'}</div>
             <div className="activity-log-head__meta mono">{activity.id}</div>

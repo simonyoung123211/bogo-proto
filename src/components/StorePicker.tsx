@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { regions } from '../mockData'
-import type { StoreScope } from '../types'
+import type { Store, StoreScope } from '../types'
 import { getResolvedStores } from '../utils/storeRegistry'
 
 interface StorePickerProps {
@@ -9,28 +9,42 @@ interface StorePickerProps {
   onScopeChange: (scope: StoreScope) => void
   onChange: (ids: string[]) => void
   readOnly?: boolean
+  selectedTitle?: string
+  searchById?: boolean
+  searchSelected?: boolean
+  storeRestrictions?: Readonly<Record<string, string>>
   /** 外层已提供门店方式时，隐藏组件自带的三个选项 */
   hideScopeRadios?: boolean
 }
 
-export function StorePicker({ scope, selectedIds, onScopeChange, onChange, readOnly, hideScopeRadios }: StorePickerProps) {
+function matchesStoreSearch(store: Store, keyword: string, searchById: boolean) {
+  if (!searchById) return store.name.includes(keyword) || store.code.includes(keyword)
+  const term = keyword.trim().toLowerCase()
+  return [store.name, store.code, store.id].some((value) => value.toLowerCase().includes(term))
+}
+
+export function StorePicker({
+  scope, selectedIds, onScopeChange, onChange, readOnly, selectedTitle = '已选门店',
+  searchById = false, searchSelected = false, storeRestrictions, hideScopeRadios,
+}: StorePickerProps) {
   const [regionId, setRegionId] = useState('all')
   const [keyword, setKeyword] = useState('')
+  const [selectedKeyword, setSelectedKeyword] = useState('')
   const allStores = getResolvedStores()
 
   const filtered = useMemo(() => {
     return allStores.filter((s) => {
       if (regionId !== 'all' && s.regionId !== regionId) return false
-      if (keyword && !s.name.includes(keyword) && !s.code.includes(keyword)) return false
+      if (!matchesStoreSearch(s, keyword, searchById)) return false
       if (!readOnly && s.status === 'closed' && !selectedIds.includes(s.id)) return false
       return true
     })
-  }, [allStores, regionId, keyword, readOnly, selectedIds])
+  }, [allStores, regionId, keyword, readOnly, searchById, selectedIds])
 
   const toggle = (id: string) => {
     if (readOnly) return
     const store = allStores.find((s) => s.id === id)
-    if (store?.status === 'closed' && !selectedIds.includes(id)) return
+    if ((store?.status === 'closed' || storeRestrictions?.[id]) && !selectedIds.includes(id)) return
     onChange(
       selectedIds.includes(id)
         ? selectedIds.filter((x) => x !== id)
@@ -39,6 +53,9 @@ export function StorePicker({ scope, selectedIds, onScopeChange, onChange, readO
   }
 
   const selectedStores = allStores.filter((s) => selectedIds.includes(s.id))
+  const visibleSelected = searchSelected
+    ? selectedStores.filter((store) => matchesStoreSearch(store, selectedKeyword, searchById))
+    : selectedStores
 
   return (
     <div className="store-picker">
@@ -94,7 +111,7 @@ export function StorePicker({ scope, selectedIds, onScopeChange, onChange, readO
               <div className="picker-toolbar">
                 <input
                   className="input"
-                  placeholder="请输入门店名称/编码"
+                  placeholder={searchById ? '搜索门店名称、编码或 ID' : '请输入门店名称/编码'}
                   value={keyword}
                   onChange={(e) => setKeyword(e.target.value)}
                 />
@@ -119,18 +136,21 @@ export function StorePicker({ scope, selectedIds, onScopeChange, onChange, readO
                 ) : (
                   filtered.map((s) => {
                     const closedLocked = !readOnly && s.status === 'closed'
+                    const restriction = storeRestrictions?.[s.id]
+                    const selected = selectedIds.includes(s.id)
+                    const rowLocked = closedLocked || Boolean(restriction && !selected)
                     return (
                       <tr
                         key={s.id}
-                        className={!readOnly && !closedLocked ? 'table-row--clickable' : ''}
-                        onClick={() => !closedLocked && toggle(s.id)}
+                        className={!readOnly && !rowLocked ? 'table-row--clickable' : ''}
+                        onClick={() => !rowLocked && toggle(s.id)}
                       >
                         {!readOnly && (
                           <td>
                             <input
                               type="checkbox"
-                              checked={selectedIds.includes(s.id)}
-                              disabled={closedLocked && !selectedIds.includes(s.id)}
+                              checked={selected}
+                              disabled={rowLocked && !selected}
                               readOnly
                             />
                           </td>
@@ -143,6 +163,7 @@ export function StorePicker({ scope, selectedIds, onScopeChange, onChange, readO
                           <span className={`status-dot ${s.status === 'open' ? 'status-dot--green' : 'status-dot--gray'}`}>
                             {s.status === 'open' ? '营业中' : '已停业'}
                           </span>
+                          {restriction && <small className="store-picker__restriction">{restriction}</small>}
                         </td>
                       </tr>
                     )
@@ -152,16 +173,23 @@ export function StorePicker({ scope, selectedIds, onScopeChange, onChange, readO
             </table>
           </div>
           <aside className="picker-selected">
-            <div className="picker-selected__title">已选门店 ({selectedIds.length})</div>
+            <div className="picker-selected__title">{selectedTitle} ({selectedIds.length})</div>
+            {searchSelected && selectedStores.length > 0 && (
+              <div className="store-picker__selected-search">
+                <input type="search" className="input" aria-label="搜索已选门店" placeholder="搜索已选门店"
+                  value={selectedKeyword} onChange={(event) => setSelectedKeyword(event.target.value)} />
+              </div>
+            )}
             <div className="picker-selected__list">
-              {selectedStores.map((s) => (
+              {selectedStores.length > 0 && visibleSelected.length === 0 && <p className="field-hint">没有匹配的已选门店</p>}
+              {visibleSelected.map((s) => (
                 <div key={s.id} className="picker-selected__item">
                   <span>
                     {s.name}
                     {s.status === 'closed' ? '（已停业）' : ''}
                   </span>
                   {!readOnly && (
-                    <button type="button" onClick={() => toggle(s.id)}>×</button>
+                    <button type="button" aria-label={`移除${s.name}`} onClick={() => toggle(s.id)}>×</button>
                   )}
                 </div>
               ))}

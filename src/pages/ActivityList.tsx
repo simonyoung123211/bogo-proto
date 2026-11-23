@@ -1,27 +1,26 @@
+import { ActivityListTable, ActivityScopeLink as SnapshotLink } from '../components/ActivityListTable'
+import { RowActionMenu } from '../components/RowActionMenu'
+import { useActivityListClock } from '../utils/activityListTime'
 import { ActivityListSearchPanel } from '../components/ActivityListSearchPanel'
 import { createAdvancedSearchChips } from '../utils/activitySearchChips'
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ActivityOperationLogModal } from '../components/ActivityOperationLogModal'
 import { ActivityScopeSnapshotModal, type ActivityScopeSnapshotType } from '../components/ActivityScopeSnapshotModal'
 import { GeneralSettingsModal } from '../components/GeneralSettingsModal'
 import { PauseConfirmModal, PauseDemoGroup, ResumeConfirmModal } from '../components/ActivityPauseControls'
 import { SimulateStoreClosureModal } from '../components/SimulateStoreClosureModal'
 import { StoreConfigIssueBadge } from '../components/StoreConfigIssueBadge'
-import { CHANNELS, MORE_STATUS_TABS, PARTICIPANT_USER_OPTIONS, PAUSE_OVERDUE_MINUTES, PRIMARY_STATUS_TABS, STATUS_LABELS, stores } from '../mockData'
+import { MORE_STATUS_TABS, PARTICIPANT_USER_OPTIONS, PAUSE_OVERDUE_MINUTES, PRIMARY_STATUS_TABS, STATUS_LABELS, stores } from '../mockData'
 import type { ActivityForm, ActivityStatus, GeneralSettings, ListFilters } from '../types'
 import {
   canPause,
   canResume,
   countOverduePaused,
-  getPauseInfo,
-  isEndedWhilePaused,
   isExpired,
   resolveResumeStatus,
 } from '../utils/activityPause'
 import {
   countActivitiesByStatus,
-  formatCreatorDisplay,
-  getActivityRemainingLabel,
   getParticipantUserLabel,
   getProductSummary,
   getRuleTypeLabel,
@@ -64,8 +63,6 @@ const EMPTY_FILTERS: ListFilters = {
   endDate: '',
   storeId: 'all',
 }
-
-const CHANNEL_MAP = Object.fromEntries(CHANNELS.map((c) => [c.id, c]))
 
 const PAGE_SIZE = 10
 
@@ -110,15 +107,7 @@ export function ActivityList({
     const timer = window.setTimeout(() => setEnableRowAnim(false), 500)
     return () => window.clearTimeout(timer)
   }, [])
-
-  // 暂停时长需要实时跳变颜色，仅在存在暂停活动时启动定时器
-  const hasPaused = activities.some((a) => a.status === 'paused')
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!hasPaused) return
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [hasPaused])
+  const now = useActivityListClock(activities)
   const overdueCount = countOverduePaused(activities, now)
 
   const filtered = useMemo(
@@ -151,18 +140,6 @@ export function ActivityList({
   const resetFilters = () => {
     setFilters(EMPTY_FILTERS)
   }
-
-  const copyActivityId = async (id: string, e: ReactMouseEvent) => {
-    e.stopPropagation()
-    try {
-      await navigator.clipboard.writeText(id)
-      onToast?.('活动 ID 已复制')
-    } catch {
-      onToast?.('复制失败，请手动复制')
-    }
-  }
-
-  const stopRowClick = (e: ReactMouseEvent) => e.stopPropagation()
 
   const canEdit = (s: ActivityStatus) => ['draft', 'pending', 'not_started', 'in_progress', 'paused'].includes(s)
   const canPublish = (s: ActivityStatus) => ['draft', 'pending'].includes(s)
@@ -313,214 +290,143 @@ export function ActivityList({
         />
       </div>
 
-      <div className="table-wrap table-wrap--list">
-        <table className="table table--list table--activity">
-          <thead>
-            <tr>
-              <th>活动名称</th>
-              <th>规则类型</th>
-              <th>活动商品</th>
-              <th>参与门店</th>
-              <th>活动时间</th>
-              <th>投放渠道</th>
-              <th className="table-col--optional">适用人群</th>
-              <th>状态</th>
-              <th className="table-col--optional">创建者</th>
-              <th className="table-col--meta">创建时间</th>
-              <th className="table-col--meta">更新时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody className={enableRowAnim ? 'table--animate-in' : undefined}>
-            {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={12}>
-                  <div className="table-empty-state">
-                    <div className="table-empty-state__icon" aria-hidden>
-                      <IconEmpty />
-                    </div>
-                    <p className="table-empty-state__title">暂无活动</p>
-                    <p className="table-empty-state__desc">调整筛选条件，或新建一个买一送一活动</p>
-                    <button type="button" className="btn btn--primary btn--icon" onClick={onCreate}>
-                      <IconPlus />
-                      新建活动
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ) : (
-              pageRows.map((a, index) => {
-                const remaining = getActivityRemainingLabel(a)
-                const pauseInfo = getPauseInfo(a, now)
-                return (
-                  <tr
-                    key={a.id}
-                    className={`table-row--clickable table-row--status-${a.status}`}
-                    style={enableRowAnim ? { animationDelay: `${Math.min(index, 12) * 30}ms` } : undefined}
-                    onClick={() => onView(a.id)}
+      <ActivityListTable
+        activities={pageRows}
+        now={now}
+        onToast={onToast}
+        onRowClick={onView}
+        animated={enableRowAnim}
+        extraColumns={['规则类型']}
+        empty={(
+          <div className="table-empty-state">
+            <div className="table-empty-state__icon" aria-hidden>
+              <IconEmpty />
+            </div>
+            <p className="table-empty-state__title">暂无活动</p>
+            <p className="table-empty-state__desc">调整筛选条件，或新建一个买一送一活动</p>
+            <button type="button" className="btn btn--primary btn--icon" onClick={onCreate}>
+              <IconPlus />
+              新建活动
+            </button>
+          </div>
+        )}
+        renderFields={(a) => ({
+          products: (
+            <SnapshotLink
+              label={getProductSummary(a)}
+              onClick={() => setSnapshotTarget({ activity: a, type: 'products' })}
+            />
+          ),
+          stores: (
+            <div className="store-summary-cell">
+              <SnapshotLink
+                label={getStoreSummary(a)}
+                onClick={() => setSnapshotTarget({ activity: a, type: 'stores' })}
+              />
+              {(() => {
+                const issue = resolveStoreConfigIssue(a)
+                return issue ? <StoreConfigIssueBadge issue={issue} /> : null
+              })()}
+            </div>
+          ),
+          audience: getParticipantUserLabel(a),
+          extra: {
+            '规则类型': (
+              <>
+                <span className={`rule-tag rule-tag--${a.ruleType}`}>
+                  {getRuleTypeLabel(a.ruleType)}
+                </span>
+                {linkedConsumerActivityId === a.id && (
+                  <span
+                    className="rule-tag"
+                    style={{ marginLeft: 6, background: '#e8f5e9', color: '#2e7d32' }}
                   >
-                    <td>
-                      <div className="activity-name-cell">
-                        <div className="activity-name-cell__top">
-                          <span className="activity-name-cell__name">{a.name || '未命名活动'}</span>
-                        </div>
-                        <button
-                          type="button"
-                          className="activity-name-cell__id"
-                          title="点击复制活动 ID"
-                          onClick={(e) => copyActivityId(a.id, e)}
-                        >
-                          {a.id}
-                        </button>
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`rule-tag rule-tag--${a.ruleType}`}>
-                        {getRuleTypeLabel(a.ruleType)}
-                      </span>
-                      {linkedConsumerActivityId === a.id && (
-                        <span
-                          className="rule-tag"
-                          style={{ marginLeft: 6, background: '#e8f5e9', color: '#2e7d32' }}
-                        >
-                          已关联消费者端
-                        </span>
-                      )}
-                    </td>
-                    <td onClick={stopRowClick}>
-                      <SnapshotLink
-                        label={getProductSummary(a)}
-                        onClick={() => setSnapshotTarget({ activity: a, type: 'products' })}
-                      />
-                    </td>
-                    <td onClick={stopRowClick}>
-                      <div className="store-summary-cell">
-                        <SnapshotLink
-                          label={getStoreSummary(a)}
-                          onClick={() => setSnapshotTarget({ activity: a, type: 'stores' })}
-                        />
-                        {(() => {
-                          const issue = resolveStoreConfigIssue(a)
-                          return issue ? <StoreConfigIssueBadge issue={issue} /> : null
-                        })()}
-                      </div>
-                    </td>
-                    <td className="table-time">
-                      <div><span className="table-time__label">起</span>{a.startTime}</div>
-                      <div><span className="table-time__label">止</span>{a.endTime}</div>
-                      {remaining && (
-                        <span className="time-remaining">{remaining}</span>
-                      )}
-                    </td>
-                    <td onClick={stopRowClick}>
-                      <ChannelChips channels={a.channels} />
-                    </td>
-                    <td className="table-col--optional">{getParticipantUserLabel(a)}</td>
-                    <td>
-                      <div className="status-cell">
-                        <span className={`status-badge status-badge--dot status-badge--${a.status}`}>
-                          {STATUS_LABELS[a.status]}
-                        </span>
-                        {pauseInfo && (
-                          <span className={`pause-timer pause-timer--${pauseInfo.level}`} title={pauseInfo.label}>
-                            {pauseInfo.label}
-                          </span>
-                        )}
-                        {isEndedWhilePaused(a) && <span className="status-cell__hint">暂停中到期结束</span>}
-                      </div>
-                    </td>
-                    <td className="table-col--optional">
-                      <CreatorCell activity={a} />
-                    </td>
-                    <td className="table-col--meta table-time">
-                      <TimestampCell value={a.createdAt} />
-                    </td>
-                    <td className="table-col--meta table-time">
-                      <TimestampCell value={a.updatedAt ?? a.createdAt} />
-                    </td>
-                    <td className="table-actions" onClick={stopRowClick}>
-                      <button type="button" className="table-actions__view" onClick={() => onView(a.id)}>
-                        <IconView />
-                        查看
-                      </button>
-                      <RowActionMenu
-                        open={openMenuId === a.id}
-                        onToggle={() => setOpenMenuId((id) => (id === a.id ? null : a.id))}
-                        onClose={() => setOpenMenuId(null)}
-                      >
-                        <button type="button" onClick={() => { setLogTarget(a); setOpenMenuId(null) }}>
-                          操作日志（{a.operationLogs?.length ?? 0}）
-                        </button>
-                        <button type="button" onClick={() => { onViewParticipation(a.id); setOpenMenuId(null) }}>
-                          参与记录
-                        </button>
-                        {canEdit(a.status) && (
-                          <button type="button" onClick={() => { onEdit(a.id); setOpenMenuId(null) }}>
-                            编辑
-                          </button>
-                        )}
-                        <button type="button" onClick={() => { onCopy(a.id); setOpenMenuId(null) }}>
-                          复制
-                        </button>
-                        {a.ruleType === 'buyA_getB' && onLinkConsumerDemo && (
-                          linkedConsumerActivityId === a.id ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onUnlinkConsumerDemo?.()
-                                setOpenMenuId(null)
-                              }}
-                            >
-                              取消关联消费者端 Demo
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onLinkConsumerDemo(a.id)
-                                setOpenMenuId(null)
-                              }}
-                            >
-                              关联消费者端 Demo
-                            </button>
-                          )
-                        )}
-                        {canPublish(a.status) && (
-                          <button type="button" onClick={() => { onPublish(a.id); setOpenMenuId(null) }}>
-                            发布
-                          </button>
-                        )}
-                        {canPause(a.status) && (
-                          <button type="button" onClick={() => { requestPause(a); setOpenMenuId(null) }}>
-                            暂停活动
-                          </button>
-                        )}
-                        {canResume(a.status) && (
-                          <button type="button" onClick={() => { requestResume(a); setOpenMenuId(null) }}>
-                            恢复活动
-                          </button>
-                        )}
-                        {a.status === 'paused' && (
-                          <PauseDemoGroup onPick={(m) => { onDemoSetPausedMinutes(a.id, m); setOpenMenuId(null) }} />
-                        )}
-                        {canVoid(a.status) && (
-                          <button
-                            type="button"
-                            className="is-danger"
-                            onClick={() => { setVoidTarget(a.id); setOpenMenuId(null) }}
-                          >
-                            作废
-                          </button>
-                        )}
-                      </RowActionMenu>
-                    </td>
-                  </tr>
-                )
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+                    已关联消费者端
+                  </span>
+                )}
+              </>
+            ),
+          },
+          actions: (
+            <>
+              <button type="button" className="table-actions__view" onClick={() => onView(a.id)}>
+                <IconView />
+                查看
+              </button>
+              <RowActionMenu
+                open={openMenuId === a.id}
+                onToggle={() => setOpenMenuId((id) => (id === a.id ? null : a.id))}
+                onClose={() => setOpenMenuId(null)}
+              >
+                <button type="button" onClick={() => { setLogTarget(a); setOpenMenuId(null) }}>
+                  操作日志（{a.operationLogs?.length ?? 0}）
+                </button>
+                <button type="button" onClick={() => { onViewParticipation(a.id); setOpenMenuId(null) }}>
+                  参与记录
+                </button>
+                {canEdit(a.status) && (
+                  <button type="button" onClick={() => { onEdit(a.id); setOpenMenuId(null) }}>
+                    编辑
+                  </button>
+                )}
+                <button type="button" onClick={() => { onCopy(a.id); setOpenMenuId(null) }}>
+                  复制
+                </button>
+                {a.ruleType === 'buyA_getB' && onLinkConsumerDemo && (
+                  linkedConsumerActivityId === a.id ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onUnlinkConsumerDemo?.()
+                        setOpenMenuId(null)
+                      }}
+                    >
+                      取消关联消费者端 Demo
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onLinkConsumerDemo(a.id)
+                        setOpenMenuId(null)
+                      }}
+                    >
+                      关联消费者端 Demo
+                    </button>
+                  )
+                )}
+                {canPublish(a.status) && (
+                  <button type="button" onClick={() => { onPublish(a.id); setOpenMenuId(null) }}>
+                    发布
+                  </button>
+                )}
+                {canPause(a.status) && (
+                  <button type="button" onClick={() => { requestPause(a); setOpenMenuId(null) }}>
+                    暂停活动
+                  </button>
+                )}
+                {canResume(a.status) && (
+                  <button type="button" onClick={() => { requestResume(a); setOpenMenuId(null) }}>
+                    恢复活动
+                  </button>
+                )}
+                {a.status === 'paused' && (
+                  <PauseDemoGroup onPick={(m) => { onDemoSetPausedMinutes(a.id, m); setOpenMenuId(null) }} />
+                )}
+                {canVoid(a.status) && (
+                  <button
+                    type="button"
+                    className="is-danger"
+                    onClick={() => { setVoidTarget(a.id); setOpenMenuId(null) }}
+                  >
+                    作废
+                  </button>
+                )}
+              </RowActionMenu>
+            </>
+          ),
+        })}
+      />
 
       <div className="pagination pagination--full">
         <span>
@@ -635,39 +541,6 @@ export function ActivityList({
   )
 }
 
-function SnapshotLink({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      className="snapshot-link cell-ellipsis"
-      title={`点击查看快照：${label}`}
-      onClick={onClick}
-    >
-      {label}
-    </button>
-  )
-}
-
-function CreatorCell({ activity }: { activity: ActivityForm }) {
-  const { maskedPhone, org } = formatCreatorDisplay(activity)
-  return (
-    <div className="creator-cell" title={`${maskedPhone} · ${org}`}>
-      <div className="creator-cell__phone">{maskedPhone}</div>
-      <div className="creator-cell__org">{org}</div>
-    </div>
-  )
-}
-
-function TimestampCell({ value }: { value: string }) {
-  const [date, time] = value.split(' ')
-  return (
-    <div className="timestamp-cell" title={value}>
-      <div>{date}</div>
-      {time && <div className="timestamp-cell__time">{time}</div>}
-    </div>
-  )
-}
-
 function PageHelpButton({
   open,
   onToggle,
@@ -718,23 +591,6 @@ function PageHelpButton({
   )
 }
 
-function ChannelChips({ channels }: { channels: string[] }) {
-  if (channels.length === 0) return <span className="text-secondary">-</span>
-  return (
-    <div className="channel-chips" title={channels.map((id) => CHANNEL_MAP[id]?.label ?? id).join('、')}>
-      {channels.map((id) => {
-        const ch = CHANNEL_MAP[id]
-        if (!ch) return null
-        return (
-          <span key={id} className={`channel-chip channel-chip--${id}`}>
-            {ch.icon}
-          </span>
-        )
-      })}
-    </div>
-  )
-}
-
 function StatusMoreMenu({
   open,
   active,
@@ -778,43 +634,6 @@ function StatusMoreMenu({
       </button>
       {open && (
         <div className="status-more-menu__dropdown" role="menu">
-          {children}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function RowActionMenu({
-  open,
-  onToggle,
-  onClose,
-  children,
-}: {
-  open: boolean
-  onToggle: () => void
-  onClose: () => void
-  children: ReactNode
-}) {
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const handleClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [open, onClose])
-
-  return (
-    <div className="row-action-menu" ref={ref}>
-      <button type="button" className="row-action-menu__trigger" onClick={onToggle}>
-        更多
-        <IconChevron />
-      </button>
-      {open && (
-        <div className="row-action-menu__dropdown" role="menu">
           {children}
         </div>
       )}

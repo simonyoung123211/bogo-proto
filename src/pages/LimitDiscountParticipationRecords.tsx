@@ -6,10 +6,11 @@ import type { LimitDiscountActivityForm } from '../types'
 interface LimitDiscountParticipationRecordsProps {
   activities: LimitDiscountActivityForm[]
   initialActivityId?: string
+  backLabel?: string
   onBack: () => void
 }
 
-export function LimitDiscountParticipationRecords({ activities, initialActivityId, onBack }: LimitDiscountParticipationRecordsProps) {
+export function LimitDiscountParticipationRecords({ activities, initialActivityId, backLabel = '返回列表', onBack }: LimitDiscountParticipationRecordsProps) {
   const [activityId, setActivityId] = useState(initialActivityId ?? '')
   const [keyword, setKeyword] = useState('')
   const scoped = activityId ? activities.filter((activity) => activity.id === activityId) : activities.filter((activity) => activity.status !== 'draft')
@@ -41,7 +42,7 @@ export function LimitDiscountParticipationRecords({ activities, initialActivityI
           <h1 className="list-page-header__title">参与记录</h1>
           <p className="text-secondary">限时折扣 · {activityId ? '当前活动' : '全部已发布活动'}</p>
         </div>
-        <button type="button" className="btn btn--default" onClick={onBack}>返回列表</button>
+        <button type="button" className="btn btn--default" onClick={onBack}>{backLabel}</button>
       </header>
       <div className="list-toolbar">
         <div className="list-toolbar__fields">

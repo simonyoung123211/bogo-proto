@@ -18,7 +18,6 @@ import {
   formatRuleSummary as formatProductRuleSummary,
   getActivityProducts,
   formatCreatorDisplay,
-  getActivityRemainingLabel as getMemberPriceRemainingLabel,
   getActivityStores,
   getChannelSummary,
   getProductCount,
@@ -68,10 +67,6 @@ export function computePublishStatus(activity: StoredValuePayActivityForm): Acti
   if (now < start) return 'not_started'
   if (now > end) return 'ended'
   return 'in_progress'
-}
-
-export function getActivityRemainingLabel(activity: StoredValuePayActivityForm): string | null {
-  return getMemberPriceRemainingLabel(activity as never)
 }
 
 export function cloneActivity(activity: StoredValuePayActivityForm): StoredValuePayActivityForm {

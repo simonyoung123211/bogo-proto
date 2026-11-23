@@ -1,4 +1,5 @@
-import type { ActivityOperationLog, LimitDiscountActivityForm, LimitDiscountTimeRange } from './types'
+import type { ActivityOperationLog, ActivityPerspective, LimitDiscountActivityForm, LimitDiscountTimeRange } from './types'
+import { getLegacyLimitDiscountPerspective } from './mockActivityPerspectives'
 import { getCreatorProfile } from './mockData'
 
 function formatDateTime(d: Date): string {
@@ -78,11 +79,12 @@ export function createTimeRange(start = '', end = ''): LimitDiscountTimeRange {
   return { id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, start, end }
 }
 
-export function createEmptyLimitDiscountActivity(): LimitDiscountActivityForm {
+export function createEmptyLimitDiscountActivity(perspective?: ActivityPerspective): LimitDiscountActivityForm {
   const now = new Date()
   const end = new Date(now)
   end.setDate(end.getDate() + 14)
   const profile = getCreatorProfile('10086')
+  const creatorOrg = perspective?.name ?? profile.org
   const createdAt = formatDateTime(now)
   return {
     id: `XSZK${Date.now()}`,
@@ -146,10 +148,11 @@ export function createEmptyLimitDiscountActivity(): LimitDiscountActivityForm {
     status: 'draft',
     creator: '10086',
     creatorPhone: profile.phone,
-    creatorOrg: profile.org,
+    creatorOrg,
+    creatorPerspectiveId: perspective?.id,
     createdAt,
     updatedAt: createdAt,
-    operationLogs: [buildLog('创建活动', profile, '创建活动草稿', createdAt)],
+    operationLogs: [buildLog('创建活动', { ...profile, org: creatorOrg }, '创建活动草稿', createdAt)],
   }
 }
 
@@ -157,9 +160,10 @@ function seed(
   overrides: Partial<LimitDiscountActivityForm> & Pick<LimitDiscountActivityForm, 'id' | 'name' | 'status'>,
 ): LimitDiscountActivityForm {
   const base = createEmptyLimitDiscountActivity()
+  const perspective = getLegacyLimitDiscountPerspective(overrides.id)
   const profile = {
     phone: overrides.creatorPhone ?? base.creatorPhone,
-    org: overrides.creatorOrg ?? base.creatorOrg,
+    org: overrides.creatorOrg ?? (perspective.type === 'store_group' ? perspective.name : base.creatorOrg),
   }
   const createdAt = overrides.createdAt ?? '2026-10-01 10:00:00'
   const updatedAt = overrides.updatedAt ?? createdAt
@@ -169,7 +173,7 @@ function seed(
       ? [buildLog('发布活动', profile, `发布活动「${overrides.name}」`, updatedAt)]
       : []),
   ]
-  return { ...base, ...overrides, createdAt, updatedAt, operationLogs: logs }
+  return { ...base, creatorPerspectiveId: perspective.id, ...overrides, creatorOrg: profile.org, createdAt, updatedAt, operationLogs: logs }
 }
 
 export const initialLimitDiscountActivities: LimitDiscountActivityForm[] = [

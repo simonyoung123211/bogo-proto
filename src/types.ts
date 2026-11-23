@@ -1410,9 +1410,18 @@ export interface LimitDiscountActivityForm {
   creator: string
   creatorPhone: string
   creatorOrg: string
+  creatorPerspectiveId?: string
   createdAt: string
   updatedAt: string
   operationLogs: ActivityOperationLog[]
+}
+
+export interface ActivityPerspective {
+  id: string
+  type: 'group' | 'brand' | 'store_group' | 'store'
+  name: string
+  code?: string
+  parentId?: string
 }
 
 export interface LimitDiscountListFilters {
@@ -1453,8 +1462,9 @@ export type PageView =
   /** 不传 activityId 表示查询该类型下全部活动 */
   | { type: 'bundle-price-participation'; activityId?: string }
   | { type: 'limit-discount-list' }
-  | { type: 'limit-discount-wizard'; mode: WizardMode; activityId?: string; step?: number }
-  | { type: 'limit-discount-participation'; activityId?: string }
+  | { type: 'limit-discount-wizard'; mode: Exclude<WizardMode, 'view'>; fromDetail?: boolean; focusEndTime?: boolean; startAtStoreScope?: boolean; returnedFromConflict?: boolean }
+  | { type: 'limit-discount-detail'; activityId: string }
+  | { type: 'limit-discount-participation'; activityId?: string; fromDetail?: boolean }
   | { type: 'paid-member-price-list' }
   | { type: 'paid-member-price-settings' }
   | { type: 'paid-member-price-wizard'; mode: WizardMode; activityId?: string; step?: number; from?: 'card-list' }

@@ -1,5 +1,6 @@
 import type {
   ActivityStatus,
+  ActivityPerspective,
   LimitDiscountActivityForm,
   LimitDiscountListFilters,
   LimitDiscountMethod,
@@ -15,12 +16,47 @@ import {
   createEmptyLimitDiscountActivity,
 } from '../mockLimitDiscountData'
 import { MEMBER_TAG_OPTIONS, getCreatorProfile, products } from '../mockData'
+import { getLegacyLimitDiscountPerspective } from '../mockActivityPerspectives'
 import { createOperationLog, formatActivityDateTime, maskPhone } from './activity'
 import { matchesActivityProductFilters, resolveActivityProducts } from './activityProductSearch'
-import { discountAreaRows } from './limitDiscountScope'
+import { discountAreaCoverage, resolveDiscountStoreScope } from './limitDiscountScope'
 
 const CHANNEL_IDS = new Set<string>(LIMIT_DISCOUNT_CHANNELS.map((item) => item.id))
 const SCENE_IDS = new Set<string>(LIMIT_DISCOUNT_SCENES.map((item) => item.id))
+
+export function isPublishedLimitDiscount(status: ActivityStatus) {
+  return ['not_started', 'in_progress', 'paused'].includes(status)
+}
+
+export function canEditLimitDiscount(status: ActivityStatus) {
+  return status === 'draft' || status === 'pending' || isPublishedLimitDiscount(status)
+}
+
+const PUBLISHED_LOCKED_FIELDS = [
+  'startTime', 'orderTypes', 'timeSlotType', 'timeSlots', 'holidayInactive', 'inactiveRanges',
+  'thresholdType', 'thresholdAmount', 'thresholdGoodsScope', 'thresholdProductIds', 'thresholdIncludeTopping',
+  'thresholdIncludeCombo', 'thresholdIncludePractice', 'toppingDiscount', 'comboSurchargeDiscount', 'practiceSurchargeDiscount',
+  'totalTimesType', 'totalTimes', 'frequencyType', 'frequencyPeriod', 'frequencyTimes',
+  'limitTotalPieces', 'totalPieces', 'limitPeriodPieces', 'periodPiecesPeriod', 'periodPieces',
+  'limitOrderPieces', 'orderPieces', 'hitRule', 'activityCode', 'participantUser', 'memberTagIds', 'searchKeyword',
+  'discountMethod', 'goodsScope', 'valueMode', 'discountValue', 'sceneDiscountValues', 'activityStock',
+] as const satisfies readonly (keyof LimitDiscountActivityForm)[]
+
+export function publishedLimitDiscountEditError(saved: LimitDiscountActivityForm, next: LimitDiscountActivityForm) {
+  if (!isPublishedLimitDiscount(saved.status)) return undefined
+  if (next.endTime < saved.endTime) return '已发布活动的结束时间只能延后'
+  if (saved.channels.some((id) => !next.channels.includes(id))) return '已投放渠道只能新增'
+  if (PUBLISHED_LOCKED_FIELDS.some((key) => JSON.stringify(saved[key]) !== JSON.stringify(next[key]))) {
+    return '活动已发布，请保留锁定的配置后再保存'
+  }
+  const nextItems = new Map(next.productItems.map((item) => [item.productId, item]))
+  if (saved.productItems.some((item) => JSON.stringify(item) !== JSON.stringify(nextItems.get(item.productId)))) {
+    return '已投放商品的优惠和库存已锁定，且不能移除'
+  }
+  if (saved.goodsScope !== 'include' && next.productItems.length !== saved.productItems.length) {
+    return '已发布活动的商品范围方式和排除名单已锁定'
+  }
+}
 
 export function discountMethodLabel(method: LimitDiscountMethod): string {
   if (method === 'reduce') return '减价'
@@ -243,16 +279,6 @@ export function formatRuleSummary(activity: LimitDiscountActivityForm): string {
   return `${discountMethodLabel(activity.discountMethod)} · ${base}${sceneText}`
 }
 
-export function getActivityRemainingLabel(activity: LimitDiscountActivityForm): string | null {
-  if (activity.status !== 'in_progress') return null
-  const end = new Date(activity.endTime.replace(/-/g, '/'))
-  const diffMs = end.getTime() - Date.now()
-  if (diffMs < 0) return null
-  const days = Math.ceil(diffMs / 86_400_000)
-  if (days === 0) return '今日结束'
-  return `剩余 ${days} 天`
-}
-
 export function formatCreatorDisplay(activity: LimitDiscountActivityForm) {
   const phone = activity.creatorPhone || getCreatorProfile(activity.creator).phone
   const org = activity.creatorOrg || getCreatorProfile(activity.creator).org
@@ -315,15 +341,20 @@ export function appendActivityLog(
   return { ...activity, updatedAt: now, operationLogs: [log, ...(activity.operationLogs ?? [])] }
 }
 
-export function cloneActivity(activity: LimitDiscountActivityForm): LimitDiscountActivityForm {
+export function cloneActivity(activity: LimitDiscountActivityForm, perspective: ActivityPerspective): LimitDiscountActivityForm {
   const now = formatActivityDateTime()
-  const operator = { phone: activity.creatorPhone, org: activity.creatorOrg }
+  const creator = '10086'
+  const operator = { phone: getCreatorProfile(creator).phone, org: perspective.name }
   return {
     ...activity,
     id: `XSZK${Date.now()}`,
     name: `${activity.name}(副本)`.slice(0, 30),
     status: 'draft',
     pausedAt: undefined,
+    creator,
+    creatorPhone: operator.phone,
+    creatorOrg: operator.org,
+    creatorPerspectiveId: perspective.id,
     createdAt: now,
     updatedAt: now,
     productItems: activity.productItems.map((item) => ({ ...item })),
@@ -397,14 +428,18 @@ export function collectStepErrors(activity: LimitDiscountActivityForm, step: num
     if (activity.searchKeyword.length > 20) errors.push('快捷检索名称不超过20个文字或字母')
   }
   if (step === 1) {
-    if (activity.areaMode === 'specified' && discountAreaRows(activity).length === 0) {
-      errors.push('请至少选择一家参与门店的一个点餐区域')
-    }
-    if ((activity.storeMode === 'include' || activity.storeMode === 'exclude') && activity.storeIds.length === 0) {
-      errors.push('请选择门店')
-    }
-    if ((activity.storeMode === 'tag_include' || activity.storeMode === 'tag_exclude') && activity.storeTagIds.length === 0) {
-      errors.push('请选择门店标签')
+    const { scopeError, eligibleStores } = resolveDiscountStoreScope(activity)
+    if (scopeError) {
+      errors.push(scopeError)
+    } else if (eligibleStores.length === 0) {
+      errors.push('当前范围内没有可参与门店，请调整门店范围')
+    } else if (activity.areaMode === 'specified') {
+      const { availableStoreCount, selected } = discountAreaCoverage(activity, eligibleStores)
+      if (!availableStoreCount) {
+        errors.push('当前范围内没有可选点餐区，请调整门店范围或选择不限区域')
+      } else if (selected.length === 0) {
+        errors.push('请至少选择一家参与门店的一个点餐区域')
+      }
     }
   }
   if (step === 2) {
@@ -504,9 +539,14 @@ function migrateSharedScenes(legacy: Partial<LimitDiscountActivityForm>): Record
 export function migrateLimitDiscountActivity(raw: Record<string, unknown>): LimitDiscountActivityForm {
   const defaults = createEmptyLimitDiscountActivity()
   const legacy = raw as Partial<LimitDiscountActivityForm>
+  const legacyPerspective = getLegacyLimitDiscountPerspective(legacy.id)
   return {
     ...defaults,
     ...legacy,
+    creatorPerspectiveId: legacy.creatorPerspectiveId ?? legacyPerspective.id,
+    creatorOrg: !legacy.creatorPerspectiveId && legacyPerspective.type === 'store_group'
+      ? legacyPerspective.name
+      : legacy.creatorOrg ?? defaults.creatorOrg,
     areaMode: legacy.areaMode === 'specified' ? 'specified' : 'all',
     areaIdsByStore: legacy.areaIdsByStore ?? {},
     channels: (legacy.channels ?? defaults.channels).filter((id) => CHANNEL_IDS.has(id)),

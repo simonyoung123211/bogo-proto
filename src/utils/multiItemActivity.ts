@@ -192,16 +192,6 @@ export function formatCreatorDisplay(activity: MultiItemActivityForm) {
   return { maskedPhone: maskPhone(phone), org }
 }
 
-export function getActivityRemainingLabel(activity: MultiItemActivityForm): string | null {
-  if (activity.status !== 'in_progress') return null
-  const end = new Date(activity.endTime.replace(/-/g, '/'))
-  const diffMs = end.getTime() - Date.now()
-  if (diffMs < 0) return null
-  const days = Math.ceil(diffMs / 86_400_000)
-  if (days === 0) return '今日结束'
-  return `剩余 ${days} 天`
-}
-
 export function buildActivityPreviewTags(activity: MultiItemActivityForm): string[] {
   return [
     getMultiItemRuleTypeLabel(activity.ruleType),
