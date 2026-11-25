@@ -20,6 +20,7 @@ import { getLegacyLimitDiscountPerspective } from '../mockActivityPerspectives'
 import { createOperationLog, formatActivityDateTime, maskPhone } from './activity'
 import { matchesActivityProductFilters, resolveActivityProducts } from './activityProductSearch'
 import { discountAreaCoverage, hasSpecifiedDiscountAreas, isDiscountAreaScene, resolveDiscountStoreScope } from './limitDiscountScope'
+import { discountProductQuotaErrors } from './limitDiscountQuota'
 
 const CHANNEL_IDS = new Set<string>(LIMIT_DISCOUNT_CHANNELS.map((item) => item.id))
 const SCENE_IDS = new Set<string>(LIMIT_DISCOUNT_SCENES.map((item) => item.id))
@@ -39,7 +40,7 @@ const PUBLISHED_LOCKED_FIELDS = [
   'totalTimesType', 'totalTimes', 'frequencyType', 'frequencyPeriod', 'frequencyTimes',
   'limitTotalPieces', 'totalPieces', 'limitPeriodPieces', 'periodPiecesPeriod', 'periodPieces',
   'limitOrderPieces', 'orderPieces', 'hitRule', 'activityCode', 'participantUser', 'memberTagIds', 'searchKeyword',
-  'discountMethod', 'goodsScope', 'valueMode', 'discountValue', 'sceneDiscountValues', 'activityStock',
+  'discountMethod', 'goodsScope', 'valueMode', 'discountValue', 'sceneDiscountValues', 'activityStock', 'activityQuota',
 ] as const satisfies readonly (keyof LimitDiscountActivityForm)[]
 
 export function publishedLimitDiscountEditError(saved: LimitDiscountActivityForm, next: LimitDiscountActivityForm) {
@@ -51,7 +52,7 @@ export function publishedLimitDiscountEditError(saved: LimitDiscountActivityForm
   }
   const nextItems = new Map(next.productItems.map((item) => [item.productId, item]))
   if (saved.productItems.some((item) => JSON.stringify(item) !== JSON.stringify(nextItems.get(item.productId)))) {
-    return '已投放商品的优惠和库存已锁定，且不能移除'
+    return '请保留已投放商品及其优惠和限量'
   }
   if (saved.goodsScope !== 'include' && next.productItems.length !== saved.productItems.length) {
     return '已发布活动的商品范围方式和排除名单已锁定'
@@ -124,13 +125,14 @@ export function itemSceneValue(item: LimitDiscountProductItem, sceneId: string |
   return override ?? item.discountValue
 }
 
-/** 全部商品、指定商品不参与时，活动级的默认力度和业务例外 */
+/** 全部商品和余下商品使用的默认力度与额度配置 */
 export function sharedDiscountItem(activity: LimitDiscountActivityForm): LimitDiscountProductItem {
   return {
     productId: '',
     discountValue: activity.discountValue,
     sceneDiscountValues: activity.sceneDiscountValues ?? {},
-    stock: null,
+    stock: activity.activityStock ?? null,
+    quota: activity.activityQuota,
   }
 }
 
@@ -360,7 +362,8 @@ export function cloneActivity(activity: LimitDiscountActivityForm, perspective: 
     creatorPerspectiveId: perspective.id,
     createdAt: now,
     updatedAt: now,
-    productItems: activity.productItems.map((item) => ({ ...item })),
+    productItems: structuredClone(activity.productItems),
+    activityQuota: structuredClone(activity.activityQuota),
     timeSlots: activity.timeSlots.map((slot) => ({ ...slot, id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 5)}` })),
     inactiveRanges: activity.inactiveRanges.map((slot) => ({ ...slot, id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 5)}` })),
     operationLogs: [createOperationLog('复制活动', operator, `从「${activity.name}」复制创建`)],
@@ -382,18 +385,27 @@ function validateDiscountNumber(method: LimitDiscountMethod, value: number | nul
   return null
 }
 
-function validateStock(stock: number | null, label: string): string | null {
-  if (stock == null) return null
-  if (!positiveInt(stock)) return `${label}须为大于 0 的整数，留空表示不限量`
-  return null
-}
-
 export function validateStep(activity: LimitDiscountActivityForm, step: number): string | null {
   const errors = collectStepErrors(activity, step)
   return errors[0] ?? null
 }
 
-export function collectStepErrors(activity: LimitDiscountActivityForm, step: number): string[] {
+export function collectDiscountQuotaErrors(activity: LimitDiscountActivityForm, saved = activity) {
+  const published = isPublishedLimitDiscount(saved.status) ? saved : undefined
+  if (activity.goodsScope !== 'include') {
+    return discountProductQuotaErrors(sharedDiscountItem(activity), activity.orderTypes, { checkBounds: !published })
+      .map((error) => `商品优惠限量 · ${error}`)
+  }
+  const lockedIds = new Set(published?.productItems.map(({ productId }) => productId))
+  return activity.productItems.flatMap((item) => {
+    const errors = discountProductQuotaErrors(item, activity.orderTypes, { checkBounds: !lockedIds.has(item.productId) })
+    if (!errors.length) return []
+    const name = products.find(({ id }) => id === item.productId)?.name ?? '商品'
+    return errors.map((error) => `${name} · ${error}`)
+  })
+}
+
+export function collectStepErrors(activity: LimitDiscountActivityForm, step: number, saved?: LimitDiscountActivityForm): string[] {
   const errors: string[] = []
   if (step === 0) {
     if (activity.channels.length === 0) errors.push('请至少选择一个参与渠道')
@@ -439,7 +451,7 @@ export function collectStepErrors(activity: LimitDiscountActivityForm, step: num
     } else if (hasSpecifiedDiscountAreas(activity)) {
       const { availableStoreCount, selected } = discountAreaCoverage(activity, eligibleStores)
       if (!availableStoreCount) {
-        errors.push('当前范围内没有可选点餐区，请调整门店范围或选择不限区域')
+        errors.push('当前范围内没有可选点餐区，请调整门店范围或选择全部区域')
       } else if (selected.length === 0) {
         errors.push('请至少选择一家参与门店的一个点餐区域')
       }
@@ -448,9 +460,10 @@ export function collectStepErrors(activity: LimitDiscountActivityForm, step: num
   if (step === 2) {
     const valueLabel = discountValueLabel(activity.discountMethod)
     const pushShared = (prefix: string) => {
+      const item = sharedDiscountItem(activity)
       const err = validateDiscountNumber(activity.discountMethod, activity.discountValue, `${prefix}默认${valueLabel}`)
       if (err) errors.push(err)
-      sceneOverrides(activity, sharedDiscountItem(activity)).forEach(({ sceneId, value }) => {
+      sceneOverrides(activity, item).forEach(({ sceneId, value }) => {
         const sceneErr = validateDiscountNumber(
           activity.discountMethod,
           value,
@@ -461,14 +474,10 @@ export function collectStepErrors(activity: LimitDiscountActivityForm, step: num
     }
     if (activity.goodsScope === 'all') {
       pushShared('')
-      const stockErr = validateStock(activity.activityStock, '活动库存')
-      if (stockErr) errors.push(stockErr)
     } else if (activity.productItems.length === 0) {
       errors.push('请选择商品')
     } else if (activity.goodsScope === 'exclude') {
       pushShared('余下商品')
-      const stockErr = validateStock(activity.activityStock, '活动库存')
-      if (stockErr) errors.push(stockErr)
     } else {
       activity.productItems.forEach((item) => {
         const product = products.find((p) => p.id === item.productId)
@@ -479,10 +488,9 @@ export function collectStepErrors(activity: LimitDiscountActivityForm, step: num
           const sceneErr = validateDiscountNumber(activity.discountMethod, value, `${name}在${sceneLabel(sceneId)}的${valueLabel}`)
           if (sceneErr) errors.push(sceneErr)
         })
-        const stockErr = validateStock(item.stock, `${name}的活动库存`)
-        if (stockErr) errors.push(stockErr)
       })
     }
+    errors.push(...collectDiscountQuotaErrors(activity, saved))
   }
   return errors
 }
@@ -544,7 +552,8 @@ export function migrateLimitDiscountActivity(raw: Record<string, unknown>): Limi
   const legacy = raw as Partial<LimitDiscountActivityForm>
   const legacyPerspective = getLegacyLimitDiscountPerspective(legacy.id)
   const orderTypes = (legacy.orderTypes ?? defaults.orderTypes).filter((id) => SCENE_IDS.has(id))
-  const specified = legacy.areaMode === 'specified' && orderTypes.some(isDiscountAreaScene)
+  const storeMode = legacy.storeMode ?? defaults.storeMode
+  const specified = hasSpecifiedDiscountAreas({ storeMode, areaMode: legacy.areaMode ?? defaults.areaMode, orderTypes })
   return {
     ...defaults,
     ...legacy,
@@ -552,6 +561,7 @@ export function migrateLimitDiscountActivity(raw: Record<string, unknown>): Limi
     creatorOrg: !legacy.creatorPerspectiveId && legacyPerspective.type === 'store_group'
       ? legacyPerspective.name
       : legacy.creatorOrg ?? defaults.creatorOrg,
+    storeMode,
     areaMode: specified ? 'specified' : 'all',
     areaIdsByStore: specified ? legacy.areaIdsByStore ?? {} : {},
     channels: (legacy.channels ?? defaults.channels).filter((id) => CHANNEL_IDS.has(id)),

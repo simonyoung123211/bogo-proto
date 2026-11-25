@@ -52,7 +52,7 @@ export function LimitDiscountActivityWizard({
   const editingConflict = conflictOriginName !== undefined
 
   const errorsByStep = [0, 1, 2].map((index) => {
-    const current = collectStepErrors(activity, index)
+    const current = collectStepErrors(activity, index, saved)
     if (index === 0 && published && activity.endTime && activity.endTime < published.endTime) {
       return ['已发布活动的结束时间只能延后', ...current]
     }
@@ -68,10 +68,11 @@ export function LimitDiscountActivityWizard({
     const root = wizardRef.current
     if (step === 0 && focusTime) {
       const label = focusTime === 'start' ? '开始时间' : '结束时间'
-      const selector = focusTime === 'cycle' ? '#ld-activity-cycle input:checked' : `input[aria-label="${label}"]`
-      const field = root?.querySelector<HTMLInputElement>(selector)
+      const selector = focusTime === 'cycle' ? '#ld-activity-cycle input:checked' : `button[aria-label="${label}"]`
+      const field = root?.querySelector<HTMLElement>(selector)
       field?.focus({ preventScroll: true })
       field?.scrollIntoView({ block: 'center' })
+      if (focusTime !== 'cycle') field?.click()
     } else {
       root?.scrollIntoView({ block: 'start' })
     }

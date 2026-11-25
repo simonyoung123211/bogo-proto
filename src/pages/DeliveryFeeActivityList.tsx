@@ -293,7 +293,7 @@ function PageHelpButton({ open, onToggle, onClose }: { open: boolean; onToggle: 
       {open && (
         <div className="page-help__popover" role="tooltip">
           <p className="page-help__title">减配送费说明</p>
-          <p className="page-help__text">勾选门店快递后可配置收货城市（全国 / 指定城市）。指定城市仅对门店快递生效，省可批选下属城市，活动只保存城市名单。</p>
+          <p className="page-help__text">门店快递可按全国或指定城市配置。指定城市支持多个城市组，各组可设置独立优惠。</p>
         </div>
       )}
     </div>

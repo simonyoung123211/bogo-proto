@@ -46,14 +46,14 @@ export function LimitDiscountAreaFields({ activity, coverage, scopeError, onChan
   }
 
   return (
-    <PromoFormRow label="区域限制" required={Boolean(areaScenes)}>
+    <PromoFormRow label="门店区域限制" required={Boolean(areaScenes)}>
       <div className="radio-group">
         {(['all', 'specified'] as const).map((mode) => (
           <label className="radio" key={mode}>
             <input type="radio" name="discountAreaMode" checked={mode === 'specified' ? specified : !specified}
               disabled={mode === 'specified' && !areaScenes} aria-describedby="ld-area-scene-hint"
               onChange={() => { setMarked({}); onChange({ ...activity, areaMode: mode }) }} />
-            {mode === 'all' ? '不限区域' : '指定区域'}
+            {mode === 'all' ? '全部区域' : '指定区域'}
           </label>
         ))}
       </div>

@@ -123,7 +123,7 @@ export function LimitDiscountActivityDetail({
                   <div><dt>商品优惠</dt><dd>{discountStrengthSummary(activity)}</dd></div>
                   <div><dt>消费门槛</dt><dd>{activity.thresholdType === 'limited' ? `满 ${activity.thresholdAmount} 元` : '不限'}</dd></div>
                   <div><dt>用户限购</dt><dd>{limitDiscountUserLimits(activity)}</dd></div>
-                  <div><dt>区域限制</dt><dd>{coverage.specified ? `${areaScenes} · 已选 ${coverage.selectedAreaCount} 个点位` : '不限区域'}</dd></div>
+                  <div><dt>门店区域限制</dt><dd>{coverage.specified ? `${areaScenes} · 已选 ${coverage.selectedAreaCount} 个点位` : '全部区域'}</dd></div>
                 </dl>
               </div>
             </section>
@@ -206,7 +206,7 @@ function StoreCoverage({ activity, scope, coverage }: {
   const { specified, coversWholeStores } = coverage
   const pointsByStore = new Map(coverage.selected.map(({ store, areas }) => [store.id, areas.map(({ name }) => name).join('、')]))
   const stores = coversWholeStores ? scope.eligibleStores : coverage.selected.map(({ store }) => store)
-  const members = stores.map((store) => ({ store, pointNames: specified ? pointsByStore.get(store.id) ?? '未选点位' : '不限区域' }))
+  const members = stores.map((store) => ({ store, pointNames: specified ? pointsByStore.get(store.id) ?? '未选点位' : '全部区域' }))
   const term = keyword.trim().toLowerCase()
   const filtered = members.filter(({ store, pointNames }) =>
     [store.name, store.code, store.id, pointNames].some((value) => value.toLowerCase().includes(term)))

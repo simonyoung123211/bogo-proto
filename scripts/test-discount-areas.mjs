@@ -12,6 +12,7 @@ try {
     await server.ssrLoadModule('/src/utils/limitDiscountActivity.ts')
   const original = { ...createEmptyLimitDiscountActivity(), id: 'original', status: 'pending', orderTypes: ['pack'],
     startTime: '2026-11-01 00:00:00', endTime: '2026-12-01 00:00:00',
+    storeMode: 'include', storeIds: ['s2', 's5', 's8'],
     areaMode: 'specified', areaIdsByStore: { s2: ['library'], s5: ['cafe'] } }
   const target = { ...original, id: 'target', areaIdsByStore: { s2: ['cafe'], s5: ['library'] } }
   const overlapping = { ...target, areaIdsByStore: { s2: ['library', 'cafe'], s5: ['library'] } }
@@ -59,8 +60,13 @@ try {
   for (const status of ['draft', 'ended', 'voided']) assert.deepEqual(hits(overlapping, { ...original, status }), [])
   assert.deepEqual(hits({ ...overlapping, channels: ['pos'] }), [])
   assert.deepEqual(hits({ ...overlapping, orderTypes: ['delivery'] }), [])
-  assert.deepEqual(hits({ ...overlapping, storeMode: 'exclude', storeIds: ['s2'] }), [])
-  assert.deepEqual(hits({ ...overlapping, storeMode: 'tag_include', storeTagIds: ['flagship'] }), [])
+  const reverseScope = { storeMode: 'exclude', storeIds: ['s2'] }
+  assert.deepEqual(hits({ ...target, ...reverseScope })[0].stores.map(({ id, areaIds }) => [id, areaIds]), [['s5', ['cafe']]])
+  assert.deepEqual(hits(target, { ...original, ...reverseScope })[0].stores.map(({ id, areaIds }) => [id, areaIds]), [['s5', ['library']]])
+  const wholeStorePeer = { ...original, ...reverseScope }
+  assert.deepEqual(hits({ ...target, ...reverseScope }, wholeStorePeer)[0].scenes, ['pack'])
+  assert.ok(hits({ ...target, ...reverseScope }, wholeStorePeer)[0].stores.every(({ areaIds, storeWideScenes }) =>
+    areaIds === null && storeWideScenes.includes('pack')))
   const item = { productId: 'p1' }
   assert.deepEqual(hits({ ...overlapping, goodsScope: 'include', productItems: [item] }, { ...original, goodsScope: 'exclude', productItems: [item] }), [])
   assert.deepEqual(hits({ ...overlapping, cycleType: 'weekly', weekDays: [1] }, { ...original, cycleType: 'weekly', weekDays: [7] }), [])
@@ -83,7 +89,8 @@ try {
   assert.deepEqual(collectStepErrors({ ...target, areaIdsByStore: {} }, 1), ['请至少选择一家参与门店的一个点餐区域'])
   assert.deepEqual(retainEligibleAreaIds({ ...target, storeMode: 'include', storeIds: ['s5'] }).areaIdsByStore, { s5: ['library'] })
   const storeIdsFor = (scope) => eligibleDiscountStores({ ...target, ...scope }).map((store) => store.id)
-  const candidateStoreIds = storeIdsFor({})
+  const allStores = { ...target, storeMode: 'all' }
+  const candidateStoreIds = storeIdsFor({ storeMode: 'all' })
   const selectedTags = ['flagship', 'mall']
   const tagIncluded = storeIdsFor({ storeMode: 'tag_include', storeTagIds: selectedTags })
   assert.ok(tagIncluded.includes('s5') && tagIncluded.includes('s9') && !tagIncluded.includes('s2'))
@@ -95,13 +102,31 @@ try {
     const incomplete = { ...target, storeMode, storeIds: [], storeTagIds: [] }
     assert.deepEqual(eligibleDiscountStores(incomplete), [])
     assert.equal(collectStepErrors(incomplete, 1).length, 1)
-    assert.deepEqual(retainEligibleAreaIds(incomplete).areaIdsByStore, target.areaIdsByStore)
+    assert.deepEqual(retainEligibleAreaIds(incomplete).areaIdsByStore, {})
     assert.equal(matchesDiscountEntry(incomplete, 's2', 'cafe'), false)
   }
-  assert.deepEqual(retainEligibleAreaIds({ ...target, storeMode: 'tag_exclude', storeTagIds: selectedTags }).areaIdsByStore, { s2: ['cafe'] })
+  assert.deepEqual(retainEligibleAreaIds({ ...target, storeIds: [] }).areaIdsByStore, target.areaIdsByStore)
+  for (const activity of [
+    allStores,
+    { ...target, ...reverseScope },
+    { ...target, storeMode: 'tag_include', storeTagIds: selectedTags },
+    { ...target, storeMode: 'tag_exclude', storeTagIds: selectedTags },
+  ]) {
+    const stores = eligibleDiscountStores(activity)
+    const coverage = discountAreaCoverage(activity, stores)
+    assert.equal(coverage.specified, false)
+    assert.equal(coverage.coveredStoreCount, stores.length)
+    assert.equal(coverage.selectedAreaCount, 0)
+    assert.deepEqual(collectStepErrors(activity, 1), [])
+    assert.ok(matchesDiscountEntry(activity, stores[0].id, null))
+    for (const normalized of [migrateLimitDiscountActivity(activity), retainEligibleAreaIds(activity)]) {
+      assert.equal(normalized.areaMode, 'all')
+      assert.deepEqual(normalized.areaIdsByStore, {})
+    }
+  }
   assert.deepEqual(collectStepErrors({ ...target, storeMode: 'include', storeIds: ['s20'] }, 1),
-    ['当前范围内没有可选点餐区，请调整门店范围或选择不限区域'])
-  const allScope = resolveDiscountStoreScope(target)
+    ['当前范围内没有可选点餐区，请调整门店范围或选择全部区域'])
+  const allScope = resolveDiscountStoreScope(allStores)
   assert.equal(allScope.matchedStores.length, allScope.eligibleStores.length + 1)
   assert.deepEqual(allScope.policyExcludedStores.map(({ id }) => id), ['s8'])
   const excludedPolicyStore = resolveDiscountStoreScope({ ...target, storeMode: 'exclude', storeIds: ['s8'] })
@@ -111,7 +136,7 @@ try {
   assert.equal(multiTag.tagMatches.filter(({ id }) => id === 's7').length, 1)
   assert.deepEqual(multiTag.policyExcludedStores.map(({ id }) => id), ['s8'])
   const policyArea = { ...target, areaIdsByStore: { s2: ['cafe'], s8: ['spa'] } }
-  const areaCoverage = discountAreaCoverage(policyArea, allScope.eligibleStores)
+  const areaCoverage = discountAreaCoverage(policyArea, eligibleDiscountStores(policyArea))
   assert.deepEqual(areaCoverage.selected.map(({ store }) => store.id), ['s2'])
   assert.deepEqual(retainEligibleAreaIds(policyArea).areaIdsByStore, { s2: ['cafe'] })
   assert.equal(matchesDiscountEntry(policyArea, 's8', 'spa'), false)

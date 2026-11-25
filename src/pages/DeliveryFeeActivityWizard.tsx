@@ -56,6 +56,7 @@ export function DeliveryFeeActivityWizard({
   const [step, setStep] = useState(isView ? PREVIEW_STEP : 0)
   const [error, setError] = useState<string | null>(null)
   const [showProductPicker, setShowProductPicker] = useState(false)
+  const [pendingChange, setPendingChange] = useState<{ activity: DeliveryFeeActivityForm; message: string } | null>(null)
   const errorRef = useRef<HTMLDivElement>(null)
   const byCity = activity.ruleMode === 'by_city' && hasExpress(activity)
 
@@ -87,7 +88,12 @@ export function DeliveryFeeActivityWizard({
     const next = activity.orderTypes.includes(id)
       ? activity.orderTypes.filter((c) => c !== id)
       : [...activity.orderTypes, id]
-    onChange(applyOrderTypesChange(activity, next))
+    const nextActivity = applyOrderTypesChange(activity, next)
+    if (byCity && nextActivity.ruleMode === 'national' && activity.cityRuleGroups.some((group) => group.cityIds.length > 0)) {
+      setPendingChange({ activity: nextActivity, message: '取消门店快递后，城市组优惠将停用。已填写的城市组及优惠会保留。' })
+      return
+    }
+    onChange(nextActivity)
   }
 
   const goToStep = (target: number) => {
@@ -196,7 +202,7 @@ export function DeliveryFeeActivityWizard({
                   activity={activity}
                   readOnly={readOnly}
                   onChange={onChange}
-                  onToast={onToast}
+                  onConfirmChange={(next, message) => setPendingChange({ activity: next, message })}
                 />
               </PromoSection>
 
@@ -325,6 +331,28 @@ export function DeliveryFeeActivityWizard({
           onChange={(ids) => update('productIds', ids)}
           onClose={() => setShowProductPicker(false)}
         />
+      )}
+      {pendingChange && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-label="确认调整活动配置"
+          aria-modal="true"
+          onKeyDown={(event) => { if (event.key === 'Escape') setPendingChange(null) }}
+          onClick={() => setPendingChange(null)}
+        >
+          <div className="modal modal--sm" onClick={(event) => event.stopPropagation()}>
+            <div className="modal__header"><h3>确认调整活动配置</h3></div>
+            <div className="modal__body">{pendingChange.message}</div>
+            <div className="modal__footer">
+              <button type="button" className="btn btn--default" onClick={() => setPendingChange(null)} autoFocus>取消</button>
+              <button type="button" className="btn btn--primary" onClick={() => {
+                onChange(pendingChange.activity)
+                setPendingChange(null)
+              }}>确认修改</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

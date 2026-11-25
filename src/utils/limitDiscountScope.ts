@@ -8,8 +8,8 @@ export function isDiscountAreaScene(sceneId: string) {
   return sceneId === 'dine_in' || sceneId === 'pack'
 }
 
-export function hasSpecifiedDiscountAreas(activity: Activity) {
-  return activity.areaMode === 'specified' && activity.orderTypes.some(isDiscountAreaScene)
+export function hasSpecifiedDiscountAreas(activity: Pick<Activity, 'storeMode' | 'areaMode' | 'orderTypes'>) {
+  return activity.storeMode === 'include' && activity.areaMode === 'specified' && activity.orderTypes.some(isDiscountAreaScene)
 }
 
 export function discountStoreScopeError(activity: Activity) {
@@ -98,8 +98,9 @@ export function matchesDiscountEntry(activity: Activity, storeId: string, areaId
   if (!activity.orderTypes.includes(sceneId)) return false
   if (!eligibleDiscountStores(activity).some((store) => store.id === storeId)) return false
   if (!isDiscountAreaScene(sceneId)) return true
-  if (areaId === null) return activity.areaMode !== 'specified'
-  const areas = activity.areaMode === 'specified' ? selectedDiscountAreas(activity, storeId) : getDiscountAreas(storeId)
+  const specified = hasSpecifiedDiscountAreas(activity)
+  if (areaId === null) return !specified
+  const areas = specified ? selectedDiscountAreas(activity, storeId) : getDiscountAreas(storeId)
   return areas.some((area) => area.id === areaId && area.allowsDiscount)
 }
 

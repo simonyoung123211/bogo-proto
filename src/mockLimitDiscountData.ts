@@ -182,6 +182,8 @@ export const initialLimitDiscountActivities: LimitDiscountActivityForm[] = [
     name: '合作点区域八折（示例草稿）',
     orderTypes: ['pack'],
     participantUser: 'all_users',
+    storeMode: 'include',
+    storeIds: ['s2', 's3'],
     areaMode: 'specified',
     areaIdsByStore: { s2: ['library', 'cafe'], s3: ['spa'] },
     discountValue: 8,

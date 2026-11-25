@@ -7,6 +7,7 @@ import {
   createTimeRange,
 } from '../mockLimitDiscountData'
 import type { LimitDiscountActivityForm, LimitType } from '../types'
+import { LimitDiscountDateRange } from './LimitDiscountDateRange'
 import { ProductPicker } from './ProductPicker'
 
 interface LimitDiscountRuleFieldsProps {
@@ -48,13 +49,8 @@ export function LimitDiscountRuleFields({ activity, readOnly, published, onChang
         <CharInput disabled={readOnly} value={activity.goodsLabel} max={20} placeholder="请输入商品促销标签" onChange={(v) => update('goodsLabel', v)} />
       </FormRow>
       <FormRow label="起止时间" required>
-        <div className="date-range">
-          <input type="datetime-local" className="input input--time" aria-label="开始时间" disabled={locked} value={toLocal(activity.startTime)} onChange={(e) => update('startTime', fromLocal(e.target.value))} />
-          <span className="date-range__sep">至</span>
-          <input type="datetime-local" className="input input--time" aria-label="结束时间" disabled={readOnly}
-            min={published ? toLocal(published.endTime) : undefined} value={toLocal(activity.endTime)}
-            onChange={(e) => update('endTime', published && e.target.value === toLocal(published.endTime) ? published.endTime : fromLocal(e.target.value))} />
-        </div>
+        <LimitDiscountDateRange startTime={activity.startTime} endTime={activity.endTime}
+          minimumEndTime={published?.endTime} readOnly={readOnly} onChange={(range) => onChange({ ...activity, ...range })} />
         {published && <p className="field-hint">开始时间已锁定，结束时间只能延后。</p>}
       </FormRow>
       <FormRow id="ld-activity-cycle" label="活动周期" required>
@@ -337,15 +333,6 @@ function YesNo({ value, disabled, onChange, unlimitedLabel = '不限', limitedLa
       onChange={(v) => onChange(v as LimitType)}
     />
   )
-}
-
-function toLocal(value: string): string {
-  return value ? value.slice(0, 16).replace(' ', 'T') : ''
-}
-
-function fromLocal(value: string): string {
-  if (!value) return ''
-  return `${value.replace('T', ' ')}:00`.slice(0, 19)
 }
 
 function CharInput({ value, max, placeholder, disabled, onChange }: { value: string; max: number; placeholder?: string; disabled?: boolean; onChange: (v: string) => void }) {

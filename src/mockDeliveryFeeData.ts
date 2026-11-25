@@ -64,6 +64,7 @@ export const THRESHOLD_TYPE_OPTIONS: { value: DeliveryFeeThresholdType; label: s
   { value: 'none', label: '无门槛' },
 ]
 
+export const MAX_CITY_GROUPS = 10
 export const MAX_TIERS = 5
 
 /** 演示用省-市树（省仅作批选父级，活动只存城市） */
@@ -152,9 +153,11 @@ export function createEmptyDeliveryFeeActivity(): DeliveryFeeActivityForm {
     channels: ['wechat'],
     orderTypes: ['express'],
     ruleMode: 'national',
+    offerMode: 'unified',
+    memberLevelRules: {},
     thresholdType: 'amount',
     tiers: createDefaultTiers(),
-    cityIds: [],
+    cityRuleGroups: [],
     thresholdBase: 'sale_price',
     includeToppings: false,
     includePackagingFee: false,
@@ -198,10 +201,17 @@ export const initialDeliveryFeeActivities: DeliveryFeeActivityForm[] = [
     status: 'in_progress',
     orderTypes: ['express'],
     ruleMode: 'by_city',
-    cityIds: ['c-sh', 'c-nj', 'c-sz', 'c-wx'],
-    tiers: [
-      { id: 't1', threshold: 39, discountMethod: 'amount_off', discountValue: 3 },
-      { id: 't2', threshold: 69, discountMethod: 'waive', discountValue: 0 },
+    cityRuleGroups: [
+      {
+        id: 'east-china',
+        name: '华东组',
+        cityIds: ['c-sh', 'c-nj', 'c-sz', 'c-wx'],
+        thresholdType: 'amount',
+        tiers: [
+          { id: 't1', threshold: 39, discountMethod: 'amount_off', discountValue: 3 },
+          { id: 't2', threshold: 69, discountMethod: 'waive', discountValue: 0 },
+        ],
+      },
     ],
   }),
   seed({

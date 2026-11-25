@@ -2,8 +2,10 @@ import { useMemo, useState } from 'react'
 import { products } from '../mockData'
 import type { LimitDiscountActivityForm, LimitDiscountMethod, LimitDiscountProductItem } from '../types'
 import { applyDiscountMethod, discountUnit, discountValueLabel, isProductDiscountSet, isSameAsDefault, pruneSameAsDefault, sceneLabel, sceneOverrides, setSceneOverride, sharedDiscountItem, syncProductItems, writeSharedDiscount } from '../utils/limitDiscountActivity'
+import { LimitDiscountProductQuotaDialog, LimitDiscountQuotaSummary } from './LimitDiscountProductQuota'
 import { ProductPicker } from './ProductPicker'
 import { matchesProductKeyword } from '../utils/productSearch'
+import { hasDiscountProductQuota, type LimitDiscountQuotaConfig } from '../utils/limitDiscountQuota'
 
 interface LimitDiscountGoodsFieldsProps {
   activity: LimitDiscountActivityForm
@@ -17,7 +19,9 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
   const [keyword, setKeyword] = useState('')
   const [checked, setChecked] = useState<string[]>([])
   const [batchValue, setBatchValue] = useState('')
-  const [batchStock, setBatchStock] = useState('')
+  const [quotaIds, setQuotaIds] = useState<string[]>([])
+  const [editingDefaultQuota, setEditingDefaultQuota] = useState(false)
+  const [previousDefaultQuota, setPreviousDefaultQuota] = useState<LimitDiscountQuotaConfig>()
   const [batchScenes, setBatchScenes] = useState(false)
   const [editingProductId, setEditingProductId] = useState<string | null>(null)
   const [editingShared, setEditingShared] = useState(false)
@@ -26,10 +30,17 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
   const perProduct = activity.goodsScope === 'include'
   const scenes = activity.orderTypes
   const sharedItem = sharedDiscountItem(activity)
+  const hasDefaultQuota = hasDiscountProductQuota(sharedItem, scenes)
+  const choosingDefaultQuota = hasDefaultQuota || editingDefaultQuota
+  const defaultQuotaHint = activity.goodsScope === 'exclude'
+    ? '限量应用于排除名单之外的参与商品，各规格分别计数。'
+    : '全部参与商品使用同一限量设置，各规格分别计数。'
   const fixedIds = published?.productItems.map((item) => item.productId)
   const itemLocked = (id: string) => Boolean(readOnly || fixedIds?.includes(id))
   const sharedLocked = readOnly || Boolean(published)
   const canPick = !readOnly && (!published || perProduct)
+  const quotaItem = quotaIds.length === 1 ? activity.productItems.find(({ productId }) => productId === quotaIds[0]) : undefined
+  const quotaProduct = quotaItem && products.find(({ id }) => id === quotaItem.productId)
 
   const rows = useMemo(() => {
     const kw = keyword.trim().toLowerCase()
@@ -64,17 +75,6 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
     setBatchValue('')
   }
 
-  const applyBatchStock = () => {
-    const stock = batchStock.trim() === '' ? null : Number(batchStock)
-    const ids = new Set(checked)
-    onChange({
-      ...activity,
-      productItems: activity.productItems.map((item) => ids.has(item.productId) ? { ...item, stock } : item),
-    })
-    setChecked([])
-    setBatchStock('')
-  }
-
   return (
     <>
       <FormRow label="优惠方式" required>
@@ -99,7 +99,7 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
               ? '余下商品共用一个默认力度，所有业务都按它执行。个别业务需要不同力度时，点「分业务设置」单独填写，没填的业务仍按默认力度。'
               : '全部商品共用一个默认力度，所有业务都按它执行。个别业务需要不同力度时，点「分业务设置」单独填写，没填的业务仍按默认力度。'}
         </p>
-        {published && <p className="field-hint">活动已发布，已投放商品的优惠和库存已锁定。指定商品仍可追加。</p>}
+        {published && <p className="field-hint">活动已发布，已投放商品的优惠和限量已锁定。指定商品仍可追加。</p>}
         {scenes.length === 0 && (
           <p className="field-hint">分业务设置前，请先在基础信息里选择参与业务/场景。</p>
         )}
@@ -154,20 +154,33 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
               )}
             </div>
           </FormRow>
-          <FormRow label="活动库存">
-            <div className="rule-sentence">
-              <input
-                className="input"
-                style={{ width: 140 }}
-                type="number"
-                min={1}
-                placeholder="不限量"
-                disabled={sharedLocked}
-                value={activity.activityStock ?? ''}
-                onChange={(e) => onChange({ ...activity, activityStock: e.target.value === '' ? null : Number(e.target.value) })}
-              />
-              <span>件</span>
+          <FormRow label="商品优惠限量（件）">
+            <div className="radio-group" role="radiogroup" aria-label="默认商品优惠限量">
+              <label className="radio">
+                <input type="radio" name="limit-discount-default-quota" disabled={sharedLocked} checked={!choosingDefaultQuota}
+                  onChange={() => {
+                    setPreviousDefaultQuota({ stock: sharedItem.stock, quota: sharedItem.quota })
+                    onChange({ ...activity, activityStock: null, activityQuota: undefined })
+                  }} />
+                不限量
+              </label>
+              <label className="radio">
+                <input type="radio" name="limit-discount-default-quota" disabled={sharedLocked} checked={choosingDefaultQuota}
+                  onChange={() => setEditingDefaultQuota(true)} />
+                限制优惠件数
+              </label>
             </div>
+            {hasDefaultQuota && (
+              <>
+                <div className="ld-item-mode__main ld-default-quota-summary">
+                  <LimitDiscountQuotaSummary item={sharedItem} scenes={scenes} compact />
+                  <button type="button" className="link-btn" aria-haspopup="dialog" onClick={() => setEditingDefaultQuota(true)}>
+                    {sharedLocked ? '查看限量' : '修改限量'}
+                  </button>
+                </div>
+                <p className="field-hint">{defaultQuotaHint}</p>
+              </>
+            )}
           </FormRow>
         </>
       )}
@@ -205,8 +218,7 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
                 分业务设置
               </button>
               <span className="ld-batch-bar__split" />
-              <input className="input" style={{ width: 100 }} placeholder="库存" value={batchStock} onChange={(e) => setBatchStock(e.target.value)} />
-              <button type="button" className="btn btn--default btn--sm" onClick={applyBatchStock}>批量设置活动库存</button>
+              <button type="button" className="btn btn--default btn--sm" onClick={() => setQuotaIds(checked)}>批量设置优惠限量</button>
               <button type="button" className="link-btn" onClick={() => setChecked([])}>取消选择</button>
             </div>
           )}
@@ -225,7 +237,7 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
                   <th>商品规格码</th>
                   <th>销售价</th>
                   {perProduct && <th>{valueLabel}</th>}
-                  {perProduct && <th>活动库存（件）</th>}
+                  {perProduct && <th>商品优惠限量（件）</th>}
                   {!readOnly && <th>操作</th>}
                 </tr>
               </thead>
@@ -243,7 +255,7 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
                   <tr key={item.productId}>
                     {perProduct && !readOnly && (
                       <td>
-                        <input type="checkbox" disabled={itemLocked(item.productId)} checked={checked.includes(item.productId)}
+                        <input type="checkbox" aria-label={`勾选${product.name}`} disabled={itemLocked(item.productId)} checked={checked.includes(item.productId)}
                           onChange={() => setChecked((ids) => ids.includes(item.productId) ? ids.filter((id) => id !== item.productId) : [...ids, item.productId])} />
                       </td>
                     )}
@@ -289,23 +301,22 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
                       </td>
                     )}
                     {perProduct && (
-                      <td>
-                        <input
-                          className="input"
-                          style={{ width: 88 }}
-                          type="number"
-                          min={1}
-                          placeholder="不限量"
-                          disabled={itemLocked(item.productId)}
-                          value={item.stock ?? ''}
-                          onChange={(e) => updateItem(item.productId, { stock: e.target.value === '' ? null : Number(e.target.value) })}
-                        />
+                      <td className="ld-quota-cell">
+                        <LimitDiscountQuotaSummary item={item} scenes={scenes} compact />
+                        <button type="button" className="link-btn"
+                          aria-label={`${product.name}${itemLocked(item.productId) ? '查看限量' : '设置限量'}`}
+                          aria-haspopup="dialog" onClick={() => setQuotaIds([item.productId])}>
+                          {itemLocked(item.productId) ? '查看限量' : '设置限量'}
+                        </button>
                       </td>
                     )}
                     {!readOnly && (
                       <td>
                         {itemLocked(item.productId) ? '已锁定' : (
-                          <button type="button" className="link-btn" onClick={() => onChange(syncProductItems(activity, activity.productItems.filter((row) => row.productId !== item.productId).map((row) => row.productId)))}>取消参与</button>
+                          <button type="button" className="link-btn" onClick={() => {
+                            setChecked((ids) => ids.filter((id) => id !== item.productId))
+                            onChange(syncProductItems(activity, activity.productItems.filter((row) => row.productId !== item.productId).map((row) => row.productId)))
+                          }}>取消参与</button>
                         )}
                       </td>
                     )}
@@ -316,7 +327,7 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
           </div>
         </>
       )}
-      <p className="field-hint">特价不要高于门店售价，否则不生效、按门店售价执行。活动库存留空=不限量。</p>
+      <p className="field-hint">特价最高按门店售价执行。</p>
       {picking && (
         <ProductPicker
           title={published ? '追加商品' : '选择商品'}
@@ -352,6 +363,42 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
           productIds={checked}
           onApply={(next) => { onChange(next); setBatchScenes(false) }}
           onClose={() => setBatchScenes(false)}
+        />
+      )}
+      {perProduct && quotaIds.length > 0 && (
+        <LimitDiscountProductQuotaDialog
+          item={quotaItem}
+          goodsScope="include"
+          description={quotaProduct && `${quotaProduct.name} · ${quotaProduct.spec}`}
+          scenes={scenes}
+          productCount={quotaIds.length}
+          readOnly={Boolean(readOnly || quotaItem && itemLocked(quotaItem.productId))}
+          onConfirm={(config) => {
+            const ids = new Set(quotaIds)
+            onChange({
+              ...activity,
+              productItems: activity.productItems.map((item) => ids.has(item.productId) && !itemLocked(item.productId)
+                ? { ...item, ...structuredClone(config) } : item),
+            })
+            if (quotaIds.length > 1) setChecked([])
+            setQuotaIds([])
+          }}
+          onClose={() => setQuotaIds([])}
+        />
+      )}
+      {!perProduct && editingDefaultQuota && (
+        <LimitDiscountProductQuotaDialog
+          item={hasDefaultQuota ? sharedItem : previousDefaultQuota ?? sharedItem}
+          goodsScope={activity.goodsScope}
+          description={defaultQuotaHint}
+          scenes={scenes}
+          readOnly={sharedLocked}
+          requireLimit
+          onConfirm={({ stock, quota }) => {
+            onChange({ ...activity, activityStock: stock, activityQuota: quota })
+            setEditingDefaultQuota(false)
+          }}
+          onClose={() => setEditingDefaultQuota(false)}
         />
       )}
     </>

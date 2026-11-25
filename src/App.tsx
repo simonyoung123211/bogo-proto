@@ -36,7 +36,6 @@ import { LimitDiscountActivityList } from './pages/LimitDiscountActivityList'
 import { DEFAULT_LIMIT_DISCOUNT_PERSPECTIVE, canManageLimitDiscountActivity } from './mockActivityPerspectives'
 import { LimitDiscountConflicts, LimitDiscountConflictDialog, type DiscountConflictActivityActions } from './components/LimitDiscountConflicts'
 import { findDiscountConflicts } from './utils/limitDiscountConflicts'
-import { collectStepErrors as discountStepErrors } from './utils/limitDiscountActivity'
 import { retainEligibleAreaIds } from './utils/limitDiscountScope'
 import { LimitDiscountActivityWizard } from './pages/LimitDiscountActivityWizard'
 import { LimitDiscountActivityDetail } from './pages/LimitDiscountActivityDetail'
@@ -125,6 +124,8 @@ import {
   appendActivityLog as appendLimitDiscountLog,
   canEditLimitDiscount,
   cloneActivity as cloneLimitDiscountActivity,
+  collectDiscountQuotaErrors,
+  collectStepErrors as discountStepErrors,
   computePublishStatus as computeLimitDiscountPublishStatus,
   publishedLimitDiscountEditError,
 } from './utils/limitDiscountActivity'
@@ -909,8 +910,8 @@ function App() {
     showToast('活动发布成功')
   }
 
-  const validateDiscountTransition = (activity: LimitDiscountActivityForm, label: DiscountBlockedAction['label'] | '保存') => {
-    const error = [0, 1, 2].flatMap((step) => discountStepErrors(activity, step))[0]
+  const validateDiscountTransition = (activity: LimitDiscountActivityForm, label: DiscountBlockedAction['label'] | '保存', saved?: LimitDiscountActivityForm) => {
+    const error = [0, 1, 2].flatMap((step) => discountStepErrors(activity, step, saved))[0]
     if (error) {
       showToast(`无法${label}：${error}`)
       return false
@@ -1539,6 +1540,11 @@ function App() {
       showToast('活动已发生变化，请返回后重新打开')
       return
     }
+    const quotaError = collectDiscountQuotaErrors(limitDiscountDraft)[0]
+    if (quotaError) {
+      showToast(`无法保存草稿：${quotaError}`)
+      return
+    }
     const draft = retainEligibleAreaIds(limitDiscountDraft)
     const saved = existing
       ? appendLimitDiscountLog({ ...draft, status: 'draft' }, '编辑活动', `保存草稿「${draft.name}」`, limitDiscountOperator)
@@ -1663,7 +1669,7 @@ function App() {
       showToast(editError)
       return
     }
-    if (!validateDiscountTransition(limitDiscountDraft, '保存')) return
+    if (!validateDiscountTransition(limitDiscountDraft, '保存', existing)) return
     const { status, keep } = resolveSavedStatus(latest, limitDiscountDraft)
     upsertLimitDiscount(appendLimitDiscountLog({ ...retainEligibleAreaIds(limitDiscountDraft), status }, keep ? '编辑活动' : '保存活动', `保存活动「${limitDiscountDraft.name}」`, limitDiscountOperator))
     showToast(keep ? '活动已保存' : '活动保存成功，请前往活动列表发布')

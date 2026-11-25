@@ -629,6 +629,8 @@ export interface FullReductionListFilters {
 /** 收货城市：全国 / 指定城市（仅门店快递） */
 export type DeliveryFeeRuleMode = 'national' | 'by_city'
 
+export type DeliveryFeeOfferMode = 'unified' | 'by_member_level'
+
 /** 活动门槛：按金额 / 按件数 / 无门槛 */
 export type DeliveryFeeThresholdType = 'amount' | 'item_count' | 'none'
 
@@ -637,14 +639,25 @@ export type DeliveryFeeDiscountMethod = 'amount_off' | 'waive' | 'percent_off'
 
 export interface DeliveryFeeTier {
   id: string
-  /** 订单金额门槛（元） */
+  /** 订单金额（元）或件数门槛；无门槛时忽略 */
   threshold: number
   discountMethod: DeliveryFeeDiscountMethod
   /** 立减金额或折扣折数；免除时忽略 */
   discountValue: number
 }
 
-export interface DeliveryFeeActivityForm {
+export interface DeliveryFeeOfferRule {
+  thresholdType: DeliveryFeeThresholdType
+  tiers: DeliveryFeeTier[]
+}
+
+export interface DeliveryFeeCityRuleGroup extends DeliveryFeeOfferRule {
+  id: string
+  name: string
+  cityIds: string[]
+}
+
+export interface DeliveryFeeActivityForm extends DeliveryFeeOfferRule {
   id: string
   name: string
   title: string
@@ -659,17 +672,16 @@ export interface DeliveryFeeActivityForm {
   orderTypes: string[]
   /**
    * 收货城市（勾选门店快递后展示）：
-   * - national：全国，一套门槛+阶梯（可与外卖并存）
-   * - by_city：指定城市，仅门店快递；活动级 1 组城市名单 + 一套门槛+阶梯；未命中不减免；不可勾外卖
+   * - national：全国（可与外卖并存）
+   * - by_city：指定城市，仅门店快递；按互斥的城市组配置优惠；未命中不减免
    */
   ruleMode: DeliveryFeeRuleMode
-  /** 活动门槛类型：按金额 / 按件数 / 无门槛 */
-  thresholdType: DeliveryFeeThresholdType
-  /** 优惠阶梯（全国统一与按收货城市共用这一套） */
-  tiers: DeliveryFeeTier[]
-  /** 按收货城市时的适用城市（活动级仅 1 组；省不落库） */
-  cityIds: string[]
-  /** 活动级门槛口径：商品售价小计 / 活动价小计（仅按金额时展示） */
+  /** 全国统一使用活动的 thresholdType / tiers；按等级与指定城市互斥 */
+  offerMode: DeliveryFeeOfferMode
+  memberLevelRules: Partial<Record<MemberLevelId, DeliveryFeeOfferRule>>
+  /** 指定城市时生效；省仅用于批选 */
+  cityRuleGroups: DeliveryFeeCityRuleGroup[]
+  /** 活动级门槛口径：商品售价小计 / 活动价小计（有按金额规则时展示） */
   thresholdBase: 'sale_price' | 'promo_price'
   /** 门槛金额是否计入加料商品价格 */
   includeToppings: boolean
@@ -1332,7 +1344,17 @@ export interface LimitDiscountTimeRange {
 /** 优惠力度：所选业务类型共用一套，或按业务类型分别填写 */
 export type LimitDiscountValueMode = 'unified' | 'by_scene'
 
-/** 指定商品上的优惠力度与活动库存；库存为空表示不限量 */
+export interface LimitDiscountPeriodicQuota {
+  period: ParticipationPeriod
+  limit: number | null
+}
+
+export interface LimitDiscountQuotaRule {
+  total: number | null
+  periodic: LimitDiscountPeriodicQuota | null
+}
+
+/** 指定商品的优惠力度和额度。stock 沿用存量字段，表示通用活动累计额度。 */
 export interface LimitDiscountProductItem {
   productId: string
   /** 默认力度，未单独设置的业务都按它执行 */
@@ -1340,6 +1362,10 @@ export interface LimitDiscountProductItem {
   /** 个别业务单独设置的力度，键为业务类型；没有出现的业务按默认力度 */
   sceneDiscountValues: Record<string, number | null>
   stock: number | null
+  quota?: {
+    periodic: LimitDiscountPeriodicQuota | null
+    byScene: Record<string, LimitDiscountQuotaRule>
+  }
 }
 
 export interface LimitDiscountActivityForm {
@@ -1402,8 +1428,10 @@ export interface LimitDiscountActivityForm {
   discountValue: number | null
   /** 全部商品或余下商品按业务类型的优惠力度 */
   sceneDiscountValues: Record<string, number | null>
-  /** 全部商品或余下商品的活动库存，空表示不限量 */
+  /** 全部商品或余下商品的默认累计额度，各参与规格分别计数 */
   activityStock: number | null
+  /** 全部商品或余下商品的默认周期与分业务额度 */
+  activityQuota?: LimitDiscountProductItem['quota']
   productItems: LimitDiscountProductItem[]
   status: ActivityStatus
   pausedAt?: string

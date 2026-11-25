@@ -92,6 +92,9 @@ export function LimitDiscountStoreScopeFields({ activity, onChange }: Props) {
         {reversed && byTag && selectedTags.length > 0 && (
           <p className="field-hint" role="status">原来选中的 {selectedTags.length} 个标签现用于{excluding ? '排除' : '纳入'}门店。</p>
         )}
+        {storeMode !== 'include' && activity.areaMode === 'specified' && (
+          <p className="field-hint" role="status">当前范围按全部区域生效。保存前切回「指定门店参与」可恢复仍在门店范围内的已选区域。</p>
+        )}
       </PromoFormRow>
       {byStore && (
         <StorePicker
@@ -152,7 +155,9 @@ export function LimitDiscountStoreScopeFields({ activity, onChange }: Props) {
           )}
         </PromoFormRow>
       )}
-      <LimitDiscountAreaFields activity={activity} coverage={coverage} scopeError={scopeError} onChange={onChange} />
+      {storeMode === 'include' && (
+        <LimitDiscountAreaFields activity={activity} coverage={coverage} scopeError={scopeError} onChange={onChange} />
+      )}
       <section className="ld-scope-review" aria-labelledby="ld-scope-review-title">
         <h3 id="ld-scope-review-title">生效门店核对</h3>
         {scopeError ? <p className="field-hint">{scopeError}，配置完成后显示核对结果。</p> : (

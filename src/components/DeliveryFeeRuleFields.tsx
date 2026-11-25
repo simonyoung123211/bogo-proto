@@ -1,24 +1,42 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { CityRegionPicker } from './CityRegionPicker'
+import { MEMBER_LEVELS } from '../mockData'
 import {
   DISCOUNT_METHOD_LABELS,
+  MAX_CITY_GROUPS,
   MAX_TIERS,
   THRESHOLD_TYPE_OPTIONS,
 } from '../mockDeliveryFeeData'
 import type {
   DeliveryFeeActivityForm,
+  DeliveryFeeCityRuleGroup,
   DeliveryFeeDiscountMethod,
+  DeliveryFeeOfferMode,
+  DeliveryFeeOfferRule,
   DeliveryFeeThresholdType,
   DeliveryFeeTier,
+  MemberLevelId,
   ParticipationPeriod,
 } from '../types'
 import {
   applyRuleModeChange,
+  createDeliveryFeeCityRuleGroup,
   getCityNames,
+  getCityRuleGroupLabel,
+  getMemberLevelOffers,
+  hasAmountThreshold,
   hasExpress,
   hasTakeaway,
   normalizeTiersForThresholdType,
 } from '../utils/deliveryFeeActivity'
+
+type OfferConfigurationMode = DeliveryFeeOfferMode | 'by_city'
+
+const OFFER_MODE_OPTIONS: { value: OfferConfigurationMode; label: string }[] = [
+  { value: 'unified', label: '统一配置' },
+  { value: 'by_member_level', label: '按会员等级配置' },
+  { value: 'by_city', label: '按城市组配置' },
+]
 
 const PERIOD_OPTIONS: { value: ParticipationPeriod; label: string }[] = [
   { value: 'daily', label: '每天' },
@@ -30,183 +48,180 @@ interface DeliveryFeeRuleFieldsProps {
   activity: DeliveryFeeActivityForm
   readOnly?: boolean
   onChange: (activity: DeliveryFeeActivityForm) => void
-  onToast?: (message: string) => void
+  onConfirmChange: (activity: DeliveryFeeActivityForm, message: string) => void
 }
 
-export function DeliveryFeeRuleFields({ activity, readOnly, onChange, onToast }: DeliveryFeeRuleFieldsProps) {
-  /** 方案 B：勾选门店快递即露出（可与外卖并存展示；指定城市时再与外卖互斥） */
-  const showRegion = hasExpress(activity)
-  const byCity = showRegion && activity.ruleMode === 'by_city'
-  const [pickerOpen, setPickerOpen] = useState(false)
+export function DeliveryFeeRuleFields({ activity, readOnly, onChange, onConfirmChange }: DeliveryFeeRuleFieldsProps) {
+  const expressSelected = hasExpress(activity)
+  const byCity = activity.ruleMode === 'by_city'
+  const byLevel = activity.offerMode === 'by_member_level'
+  const selectedMode = byCity && byLevel ? null : byCity ? 'by_city' : activity.offerMode
+  const cityGroupCount = activity.cityRuleGroups.length
+  const offerModeHintId = useId()
+  const [pickerGroupId, setPickerGroupId] = useState<string | null>(null)
+  const pickerGroup = activity.cityRuleGroups.find((group) => group.id === pickerGroupId)
 
   const update = (patch: Partial<DeliveryFeeActivityForm>) => onChange({ ...activity, ...patch })
 
-  const setRuleMode = (mode: DeliveryFeeActivityForm['ruleMode']) => {
-    if (readOnly) return
-    const strippingTakeaway = mode === 'by_city' && hasTakeaway(activity)
-    onChange(applyRuleModeChange(activity, mode))
-    if (strippingTakeaway) {
-      onToast?.('已去掉外卖类业务：指定城市仅对门店快递生效')
+  const setConfigurationMode = (mode: OfferConfigurationMode, label: string) => {
+    if (readOnly || mode === selectedMode || (mode === 'by_city' && !expressSelected)) return
+    const next = applyRuleModeChange(activity, mode === 'by_city' ? 'by_city' : 'national')
+    next.offerMode = mode === 'by_member_level' ? 'by_member_level' : 'unified'
+    const notices: string[] = []
+    if (mode === 'by_city' && hasTakeaway(activity)) {
+      notices.push('城市组优惠仅适用于门店快递。切换后会取消已勾选的外卖类业务。')
     }
+    if (byCity && mode !== 'by_city' && activity.cityRuleGroups.some((group) => group.cityIds.length > 0)) {
+      notices.push('已填写的城市组及优惠会保留，切回按城市组配置时可继续使用。')
+    }
+    if (byLevel && mode !== 'by_member_level' && getMemberLevelOffers(activity).length > 0) {
+      notices.push('已填写的会员等级优惠会保留，切回按会员等级配置时可继续使用。')
+    }
+    if (notices.length > 0) {
+      onConfirmChange(next, `将切换为「${label}」。${notices.join('')}`)
+      return
+    }
+    onChange(next)
   }
 
-  const setThresholdType = (thresholdType: DeliveryFeeThresholdType) => {
-    if (readOnly) return
-    onChange({
-      ...activity,
-      thresholdType,
-      tiers: normalizeTiersForThresholdType(activity.tiers, thresholdType),
-    })
+  const updateCityGroup = (id: string, patch: Partial<DeliveryFeeCityRuleGroup>) => {
+    update({ cityRuleGroups: activity.cityRuleGroups.map((group) => group.id === id ? { ...group, ...patch } : group) })
   }
 
-  const thresholdRadios = (
-    <div>
-      <div className="radio-group">
-        {THRESHOLD_TYPE_OPTIONS.map((opt) => (
-          <label key={opt.value} className="radio">
-            <input
-              type="radio"
-              disabled={readOnly}
-              checked={activity.thresholdType === opt.value}
-              onChange={() => setThresholdType(opt.value)}
-            />
-            {opt.label}
-          </label>
-        ))}
-      </div>
-      {activity.thresholdType === 'none' && (
-        <p className="field-hint">无门槛时仅配置一条优惠规则；立减金额最高 999 元。</p>
-      )}
-    </div>
+  const removeCityGroup = (group: DeliveryFeeCityRuleGroup, label: string) => {
+    const next = { ...activity, cityRuleGroups: activity.cityRuleGroups.filter((item) => item.id !== group.id) }
+    onConfirmChange(next, `将移除「${label}」所选的城市及其整组优惠规则。`)
+  }
+
+  const setMemberLevelRule = (levelId: MemberLevelId, rule?: DeliveryFeeOfferRule) => {
+    const memberLevelRules = { ...activity.memberLevelRules }
+    if (rule) memberLevelRules[levelId] = rule
+    else delete memberLevelRules[levelId]
+    update({ memberLevelRules })
+  }
+
+  const thresholdPicker = (
+    <ThresholdTypePicker rule={activity} readOnly={readOnly} onChange={update} />
+  )
+  const tierEditor = (
+    <TierEditor
+      tiers={activity.tiers}
+      thresholdType={activity.thresholdType}
+      readOnly={readOnly}
+      onChange={(tiers) => update({ tiers })}
+    />
   )
 
   return (
     <>
-      {showRegion && (
-        <FormRow label="收货城市" required>
-          <div>
-            <div className="radio-group">
-              <label className="radio">
-                <input
-                  type="radio"
-                  disabled={readOnly}
-                  checked={activity.ruleMode === 'national'}
-                  onChange={() => setRuleMode('national')}
-                />
-                全国
-              </label>
-              <label className="radio">
-                <input
-                  type="radio"
-                  disabled={readOnly}
-                  checked={activity.ruleMode === 'by_city'}
-                  onChange={() => setRuleMode('by_city')}
-                />
-                指定城市
-              </label>
-            </div>
-            {activity.ruleMode === 'by_city' ? (
-              <p className="field-hint">
-                仅所选城市的快递订单可减免，其他城市不享受；不可同时勾选外卖。
-              </p>
-            ) : (
-              <p className="field-hint">
-                全国收货城市均可享受本活动减免，可与外卖等业务一起使用。
-              </p>
-            )}
+      <FormRow label="优惠配置方式" required>
+        <div>
+          <div className="choice-card-group df-offer-mode" role="group" aria-label="优惠配置方式" aria-describedby={offerModeHintId}>
+            {OFFER_MODE_OPTIONS.map(({ value, label }) => (
+              <button
+                type="button"
+                key={value}
+                className={`choice-card${selectedMode === value ? ' is-active' : ''}`}
+                aria-pressed={selectedMode === value}
+                disabled={readOnly || (value === 'by_city' && !expressSelected)}
+                onClick={() => setConfigurationMode(value, label)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-        </FormRow>
-      )}
+          <p className="field-hint" id={offerModeHintId}>
+            {selectedMode === null
+              ? '已有配置同时包含指定城市和会员等级，请选择一种优惠配置方式。'
+              : !expressSelected
+                ? '勾选门店快递后可按城市组配置。'
+                : byCity
+                  ? '仅所选城市的门店快递订单可享受本活动。'
+                  : '门店快递优惠覆盖全国收货城市。'}
+          </p>
+        </div>
+      </FormRow>
 
-      {!byCity && (
+      {!byCity && !byLevel && (
         <>
           <FormRow label="活动门槛" required>
-            {thresholdRadios}
+            {thresholdPicker}
           </FormRow>
 
           <FormRow label="优惠阶梯" required>
-            <TierEditor
-              tiers={activity.tiers}
-              thresholdType={activity.thresholdType}
-              readOnly={readOnly}
-              onChange={(tiers) => update({ tiers })}
-            />
+            {tierEditor}
           </FormRow>
         </>
       )}
 
       {byCity && (
-        <FormRow label="城市规则组" required>
+        <FormRow label="城市组优惠" required>
           <div className="df-rule-groups">
-            <div className="df-rule-card">
-              <div className="df-rule-card__block">
-                <div className="df-rule-card__label"><span className="required">*</span>适用城市</div>
-                <div className="df-city-tags">
-                  {activity.cityIds.length === 0 ? (
-                    <span className="text-secondary">尚未选择城市</span>
-                  ) : (
-                    activity.cityIds.map((id) => (
-                      <span key={id} className="df-city-tag">
-                        {getCityNames([id])}
-                        {!readOnly && (
-                          <button
-                            type="button"
-                            className="df-city-tag__remove"
-                            aria-label={`删除${getCityNames([id])}`}
-                            onClick={() => update({
-                              cityIds: activity.cityIds.filter((cityId) => cityId !== id),
-                            })}
-                          >
-                            ×
-                          </button>
-                        )}
-                      </span>
-                    ))
-                  )}
-                </div>
-                {!readOnly && (
-                  <div className="df-city-actions">
-                    <button
-                      type="button"
-                      className="btn btn--default btn--sm"
-                      onClick={() => setPickerOpen(true)}
-                    >
-                      选择城市
-                    </button>
-                    {activity.cityIds.length > 0 && (
-                      <button
-                        type="button"
-                        className="link-btn"
-                        onClick={() => update({ cityIds: [] })}
-                      >
-                        清空
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="df-rule-card__block">
-                <div className="df-rule-card__label"><span className="required">*</span>活动门槛</div>
-                {thresholdRadios}
-              </div>
-
-              <div className="df-rule-card__block">
-                <div className="df-rule-card__label"><span className="required">*</span>优惠阶梯</div>
-                <TierEditor
-                  tiers={activity.tiers}
-                  thresholdType={activity.thresholdType}
+            <p className="field-hint df-rule-groups__hint">每组可设置不同的门槛和优惠。同一城市仅可归属一个组。</p>
+            {activity.cityRuleGroups.map((group, index) => {
+              const label = getCityRuleGroupLabel(group, index)
+              return (
+                <CityRuleGroupEditor
+                  key={group.id}
+                  group={group}
+                  label={label}
                   readOnly={readOnly}
-                  onChange={(tiers) => update({ tiers })}
+                  onChange={(patch) => updateCityGroup(group.id, patch)}
+                  onPickCities={() => setPickerGroupId(group.id)}
+                  onRemove={() => removeCityGroup(group, label)}
                 />
+              )
+            })}
+            {!readOnly && (
+              <div className="inline-fields">
+                <button
+                  type="button"
+                  className="btn btn--default btn--sm"
+                  disabled={cityGroupCount >= MAX_CITY_GROUPS}
+                  onClick={() => update({ cityRuleGroups: [...activity.cityRuleGroups, createDeliveryFeeCityRuleGroup(activity)] })}
+                >
+                  添加城市组
+                </button>
+                <span className="text-secondary" aria-live="polite">已添加 {cityGroupCount} / {MAX_CITY_GROUPS} 组</span>
               </div>
-            </div>
-            <p className="field-hint">活动仅支持 1 组城市规则；未命中以上城市的快递订单本活动不减免配送费。</p>
+            )}
           </div>
         </FormRow>
       )}
 
-      {activity.thresholdType === 'amount' && (
+      {byLevel && (
+        <FormRow label="会员等级优惠" required>
+          <div className="df-rule-groups">
+            <div>
+              <div className="checkbox-group checkbox-group--wrap" role="group" aria-label="适用会员等级">
+                {MEMBER_LEVELS.map(({ id, label }) => (
+                  <label className="checkbox" key={id}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(activity.memberLevelRules[id])}
+                      disabled={readOnly}
+                      onChange={(event) => setMemberLevelRule(id, event.target.checked ? {
+                        thresholdType: activity.thresholdType,
+                        tiers: activity.tiers.map((tier) => ({ ...tier })),
+                      } : undefined)}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              <p className="field-hint">仅所选等级的会员可享受本活动。每个等级可单独设置门槛和优惠阶梯。</p>
+            </div>
+            {getMemberLevelOffers(activity).map(({ id, label, rule }) => (
+              <section key={id} className="df-rule-card" aria-label={`${label}优惠规则`}>
+                <strong>{label}</strong>
+                <GroupedOfferFields rule={rule} readOnly={readOnly} onChange={(next) => setMemberLevelRule(id, next)} />
+              </section>
+            ))}
+          </div>
+        </FormRow>
+      )}
+
+      {hasAmountThreshold(activity) && (
         <>
           <FormRow label="门槛基础计算">
             <div className="radio-group">
@@ -286,7 +301,7 @@ export function DeliveryFeeRuleFields({ activity, readOnly, onChange, onToast }:
             }
           />
           <p className="field-hint">
-            比如设置活动期间内每个用户最多优惠20单，则该用户在活动期间内享受20单之后不再享受减配送费优惠
+            {byCity ? '同一用户在不同城市组使用的优惠订单，均计入本活动的总次数。' : '例如每个用户在活动期间最多优惠 20 单，第 21 单不再享受本活动。'}
           </p>
         </div>
       </FormRow>
@@ -324,19 +339,130 @@ export function DeliveryFeeRuleFields({ activity, readOnly, onChange, onToast }:
             }
           />
           <p className="field-hint">
-            若设置每天最多优惠2单，则用户当天内第3单不享受减配送费优惠
+            {byCity ? '所有城市组共用每日、每周或每月的参与额度。' : '例如每天最多优惠 2 单，同一用户当天第 3 单不再享受本活动。'}
           </p>
         </div>
       </FormRow>
 
-      {pickerOpen && (
+      {byCity && pickerGroup && (
         <CityRegionPicker
-          selectedIds={activity.cityIds}
-          onConfirm={(cityIds) => update({ cityIds })}
-          onClose={() => setPickerOpen(false)}
+          selectedIds={pickerGroup.cityIds}
+          occupiedGroups={new Map(activity.cityRuleGroups.flatMap((group, index) => group.id === pickerGroup.id
+            ? []
+            : group.cityIds.map((id) => [id, getCityRuleGroupLabel(group, index)] as const)))}
+          onConfirm={(cityIds) => updateCityGroup(pickerGroup.id, { cityIds })}
+          onClose={() => setPickerGroupId(null)}
         />
       )}
     </>
+  )
+}
+
+function CityRuleGroupEditor({ group, label, readOnly, onChange, onPickCities, onRemove }: {
+  group: DeliveryFeeCityRuleGroup
+  label: string
+  readOnly?: boolean
+  onChange: (patch: Partial<DeliveryFeeCityRuleGroup>) => void
+  onPickCities: () => void
+  onRemove: () => void
+}) {
+  return (
+    <section className="df-rule-card" aria-label={label}>
+      <div className="df-rule-card__head">
+        <label>
+          <span className="df-rule-card__label">组名</span>
+          <input
+            className="input"
+            value={group.name}
+            placeholder={label}
+            disabled={readOnly}
+            onChange={(event) => onChange({ name: event.target.value })}
+          />
+        </label>
+        {!readOnly && <button type="button" className="link-btn btn-link--danger" onClick={onRemove}>删除城市组</button>}
+      </div>
+      <div className="df-rule-card__block">
+        <div className="df-rule-card__label"><span className="required">*</span>适用城市</div>
+        <div className="df-city-tags">
+          {group.cityIds.length === 0 && <span className="text-secondary">尚未选择城市</span>}
+          {group.cityIds.map((id) => (
+            <span key={id} className="df-city-tag">
+              {getCityNames([id])}
+              {!readOnly && (
+                <button
+                  type="button"
+                  className="df-city-tag__remove"
+                  aria-label={`移除${getCityNames([id])}`}
+                  onClick={() => onChange({ cityIds: group.cityIds.filter((cityId) => cityId !== id) })}
+                >
+                  ×
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+        {!readOnly && (
+          <div className="df-city-actions">
+            <button type="button" className="btn btn--default btn--sm" onClick={onPickCities}>选择城市</button>
+            {group.cityIds.length > 0 && <button type="button" className="link-btn" onClick={() => onChange({ cityIds: [] })}>清空</button>}
+          </div>
+        )}
+      </div>
+      <GroupedOfferFields rule={group} readOnly={readOnly} onChange={onChange} />
+    </section>
+  )
+}
+
+function GroupedOfferFields({ rule, readOnly, onChange }: {
+  rule: DeliveryFeeOfferRule
+  readOnly?: boolean
+  onChange: (rule: DeliveryFeeOfferRule) => void
+}) {
+  return (
+    <>
+      <div className="df-rule-card__block">
+        <div className="df-rule-card__label">活动门槛</div>
+        <ThresholdTypePicker rule={rule} readOnly={readOnly} onChange={onChange} />
+      </div>
+      <div className="df-rule-card__block">
+        <div className="df-rule-card__label">优惠阶梯</div>
+        <TierEditor
+          tiers={rule.tiers}
+          thresholdType={rule.thresholdType}
+          readOnly={readOnly}
+          onChange={(tiers) => onChange({ thresholdType: rule.thresholdType, tiers })}
+        />
+      </div>
+    </>
+  )
+}
+
+function ThresholdTypePicker({ rule, readOnly, onChange }: {
+  rule: DeliveryFeeOfferRule
+  readOnly?: boolean
+  onChange: (rule: DeliveryFeeOfferRule) => void
+}) {
+  const name = useId()
+  return (
+    <div>
+      <div className="radio-group" role="group" aria-label="活动门槛">
+        {THRESHOLD_TYPE_OPTIONS.map(({ value, label }) => (
+          <label key={value} className="radio">
+            <input
+              type="radio"
+              name={name}
+              disabled={readOnly}
+              checked={rule.thresholdType === value}
+              onChange={() => onChange({ thresholdType: value, tiers: normalizeTiersForThresholdType(rule.tiers, value) })}
+            />
+            {label}
+          </label>
+        ))}
+      </div>
+      {rule.thresholdType === 'none' && (
+        <p className="field-hint">无门槛时仅配置一条优惠规则，立减金额最高 999 元。</p>
+      )}
+    </div>
   )
 }
 
@@ -404,6 +530,7 @@ function TierEditor({
                     <input
                       className="input input--sm"
                       type="number"
+                      aria-label={thrLabel}
                       min={thrMin}
                       step={thrStep}
                       disabled={readOnly}
@@ -422,6 +549,7 @@ function TierEditor({
                 <span className="fr-tier-inline">
                   <select
                     className="input"
+                    aria-label="优惠方式"
                     disabled={readOnly}
                     value={tier.discountMethod}
                     onChange={(e) => changeMethod(index, e.target.value as DeliveryFeeDiscountMethod)}
@@ -435,6 +563,7 @@ function TierEditor({
                       <input
                         className="input input--sm"
                         type="number"
+                        aria-label="立减金额"
                         min={0.01}
                         max={999}
                         step={0.01}
@@ -450,6 +579,7 @@ function TierEditor({
                       <input
                         className="input input--sm"
                         type="number"
+                        aria-label="折扣折数"
                         min={0.1}
                         max={9.9}
                         step={0.1}

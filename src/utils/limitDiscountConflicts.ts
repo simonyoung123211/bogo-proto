@@ -104,12 +104,14 @@ export function findDiscountConflicts(target: Activity, activities: Activity[]):
     if (!productIds.length) continue
     const areaScenes = scenes.filter(isDiscountAreaScene)
     const storeScenes = scenes.filter((scene) => !isDiscountAreaScene(scene))
+    const targetSpecifiesAreas = areaScenes.length > 0 && hasSpecifiedDiscountAreas(target)
+    const otherSpecifiesAreas = areaScenes.length > 0 && hasSpecifiedDiscountAreas(other)
     const overlappingScenes = new Set(storeScenes)
     const stores: DiscountConflict['stores'] = []
     for (const store of eligibleDiscountStores(other)) {
       if (!storeIds.has(store.id)) continue
-      const left = areaScenes.length > 0 && target.areaMode === 'specified' ? selectedDiscountAreas(target, store.id) : null
-      const right = areaScenes.length > 0 && other.areaMode === 'specified' ? selectedDiscountAreas(other, store.id) : null
+      const left = targetSpecifiesAreas ? selectedDiscountAreas(target, store.id) : null
+      const right = otherSpecifiesAreas ? selectedDiscountAreas(other, store.id) : null
       const areas = left && right ? left.filter((area) => right.some((r) => r.id === area.id)) : left ?? right
       const hasAreaSceneOverlap = areaScenes.length > 0 && areas?.length !== 0
       if (!hasAreaSceneOverlap && !storeScenes.length) continue
