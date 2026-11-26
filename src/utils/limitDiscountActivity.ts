@@ -165,7 +165,7 @@ export function applyDiscountMethod(
   activity: LimitDiscountActivityForm,
   method: LimitDiscountMethod,
 ): LimitDiscountActivityForm {
-  const activityValue = method === 'discount' ? 9.9 : 0.1
+  const activityValue = method === 'special_price' ? null : defaultDiscountValue(method)
   return {
     ...activity,
     discountMethod: method,
@@ -549,9 +549,11 @@ export function migrateLimitDiscountActivity(raw: Record<string, unknown>): Limi
   const orderTypes = (legacy.orderTypes ?? defaults.orderTypes).filter((id) => SCENE_IDS.has(id))
   const storeMode = legacy.storeMode ?? defaults.storeMode
   const specified = hasSpecifiedDiscountAreas({ storeMode, areaMode: legacy.areaMode ?? defaults.areaMode, orderTypes })
+  const defaultValue = legacy.discountMethod === 'special_price' ? null : defaults.discountValue
   return {
     ...defaults,
     ...legacy,
+    discountValue: legacy.discountValue === undefined ? defaultValue : legacy.discountValue,
     creatorPerspectiveId: legacy.creatorPerspectiveId ?? legacyPerspective.id,
     creatorOrg: !legacy.creatorPerspectiveId && legacyPerspective.type === 'store_group'
       ? legacyPerspective.name

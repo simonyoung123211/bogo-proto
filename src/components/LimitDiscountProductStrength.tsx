@@ -66,7 +66,7 @@ export function LimitDiscountStrengthControls({ activity, item, readOnly, editin
               button.focus({ preventScroll: true })
             }}
             onClick={onEdit}>
-            {value == null ? '设置默认力度' : invalid ? '默认力度待修正' : <>默认 <strong>{formatDiscountValue(discountMethod, value)}</strong></>}
+            {value == null ? `设置${defaultLabel}` : invalid ? '默认力度待修正' : <>默认 <strong>{formatDiscountValue(discountMethod, value)}</strong></>}
           </button>
         </div>
       )}
