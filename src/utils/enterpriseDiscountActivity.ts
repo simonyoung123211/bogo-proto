@@ -11,6 +11,7 @@ import type {
 } from '../types'
 import { createOperationLog, formatActivityDateTime, maskPhone } from './activity'
 import { getCreatorProfile } from '../mockData'
+import { matchesActivityProductFilters, resolveActivityProducts } from './activityProductSearch'
 
 export function getEnterprise(id: string) {
   return ENTERPRISE_CUSTOMERS.find((item) => item.id === id)
@@ -76,16 +77,6 @@ export function getStoreSummary(activity: EnterpriseDiscountActivityForm): strin
   if (count === 0) return '未选择门店'
   if (activity.storeScope === 'partial_exclude') return `${count}个门店不参与`
   return `${count}个门店参与`
-}
-
-export function getActivityRemainingLabel(activity: EnterpriseDiscountActivityForm): string | null {
-  if (activity.status !== 'in_progress') return null
-  const end = new Date(activity.endTime.replace(/-/g, '/'))
-  const diffMs = end.getTime() - Date.now()
-  if (diffMs < 0) return null
-  const days = Math.ceil(diffMs / 86_400_000)
-  if (days === 0) return '今日结束'
-  return `剩余 ${days} 天`
 }
 
 export function formatCreatorDisplay(activity: EnterpriseDiscountActivityForm) {
@@ -181,6 +172,7 @@ export function matchesFilters(
   filters: EnterpriseDiscountListFilters,
 ): boolean {
   if (filters.status !== 'all' && activity.status !== filters.status) return false
+  if (!matchesActivityProductFilters(resolveActivityProducts(activity), filters)) return false
   const keyword = filters.keyword.trim().toLowerCase()
   if (keyword) {
     const names = activity.enterprises

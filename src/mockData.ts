@@ -39,6 +39,28 @@ export const MEMBER_LEVELS = [
   { id: 'diamond' as const, label: '钻石卡' },
 ]
 
+/** 储值会员等级（会员价 · 指定/全部储值会员） */
+export const STORED_VALUE_LEVELS = [
+  { id: 'sv_default', label: '储值会员等级' },
+  { id: 'sv_gold', label: '黄金会员' },
+  { id: 'sv_platinum', label: '铂金会员' },
+  { id: 'sv_l4', label: '会员储值等级四' },
+  { id: 'sv_test', label: '测试' },
+  { id: 'sv_6', label: '会员6' },
+]
+
+/** 实体卡模版（会员价 · 指定/任意实体卡付款用户） */
+export const PHYSICAL_CARDS = [
+  { id: 'pc_1234', label: '1234' },
+  { id: 'pc_tripartite', label: '三方实体卡' },
+  { id: 'pc_month9', label: '9月实体卡' },
+  { id: 'pc_trial', label: '试用实体卡' },
+  { id: 'pc_200', label: '200元实体卡' },
+  { id: 'pc_demo', label: '演示实体卡' },
+  { id: 'pc_vip', label: 'VIP实体卡' },
+  { id: 'pc_staff', label: '员工实体卡' },
+]
+
 export const STATUS_LABELS: Record<string, string> = {
   all: '所有活动',
   draft: '草稿',
@@ -130,21 +152,25 @@ export const categories = [
 ]
 
 const storeNames = [
-  'A店测试门店', 'B店旗舰店', 'C店万达店', 'D店机场店', 'E店大学城店',
-  'F店商业街店', 'G店社区店', 'H店高铁站店',
+  ['深圳科技园店', '上海静安寺店', '北京望京店', '成都天府广场店'],
+  ['广州珠江新城店', '杭州湖滨店', '北京三里屯店', '重庆解放碑店'],
+  ['佛山岭南天地店', '苏州观前街店', '天津滨江道店', '昆明南屏街店'],
+  ['广州白云机场店', '上海虹桥枢纽店', '北京大兴机场店', '成都双流机场店'],
+  ['广州大学城店', '杭州紫金港店', '北京五道口店', '重庆沙坪坝店'],
+  ['广州上下九店', '南京夫子庙店', '济南泉城路店', '成都宽窄巷子店'],
 ]
 
-export const stores: Store[] = storeNames.flatMap((name, i) =>
+export const stores: Store[] = storeNames.flatMap((names, i) =>
   regions.map((region, j) => ({
     id: `s${i * 4 + j + 1}`,
-    name: `${name}-${region.name}`,
+    name: names[j],
     regionId: region.id,
     regionName: region.name,
     code: `ST${String(i * 4 + j + 1).padStart(4, '0')}`,
     contact: `店长${i + 1}`,
     status: ((i + j) % 5 === 0 ? 'closed' : 'open') as Store['status'],
   })),
-).slice(0, 24)
+)
 
 export const couponTemplates: CouponTemplate[] = [
   { id: '1268615157461635072', name: '测试', type: '商品券', validityDaysMin: 1, validityDaysMax: 366 },

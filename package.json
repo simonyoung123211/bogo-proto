@@ -7,9 +7,11 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
+    "chinese-days": "1.5.10",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },
@@ -26,6 +28,7 @@
     "playwright": "^1.49.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "wrangler": "^4.160.1"
   }
 }

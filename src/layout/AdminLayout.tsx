@@ -29,11 +29,12 @@ const sidebarMenus: MenuItem[] = [
     icon: 'activity',
     children: [
       { id: 'bogo', label: '买1送1', navKey: 'bogo' },
-      { id: 'half-item', label: '第N件优惠', navKey: 'half_item' },
+      { id: 'half-item', label: '第2件半价', navKey: 'half_item' },
+      { id: 'bundle-price', label: '一口价', navKey: 'bundle_price' },
+      { id: 'limit-discount', label: '限时折扣', navKey: 'limit_discount' },
       { id: 'full-reduction', label: '满减/折', navKey: 'full_reduction' },
       { id: 'delivery-fee', label: '减配送费', navKey: 'delivery_fee' },
       { id: 'member-price', label: '会员价', navKey: 'member_price' },
-      { id: 'paid-member-price', label: '付费会员价', navKey: 'paid_member_price' },
       { id: 'stored-value-pay', label: '储值支付优惠', navKey: 'stored_value_pay' },
       { id: 'enterprise-discount', label: '企业员工折扣', navKey: 'enterprise_discount' },
     ],
@@ -42,7 +43,11 @@ const sidebarMenus: MenuItem[] = [
     id: 'member',
     label: '会员管理',
     icon: 'member',
-    children: [{ id: 'paid-member-card', label: '付费权益卡', navKey: 'paid_member_card' }],
+    children: [
+      { id: 'paid-member-card', label: '付费权益卡', navKey: 'paid_member_card' },
+      { id: 'paid-member-price', label: '付费会员价', navKey: 'paid_member_price' },
+      { id: 'consumption-privilege', label: '消费特权', navKey: 'consumption_privilege' },
+    ],
   },
   {
     id: 'orders',

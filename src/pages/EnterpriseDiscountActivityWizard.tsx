@@ -4,6 +4,15 @@ import { EnterpriseDiscountRuleFields } from '../components/EnterpriseDiscountRu
 import { ProductPicker } from '../components/ProductPicker'
 import { SelectedProductTable } from '../components/SelectedProductTable'
 import { StorePicker } from '../components/StorePicker'
+import {
+  ChannelCornerChoices,
+  PromoFormRow,
+  PromoSection,
+  SceneTickChoices,
+  WizardFooterBar,
+  WizardStepCards,
+  countStepPendings,
+} from '../components/promoWizardUi'
 import { CHANNELS, ORDER_TYPES, STATUS_LABELS } from '../mockData'
 import type { EnterpriseDiscountActivityForm, WizardMode } from '../types'
 import { validateStep } from '../utils/enterpriseDiscountActivity'
@@ -114,249 +123,248 @@ export function EnterpriseDiscountActivityWizard({
       </div>
 
       {!isView && (
-        <div className="stepper">
-          {STEPS.map((label, index) => (
-            <button
-              key={label}
-              type="button"
-              className={`stepper__item ${index < step ? 'is-done' : ''} ${index === step ? 'is-active' : ''} ${index <= step ? 'is-clickable' : ''}`}
-              onClick={() => goToStep(index)}
-              disabled={index > step}
-            >
-              <div className="stepper__circle">{index < step ? '✓' : index + 1}</div>
-              <div className="stepper__label">{label}</div>
-              {index < STEPS.length - 1 && <div className="stepper__line" />}
-            </button>
-          ))}
-        </div>
+        <WizardStepCards
+          steps={STEPS}
+          step={step}
+          previewStep={PREVIEW_STEP}
+          pendingCounts={countStepPendings(PREVIEW_STEP, (s) => validateStep(activity, s))}
+          onGoToStep={goToStep}
+        />
       )}
 
       <div className="wizard-body">
-        <div className={`wizard-content ${step === PREVIEW_STEP ? 'wizard-content--preview' : ''}`}>
-          {error && <div ref={errorRef} className="form-error" role="alert">{error}</div>}
+        <div className="promo-editor">
+          <div className={`wizard-content ${step === PREVIEW_STEP ? 'wizard-content--preview' : ''}`}>
+            {error && <div ref={errorRef} className="form-error" role="alert">{error}</div>}
 
-          {step === 0 && (
-            <div className="wizard-step wizard-step--animate">
-              <Section title="适用渠道">
-                <FormRow label="参与渠道">
-                  <div className="channel-group">
-                    {CHANNELS.map((channel) => (
-                      <button
-                        key={channel.id}
-                        type="button"
+            {step === 0 && (
+              <div className="wizard-step wizard-step--animate">
+                <PromoSection title="适用渠道">
+                  <PromoFormRow label="参与渠道" required>
+                    <ChannelCornerChoices
+                      options={CHANNELS}
+                      selectedIds={activity.channels}
+                      disabled={readOnly}
+                      onToggle={toggleChannel}
+                    />
+                  </PromoFormRow>
+                  <PromoFormRow label="参与业务场景" required>
+                    <SceneTickChoices
+                      options={ORDER_TYPES}
+                      selectedIds={activity.orderTypes}
+                      disabled={readOnly}
+                      onToggle={toggleOrderType}
+                    />
+                  </PromoFormRow>
+                </PromoSection>
+
+                <PromoSection title="基础信息">
+                  <PromoFormRow label="活动名称" required>
+                    <div className="char-input-wrap">
+                      <input
+                        className="input input--wide input--count"
                         disabled={readOnly}
-                        className={`channel-btn ${activity.channels.includes(channel.id) ? 'is-active' : ''}`}
-                        onClick={() => toggleChannel(channel.id)}
-                      >
-                        <span className="channel-btn__icon">{channel.icon}</span>
-                        {channel.label}
-                      </button>
-                    ))}
-                  </div>
-                </FormRow>
-                <FormRow label="参与业务场景">
-                  <div className="checkbox-group">
-                    {ORDER_TYPES.map((scene) => (
-                      <label key={scene.id} className="checkbox">
-                        <input
-                          type="checkbox"
-                          disabled={readOnly}
-                          checked={activity.orderTypes.includes(scene.id)}
-                          onChange={() => toggleOrderType(scene.id)}
-                        />
-                        {scene.label}
-                      </label>
-                    ))}
-                  </div>
-                </FormRow>
-              </Section>
-
-              <Section title="基础信息">
-                <FormRow label="活动名称" required>
-                  <div className="char-input-wrap">
-                    <input
-                      className="input input--wide input--count"
+                        maxLength={NAME_MAX}
+                        value={activity.name}
+                        placeholder="请输入活动名称"
+                        onChange={(event) => update('name', event.target.value.slice(0, NAME_MAX))}
+                      />
+                      <span className="char-count">{activity.name.length}/{NAME_MAX}</span>
+                    </div>
+                  </PromoFormRow>
+                  <PromoFormRow label="活动描述">
+                    <div className="char-textarea-wrap">
+                      <textarea
+                        className="textarea textarea--count"
+                        disabled={readOnly}
+                        rows={3}
+                        maxLength={DESC_MAX}
+                        value={activity.description}
+                        placeholder="请输入活动描述，非必填"
+                        onChange={(event) => update('description', event.target.value.slice(0, DESC_MAX))}
+                      />
+                      <span className="char-count">{activity.description.length}/{DESC_MAX}</span>
+                    </div>
+                    <p className="field-hint">最多 30 个字，非必填。</p>
+                  </PromoFormRow>
+                  <PromoFormRow label="活动时间" required>
+                    <div className="date-range">
+                      <input
+                        type="datetime-local"
+                        className="input input--time"
+                        disabled={readOnly}
+                        value={activity.startTime.slice(0, 16)}
+                        onChange={(event) => update('startTime', event.target.value.replace('T', ' ') + ':00')}
+                      />
+                      <span className="date-range__sep">至</span>
+                      <input
+                        type="datetime-local"
+                        className="input input--time"
+                        disabled={readOnly}
+                        value={activity.endTime.slice(0, 16)}
+                        onChange={(event) => update('endTime', event.target.value.replace('T', ' ') + ':00')}
+                      />
+                    </div>
+                  </PromoFormRow>
+                  <PromoFormRow label="活动周期" required>
+                    <RadioGroup
                       disabled={readOnly}
-                      maxLength={NAME_MAX}
-                      value={activity.name}
-                      placeholder="请输入活动名称"
-                      onChange={(event) => update('name', event.target.value.slice(0, NAME_MAX))}
+                      value={activity.cycleType}
+                      options={[
+                        { value: 'daily', label: '每天' },
+                        { value: 'weekly', label: '每周' },
+                        { value: 'monthly', label: '每月' },
+                      ]}
+                      onChange={(value) => update('cycleType', value as EnterpriseDiscountActivityForm['cycleType'])}
                     />
-                    <span className="char-count">{activity.name.length}/{NAME_MAX}</span>
-                  </div>
-                </FormRow>
-                <FormRow label="活动描述">
-                  <div className="char-textarea-wrap">
-                    <textarea
-                      className="textarea textarea--count"
+                  </PromoFormRow>
+                  <PromoFormRow label="活动时段" required>
+                    <RadioGroup
                       disabled={readOnly}
-                      rows={3}
-                      maxLength={DESC_MAX}
-                      value={activity.description}
-                      placeholder="请输入活动描述，非必填"
-                      onChange={(event) => update('description', event.target.value.slice(0, DESC_MAX))}
+                      value={activity.timeSlotType}
+                      options={[
+                        { value: 'all_day', label: '全天' },
+                        { value: 'specific', label: '指定时间段' },
+                      ]}
+                      onChange={(value) => update('timeSlotType', value as EnterpriseDiscountActivityForm['timeSlotType'])}
                     />
-                    <span className="char-count">{activity.description.length}/{DESC_MAX}</span>
-                  </div>
-                  <p className="field-hint">最多 30 个字，非必填。</p>
-                </FormRow>
-                <FormRow label="活动时间" required>
-                  <div className="date-range">
-                    <input
-                      type="datetime-local"
-                      className="input input--time"
-                      disabled={readOnly}
-                      value={activity.startTime.slice(0, 16)}
-                      onChange={(event) => update('startTime', event.target.value.replace('T', ' ') + ':00')}
-                    />
-                    <span className="date-range__sep">至</span>
-                    <input
-                      type="datetime-local"
-                      className="input input--time"
-                      disabled={readOnly}
-                      value={activity.endTime.slice(0, 16)}
-                      onChange={(event) => update('endTime', event.target.value.replace('T', ' ') + ':00')}
-                    />
-                  </div>
-                </FormRow>
-                <FormRow label="活动周期" required>
-                  <RadioGroup
-                    disabled={readOnly}
-                    value={activity.cycleType}
-                    options={[
-                      { value: 'daily', label: '每天' },
-                      { value: 'weekly', label: '每周' },
-                      { value: 'monthly', label: '每月' },
-                    ]}
-                    onChange={(value) => update('cycleType', value as EnterpriseDiscountActivityForm['cycleType'])}
-                  />
-                </FormRow>
-                <FormRow label="活动时段" required>
-                  <RadioGroup
-                    disabled={readOnly}
-                    value={activity.timeSlotType}
-                    options={[
-                      { value: 'all_day', label: '全天' },
-                      { value: 'specific', label: '指定时间段' },
-                    ]}
-                    onChange={(value) => update('timeSlotType', value as EnterpriseDiscountActivityForm['timeSlotType'])}
-                  />
-                </FormRow>
-              </Section>
+                  </PromoFormRow>
+                </PromoSection>
 
-              <Section title="活动规则">
-                <EnterpriseDiscountRuleFields activity={activity} readOnly={readOnly} onChange={onChange} />
-              </Section>
-            </div>
-          )}
+                <PromoSection title="活动规则">
+                  <EnterpriseDiscountRuleFields activity={activity} readOnly={readOnly} onChange={onChange} />
+                </PromoSection>
+              </div>
+            )}
 
-          {step === 1 && (
-            <div className="wizard-step wizard-step--animate">
-              <Section title="参与门店">
-                <StorePicker
-                  scope={activity.storeScope}
-                  selectedIds={activity.storeIds}
-                  readOnly={readOnly}
-                  onScopeChange={(scope) => update('storeScope', scope)}
-                  onChange={(ids) => update('storeIds', ids)}
-                />
-              </Section>
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="wizard-step wizard-step--animate">
-              <Section title="参与商品">
-                <FormRow label="商品选择方式">
-                  <RadioGroup
-                    disabled={readOnly}
-                    value={activity.productSelectionMode}
-                    options={[
-                      { value: 'include', label: '参与商品(正选)' },
-                      { value: 'exclude', label: '不参与商品(反选)' },
-                    ]}
-                    onChange={(value) => update('productSelectionMode', value as EnterpriseDiscountActivityForm['productSelectionMode'])}
-                  />
-                </FormRow>
-                <FormRow label="商品范围" required>
-                  <RadioGroup
-                    disabled={readOnly}
-                    value={activity.productScope}
-                    options={[
-                      { value: 'all', label: '全部商品' },
-                      { value: 'partial', label: '指定商品' },
-                    ]}
-                    onChange={(value) => update('productScope', value as EnterpriseDiscountActivityForm['productScope'])}
-                  />
-                </FormRow>
-                {activity.productScope === 'partial' && !readOnly && (
-                  <div className="section-toolbar">
-                    <button type="button" className="btn btn--primary" onClick={() => setShowProductPicker(true)}>选择商品</button>
-                  </div>
-                )}
-                {activity.productScope === 'partial' && (
-                  <SelectedProductTable
-                    productIds={activity.productIds}
+            {step === 1 && (
+              <div className="wizard-step wizard-step--animate">
+                <PromoSection title="参与门店">
+                  <StorePicker
+                    scope={activity.storeScope}
+                    selectedIds={activity.storeIds}
                     readOnly={readOnly}
-                    onChange={(ids) => update('productIds', ids)}
-                    onToast={onToast}
-                    itemLabel={activity.productSelectionMode === 'exclude' ? '不参与商品' : '商品'}
-                    emptyText="暂无商品，请点击「选择商品」添加"
-                    columns={[
-                      {
-                        key: 'name',
-                        header: '商品',
-                        render: (product) => (
-                          <>
-                            <div>{product.name}</div>
-                            <div className="text-secondary mono">{product.id}</div>
-                          </>
-                        ),
-                      },
-                      { key: 'spec', header: '规格', render: (product) => product.spec },
-                      { key: 'price', header: '价格', render: (product) => product.price },
-                    ]}
+                    onScopeChange={(scope) => update('storeScope', scope)}
+                    onChange={(ids) => update('storeIds', ids)}
                   />
-                )}
-              </Section>
-            </div>
-          )}
+                </PromoSection>
+              </div>
+            )}
 
-          {step === PREVIEW_STEP && (
-            <div className="wizard-step wizard-step--animate">
-              <EnterpriseDiscountActivityPreview
-                activity={activity}
-                showEditLinks={!isView}
-                onEditSection={(target) => { setError(null); setStep(target) }}
-              />
-            </div>
-          )}
+            {step === 2 && (
+              <div className="wizard-step wizard-step--animate">
+                <PromoSection title="参与商品">
+                  <PromoFormRow label="商品选择方式">
+                    <RadioGroup
+                      disabled={readOnly}
+                      value={activity.productSelectionMode}
+                      options={[
+                        { value: 'include', label: '参与商品(正选)' },
+                        { value: 'exclude', label: '不参与商品(反选)' },
+                      ]}
+                      onChange={(value) => update('productSelectionMode', value as EnterpriseDiscountActivityForm['productSelectionMode'])}
+                    />
+                  </PromoFormRow>
+                  <PromoFormRow label="商品范围" required>
+                    <RadioGroup
+                      disabled={readOnly}
+                      value={activity.productScope}
+                      options={[
+                        { value: 'all', label: '全部商品' },
+                        { value: 'partial', label: '指定商品' },
+                      ]}
+                      onChange={(value) => update('productScope', value as EnterpriseDiscountActivityForm['productScope'])}
+                    />
+                  </PromoFormRow>
+                  {activity.productScope === 'partial' && !readOnly && (
+                    <div className="section-toolbar">
+                      <button type="button" className="btn btn--primary" onClick={() => setShowProductPicker(true)}>选择商品</button>
+                    </div>
+                  )}
+                  {activity.productScope === 'partial' && (
+                    <SelectedProductTable
+                      productIds={activity.productIds}
+                      readOnly={readOnly}
+                      onChange={(ids) => update('productIds', ids)}
+                      onToast={onToast}
+                      itemLabel={activity.productSelectionMode === 'exclude' ? '不参与商品' : '商品'}
+                      emptyText="暂无商品，请点击「选择商品」添加"
+                      columns={[
+                        {
+                          key: 'name',
+                          header: '商品',
+                          render: (product) => (
+                            <>
+                              <div>{product.name}</div>
+                              <div className="text-secondary mono">{product.id}</div>
+                            </>
+                          ),
+                        },
+                        { key: 'spec', header: '规格', render: (product) => product.spec },
+                        { key: 'price', header: '价格', render: (product) => product.price },
+                      ]}
+                    />
+                  )}
+                </PromoSection>
+              </div>
+            )}
+
+            {step === PREVIEW_STEP && (
+              <div className="wizard-step wizard-step--animate">
+                <EnterpriseDiscountActivityPreview
+                  activity={activity}
+                  showEditLinks={!isView}
+                  onEditSection={(target) => { setError(null); setStep(target) }}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="wizard-footer">
-        {isView ? (
-          <>
-            <button type="button" className="btn btn--default" onClick={onCancel}>返回列表</button>
-            {onSwitchToEdit && <button type="button" className="btn btn--primary" onClick={onSwitchToEdit}>编辑活动</button>}
-          </>
-        ) : (
-          <>
-            <button type="button" className="btn btn--default" onClick={onCancel}>取消</button>
-            {step > 0 && (
-              <button type="button" className="btn btn--default" onClick={() => { setError(null); setStep((current) => current - 1) }}>
-                上一步
-              </button>
-            )}
-            <button type="button" className="btn btn--default" onClick={onSaveDraft}>保存草稿</button>
-            {step < PREVIEW_STEP ? (
-              <button type="button" className="btn btn--primary" onClick={goNext}>下一步</button>
-            ) : (
-              <button type="button" className="btn btn--primary" onClick={onSave}>保存</button>
-            )}
-          </>
-        )}
-      </div>
+      <WizardFooterBar
+        isView={isView}
+        health={
+          !isView ? (
+            (() => {
+              const first = [0, 1, 2].map((s) => ({ step: s, message: validateStep(activity, s) })).find((x) => x.message)
+              return first?.message ? (
+                <>
+                  <span className="wizard-footer__warn">还有配置待完善</span>
+                  <button type="button" className="link-btn" onClick={() => { setError(null); setStep(first.step) }}>
+                    {first.message}
+                  </button>
+                </>
+              ) : (
+                <span className="wizard-footer__ok">配置体检：已完成</span>
+              )
+            })()
+          ) : undefined
+        }
+        actions={
+          isView ? (
+            <>
+              <button type="button" className="btn btn--default" onClick={onCancel}>返回列表</button>
+              {onSwitchToEdit && <button type="button" className="btn btn--primary" onClick={onSwitchToEdit}>编辑活动</button>}
+            </>
+          ) : (
+            <>
+              <button type="button" className="btn btn--default" onClick={onCancel}>取消</button>
+              {step > 0 && (
+                <button type="button" className="btn btn--default" onClick={() => { setError(null); setStep((current) => current - 1) }}>
+                  上一步
+                </button>
+              )}
+              <button type="button" className="btn btn--default" onClick={onSaveDraft}>保存草稿</button>
+              {step < PREVIEW_STEP ? (
+                <button type="button" className="btn btn--primary" onClick={goNext}>下一步</button>
+              ) : (
+                <button type="button" className="btn btn--primary" onClick={onSave}>保存</button>
+              )}
+            </>
+          )
+        }
+      />
 
       {showProductPicker && (
         <ProductPicker
@@ -365,24 +373,6 @@ export function EnterpriseDiscountActivityWizard({
           onClose={() => setShowProductPicker(false)}
         />
       )}
-    </div>
-  )
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="form-section">
-      <div className="form-section__title">{title}</div>
-      <div className="form-section__body">{children}</div>
-    </div>
-  )
-}
-
-function FormRow({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
-  return (
-    <div className="form-row">
-      <label className="form-label">{required && <span className="required">*</span>}{label}</label>
-      <div className="form-control">{children}</div>
     </div>
   )
 }

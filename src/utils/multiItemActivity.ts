@@ -1,3 +1,4 @@
+import { matchesActivityProductFilters, resolveActivityProducts } from './activityProductSearch'
 import type {
   ActivityOperationLog,
   ActivityStatus,
@@ -191,16 +192,6 @@ export function formatCreatorDisplay(activity: MultiItemActivityForm) {
   return { maskedPhone: maskPhone(phone), org }
 }
 
-export function getActivityRemainingLabel(activity: MultiItemActivityForm): string | null {
-  if (activity.status !== 'in_progress') return null
-  const end = new Date(activity.endTime.replace(/-/g, '/'))
-  const diffMs = end.getTime() - Date.now()
-  if (diffMs < 0) return null
-  const days = Math.ceil(diffMs / 86_400_000)
-  if (days === 0) return '今日结束'
-  return `剩余 ${days} 天`
-}
-
 export function buildActivityPreviewTags(activity: MultiItemActivityForm): string[] {
   return [
     getMultiItemRuleTypeLabel(activity.ruleType),
@@ -322,26 +313,6 @@ export function validateStep(activity: MultiItemActivityForm, step: number): str
   return null
 }
 
-function matchesProductName(activity: MultiItemActivityForm, keyword: string): boolean {
-  const kw = keyword.trim().toLowerCase()
-  if (!kw) return true
-  const candidates = activity.productScope === 'all'
-    ? products
-    : getActivityProducts(activity)
-  return candidates.some((p) => p.name.toLowerCase().includes(kw))
-}
-
-function matchesProductId(activity: MultiItemActivityForm, keyword: string): boolean {
-  const kw = keyword.trim().toLowerCase()
-  if (!kw) return true
-  const candidates = activity.productScope === 'all'
-    ? products
-    : getActivityProducts(activity)
-  return candidates.some((p) =>
-    p.id.toLowerCase().includes(kw) || p.skuId.toLowerCase().includes(kw),
-  )
-}
-
 export function matchesFilters(activity: MultiItemActivityForm, filters: MultiItemListFilters): boolean {
   if (filters.status !== 'all' && activity.status !== filters.status) return false
   if (filters.ruleType !== 'all' && activity.ruleType !== filters.ruleType) return false
@@ -350,8 +321,7 @@ export function matchesFilters(activity: MultiItemActivityForm, filters: MultiIt
     const kw = filters.keyword.toLowerCase()
     if (!activity.name.toLowerCase().includes(kw) && !activity.id.toLowerCase().includes(kw)) return false
   }
-  if (filters.productName && !matchesProductName(activity, filters.productName)) return false
-  if (filters.productId && !matchesProductId(activity, filters.productId)) return false
+  if (!matchesActivityProductFilters(resolveActivityProducts(activity), filters)) return false
   if (filters.activityCode) {
     const code = filters.activityCode.toLowerCase()
     if (!activity.activityCode.toLowerCase().includes(code)) return false

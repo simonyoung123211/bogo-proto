@@ -29,7 +29,7 @@ function buildLog(
 }
 
 export const MULTI_ITEM_RULE_LABELS: Record<MultiItemRuleType, string> = {
-  nth_item: '第N件优惠',
+  nth_item: '第2件半价',
   every_n_items: '每N件优惠',
   reach_m_discount_n: '满M件N件优惠',
   every_reach_m_discount_n: '每满M件N件优惠',

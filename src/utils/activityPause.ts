@@ -89,7 +89,7 @@ export function isPausedExpired(activity: PausableActivity, now: number = Date.n
 }
 
 /** 曾在暂停中到期结束的活动：状态已是「已结束」但仍留着暂停时刻 */
-export function isEndedWhilePaused(activity: PausableActivity): boolean {
+export function isEndedWhilePaused(activity: Pick<PausableActivity, 'status' | 'pausedAt'>): boolean {
   return activity.status === 'ended' && Boolean(activity.pausedAt)
 }
 

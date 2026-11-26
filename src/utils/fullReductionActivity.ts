@@ -1,3 +1,4 @@
+import { matchesActivityProductFilters, resolveActivityProducts } from './activityProductSearch'
 import type {
   ActivityOperationLog,
   ActivityStatus,
@@ -152,16 +153,6 @@ export function formatCreatorDisplay(activity: FullReductionActivityForm) {
   return { maskedPhone: maskPhone(phone), org }
 }
 
-export function getActivityRemainingLabel(activity: FullReductionActivityForm): string | null {
-  if (activity.status !== 'in_progress') return null
-  const end = new Date(activity.endTime.replace(/-/g, '/'))
-  const diffMs = end.getTime() - Date.now()
-  if (diffMs < 0) return null
-  const days = Math.ceil(diffMs / 86_400_000)
-  if (days === 0) return '今日结束'
-  return `剩余 ${days} 天`
-}
-
 export function appendActivityLog(
   activity: FullReductionActivityForm,
   action: string,
@@ -274,8 +265,7 @@ export function matchesFilters(
     const kw = filters.keyword.toLowerCase()
     if (!activity.name.toLowerCase().includes(kw) && !activity.id.toLowerCase().includes(kw)) return false
   }
-  if (filters.productName && !matchesProductName(activity, filters.productName)) return false
-  if (filters.productId && !matchesProductId(activity, filters.productId)) return false
+  if (!matchesActivityProductFilters(resolveActivityProducts(activity), filters)) return false
   if (filters.activityCode) {
     const code = filters.activityCode.toLowerCase()
     if (!activity.activityCode.toLowerCase().includes(code)) return false
@@ -293,24 +283,6 @@ export function matchesFilters(
     if (!activity.storeIds.includes(filters.storeId)) return false
   }
   return true
-}
-
-function getActivityProductCandidates(activity: FullReductionActivityForm) {
-  return activity.productScope === 'all' ? products : getActivityProducts(activity)
-}
-
-function matchesProductName(activity: FullReductionActivityForm, keyword: string): boolean {
-  const kw = keyword.trim().toLowerCase()
-  if (!kw) return true
-  return getActivityProductCandidates(activity).some((p) => p.name.toLowerCase().includes(kw))
-}
-
-function matchesProductId(activity: FullReductionActivityForm, keyword: string): boolean {
-  const kw = keyword.trim().toLowerCase()
-  if (!kw) return true
-  return getActivityProductCandidates(activity).some((p) =>
-    p.id.toLowerCase().includes(kw) || p.skuId.toLowerCase().includes(kw),
-  )
 }
 
 export function countActivitiesByStatus(

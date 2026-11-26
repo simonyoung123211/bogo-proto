@@ -1,8 +1,7 @@
 import type { MemberPriceActivityForm } from '../types'
 import {
-  formatPriceMethodValue,
+  formatConfiguredStrength,
   getActivityProducts,
-  isUniformPricing,
   getActivityStores,
   getProductScopeLabel,
   getStoreScopeLabel,
@@ -22,8 +21,6 @@ export function MemberPriceScopeSnapshotModal({ activity, type, onClose }: Membe
   const scopeLabel = isProducts ? getProductScopeLabel(activity) : getStoreScopeLabel(activity)
   const productList = getActivityProducts(activity)
   const storeList = getActivityStores(activity)
-  const valueMap = new Map(activity.productItems.map((i) => [i.productId, i.value]))
-
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal modal--lg" onClick={(e) => e.stopPropagation()}>
@@ -31,7 +28,7 @@ export function MemberPriceScopeSnapshotModal({ activity, type, onClose }: Membe
           <h3>{title}</h3>
           <button type="button" className="modal__close" onClick={onClose}>×</button>
         </div>
-        <div className="modal__body modal__body--flush">
+        <div className="modal__body modal__body--flush modal__body--scroll">
           <div className="activity-log-head">
             <div className="activity-log-head__name">{activity.name || '未命名活动'}</div>
             <div className="activity-log-head__meta mono">{activity.id}</div>
@@ -57,10 +54,7 @@ export function MemberPriceScopeSnapshotModal({ activity, type, onClose }: Membe
                       <td>{p.spec}</td>
                       <td>¥{p.price}</td>
                       <td>
-                        {formatPriceMethodValue(
-                          activity.priceMethod,
-                          isUniformPricing(activity) ? activity.allProductsValue : valueMap.get(p.id) ?? 0,
-                        )}
+                        {formatConfiguredStrength(activity, activity.orderTypes, p.id)}
                       </td>
                     </tr>
                   ))}

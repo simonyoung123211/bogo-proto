@@ -1,6 +1,6 @@
 # 促销后台原型（买1送N / 第N件优惠 / 满减折 / 会员价）
 
-Vite + React + TypeScript 商家后台原型，本地可完整预览；线上建议用 Cloudflare Pages 托管。
+Vite + React + TypeScript 商家后台原型。本地可完整预览，线上通过 Cloudflare Workers 静态资源托管。
 
 ## 本地启动
 
@@ -24,18 +24,12 @@ npm run build
 npm run preview
 ```
 
-## Cloudflare Pages 部署
+## Cloudflare Workers 部署
 
-仓库推送到 GitHub 后，在 [Cloudflare Dashboard](https://dash.cloudflare.com) → **Workers & Pages** → **Create** → **Pages** → **Connect to Git**，选择本仓库。
+项目使用 `wrangler.jsonc` 中的 `bogo-merchant` Worker，构建产物目录为 `dist`，未命中的路径回退至单页应用。部署前确认 Wrangler 已登录到目标 Cloudflare 账号，然后运行：
 
-| 配置项 | 值 |
-|--------|-----|
-| Framework preset | Vite（或 None） |
-| Build command | `npm run build` |
-| Build output directory | `dist` |
-| Root directory | `/`（默认） |
-| Node.js version | `20`（Environment variables / Builds 中设置也可） |
+```bash
+npm run deploy
+```
 
-SPA 回退已放在 `public/_redirects`（构建后进入 `dist`），刷新子路由不会 404。
-
-部署成功后会得到 `https://<项目名>.pages.dev` 长期在线链接；后续每次 `git push` 会自动重新部署。
+线上演示地址：[促销活动管理](https://promo.yangyaojun-demo.cn/)。Git 推送与 Wrangler 部署分别执行，推送本身不会替代线上发布。

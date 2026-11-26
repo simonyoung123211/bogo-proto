@@ -47,16 +47,20 @@ export function DeliveryFeeAdvancedOptionsFields({ activity, readOnly, onChange 
             </div>
           </FormRow>
           <FormRow label="参与用户">
-            <select
-              className="input input--wide"
-              disabled={readOnly}
-              value={activity.participantUser}
-              onChange={(e) => update('participantUser', e.target.value as DeliveryFeeActivityForm['participantUser'])}
-            >
-              {PARTICIPANT_USER_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+            {activity.offerMode === 'by_member_level' ? (
+              <span>仅限活动规则中所选的会员等级</span>
+            ) : (
+              <select
+                className="input input--wide"
+                disabled={readOnly}
+                value={activity.participantUser}
+                onChange={(e) => update('participantUser', e.target.value as DeliveryFeeActivityForm['participantUser'])}
+              >
+                {PARTICIPANT_USER_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            )}
           </FormRow>
           <FormRow label="打标签">
             <select
@@ -117,13 +121,4 @@ function FormRow({ label, children }: { label: string; children: React.ReactNode
       <div className="form-control">{children}</div>
     </div>
   )
-}
-
-export function formatDeliveryFeeAdvancedPreview(activity: DeliveryFeeActivityForm) {
-  return {
-    mutex: activity.shareMutexRelation === 'share_all' ? '全部活动/券共享' : '全部活动/券互斥',
-    participant: PARTICIPANT_USER_OPTIONS.find((o) => o.value === activity.participantUser)?.label ?? '-',
-    titleDisplay: activity.titleDisplay === 'show' ? '展示' : '不展示',
-    activityCode: activity.activityCode || '-',
-  }
 }

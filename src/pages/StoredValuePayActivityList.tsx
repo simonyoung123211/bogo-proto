@@ -1,25 +1,26 @@
-﻿import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { ActivityListTable, ActivityScopeLink as SnapshotLink } from '../components/ActivityListTable'
+import { RowActionMenu } from '../components/RowActionMenu'
+import { useActivityListClock } from '../utils/activityListTime'
+import { getParticipantUserLabel } from '../utils/activity'
+import { ActivityListSearchPanel } from '../components/ActivityListSearchPanel'
+import { createAdvancedSearchChips } from '../utils/activitySearchChips'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ActivityOperationLogModal } from '../components/ActivityOperationLogModal'
 import { PauseConfirmModal, PauseDemoGroup, ResumeConfirmModal } from '../components/ActivityPauseControls'
 import { MemberPriceScopeSnapshotModal, type MemberPriceScopeSnapshotType } from '../components/MemberPriceScopeSnapshotModal'
-import { CHANNELS, MORE_STATUS_TABS, PAUSE_OVERDUE_MINUTES, PRIMARY_STATUS_TABS, STATUS_LABELS } from '../mockData'
+import { MORE_STATUS_TABS, PAUSE_OVERDUE_MINUTES, PRIMARY_STATUS_TABS, STATUS_LABELS } from '../mockData'
 import { STORED_VALUE_PAY_METHOD_LABELS, STORED_VALUE_PAY_RULE_SHORT_LABELS } from '../mockStoredValuePayData'
 import type { ActivityStatus, MemberPriceActivityForm, MemberPriceMethod, StoredValuePayActivityForm, StoredValuePayListFilters, StoredValuePayRule } from '../types'
-import { StoredValuePayGeneralSettingsModal } from './StoredValuePayGeneralSettings'
 import {
   canPause,
   canResume,
   countOverduePaused,
-  getPauseInfo,
-  isEndedWhilePaused,
   isExpired,
   resolveResumeStatus,
 } from '../utils/activityPause'
 import {
   countActivitiesByStatus,
-  formatCreatorDisplay,
   formatRuleSummary,
-  getActivityRemainingLabel,
   getPayRuleLabel,
   getProductCount,
   getProductSummary,
@@ -30,6 +31,7 @@ import {
 interface StoredValuePayActivityListProps {
   activities: StoredValuePayActivityForm[]
   onCreate: () => void
+  onOpenSettings: () => void
   onView: (id: string) => void
   onViewParticipation: (id: string) => void
   onEdit: (id: string) => void
@@ -55,13 +57,12 @@ const EMPTY_FILTERS: StoredValuePayListFilters = {
   endDate: '',
   storeId: 'all',
 }
-
-const CHANNEL_MAP = Object.fromEntries(CHANNELS.map((c) => [c.id, c]))
 const PAGE_SIZE = 10
 
 export function StoredValuePayActivityList({
   activities,
   onCreate,
+  onOpenSettings,
   onView,
   onViewParticipation,
   onEdit,
@@ -75,12 +76,10 @@ export function StoredValuePayActivityList({
   onToast,
 }: StoredValuePayActivityListProps) {
   const [filters, setFilters] = useState<StoredValuePayListFilters>(EMPTY_FILTERS)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [pauseTarget, setPauseTarget] = useState<StoredValuePayActivityForm | null>(null)
   const [resumeTarget, setResumeTarget] = useState<StoredValuePayActivityForm | null>(null)
   const [voidTarget, setVoidTarget] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
-  const [filterExpanded, setFilterExpanded] = useState(false)
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [statusMoreOpen, setStatusMoreOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -93,15 +92,7 @@ export function StoredValuePayActivityList({
     const timer = window.setTimeout(() => setEnableRowAnim(false), 500)
     return () => window.clearTimeout(timer)
   }, [])
-
-  // 暂停时长需要实时跳变颜色，仅在存在暂停活动时启动定时器
-  const hasPaused = activities.some((a) => a.status === 'paused')
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!hasPaused) return
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [hasPaused])
+  const now = useActivityListClock(activities)
   const overdueCount = countOverduePaused(activities, now)
 
   const filtered = useMemo(() => activities.filter((a) => matchesFilters(a, filters)), [activities, filters])
@@ -124,20 +115,7 @@ export function StoredValuePayActivityList({
 
   const resetFilters = () => {
     setFilters(EMPTY_FILTERS)
-    setFilterExpanded(false)
   }
-
-  const copyActivityId = async (id: string, e: ReactMouseEvent) => {
-    e.stopPropagation()
-    try {
-      await navigator.clipboard.writeText(id)
-      onToast?.('活动 ID 已复制')
-    } catch {
-      onToast?.('复制失败，请手动复制')
-    }
-  }
-
-  const stopRowClick = (e: ReactMouseEvent) => e.stopPropagation()
   const canEdit = (s: ActivityStatus) => ['draft', 'pending', 'not_started', 'in_progress', 'paused'].includes(s)
   const canPublish = (s: ActivityStatus) => ['draft', 'pending'].includes(s)
   const canVoid = (s: ActivityStatus) => ['pending', 'not_started', 'in_progress', 'paused'].includes(s)
@@ -187,7 +165,7 @@ export function StoredValuePayActivityList({
           </div>
         </div>
         <div className="list-page-header__actions">
-          <button type="button" className="btn btn--default btn--icon" onClick={() => setSettingsOpen(true)}>
+          <button type="button" className="btn btn--default btn--icon" onClick={onOpenSettings}>
             <IconSettings />
             通用设置
           </button>
@@ -223,15 +201,16 @@ export function StoredValuePayActivityList({
           </StatusMoreMenu>
         </div>
 
-        <div className="list-toolbar">
-          <div className="list-toolbar__fields">
-            <div className="filter-item">
-              <label>活动名称/ID</label>
-              <input className="input input--filter" value={filters.keyword} onChange={(e) => setFilters((f) => ({ ...f, keyword: e.target.value }))} placeholder="请输入活动名称或 ID" />
-            </div>
+        <ActivityListSearchPanel
+          values={filters}
+          resultCount={filtered.length}
+          onChange={(field, value) => setFilters((current) => ({ ...current, [field]: value }))}
+          onReset={resetFilters}
+          advancedFilters={createAdvancedSearchChips(filters, EMPTY_FILTERS, [{ key: 'priceMethod', label: '优惠形式', options: STORED_VALUE_PAY_METHOD_LABELS }, { key: 'payRule', label: '支付规则', options: STORED_VALUE_PAY_RULE_SHORT_LABELS }, { key: 'startDate', label: '开始日期' }, { key: 'endDate', label: '结束日期' }, { key: 'activityCode', label: '活动编码' }], (patch) => setFilters((current) => ({ ...current, ...patch })))}
+          advancedFields={<>
             <div className="filter-item">
               <label>优惠形式</label>
-              <select
+              <select aria-label="优惠形式"
                 className="input input--filter"
                 value={filters.priceMethod}
                 onChange={(e) => setFilters((f) => ({ ...f, priceMethod: e.target.value as StoredValuePayListFilters['priceMethod'] }))}
@@ -244,7 +223,7 @@ export function StoredValuePayActivityList({
             </div>
             <div className="filter-item">
               <label>支付规则</label>
-              <select
+              <select aria-label="支付规则"
                 className="input input--filter"
                 value={filters.payRule}
                 onChange={(e) => setFilters((f) => ({ ...f, payRule: e.target.value as StoredValuePayListFilters['payRule'] }))}
@@ -255,155 +234,79 @@ export function StoredValuePayActivityList({
                 ))}
               </select>
             </div>
-            <div className="filter-item">
+            <div className="filter-item activity-search-panel__dates">
               <label>活动时间</label>
               <div className="date-range">
-                <input type="date" className="input input--filter" value={filters.startDate} onChange={(e) => setFilters((f) => ({ ...f, startDate: e.target.value }))} />
+                <input aria-label="活动开始日期" type="date" className="input input--filter" value={filters.startDate} onChange={(e) => setFilters((f) => ({ ...f, startDate: e.target.value }))} />
                 <span>至</span>
-                <input type="date" className="input input--filter" value={filters.endDate} onChange={(e) => setFilters((f) => ({ ...f, endDate: e.target.value }))} />
+                <input aria-label="活动结束日期" type="date" className="input input--filter" value={filters.endDate} onChange={(e) => setFilters((f) => ({ ...f, endDate: e.target.value }))} />
               </div>
             </div>
-          </div>
-          <div className="list-toolbar__actions">
-            <span className="list-toolbar__hint">筛选即时生效</span>
-            <button type="button" className="btn btn--default btn--icon btn--sm" onClick={resetFilters}><IconReset />重置</button>
-            <button type="button" className={`list-toolbar__toggle ${filterExpanded ? 'is-expanded' : ''}`} onClick={() => setFilterExpanded((v) => !v)}>
-              <IconFilter />更多筛选<IconChevron />
-            </button>
-          </div>
-        </div>
-
-        {filterExpanded && (
-          <div className="list-toolbar list-toolbar--expanded">
-            <div className="list-toolbar__fields">
-              <div className="filter-item">
-                <label>活动商品名称</label>
-                <input
-                  className="input input--filter"
-                  value={filters.productName}
-                  onChange={(e) => setFilters((f) => ({ ...f, productName: e.target.value }))}
-                  placeholder="请输入活动商品名称"
-                />
-              </div>
-              <div className="filter-item">
-                <label>活动商品 ID</label>
-                <input
-                  className="input input--filter"
-                  value={filters.productId}
-                  onChange={(e) => setFilters((f) => ({ ...f, productId: e.target.value }))}
-                  placeholder="请输入商品 ID 或 SKU ID"
-                />
-              </div>
-              <div className="filter-item">
+            <div className="filter-item">
                 <label>活动编码</label>
-                <input className="input input--filter" value={filters.activityCode} onChange={(e) => setFilters((f) => ({ ...f, activityCode: e.target.value }))} placeholder="请输入活动编码" />
+                <input aria-label="活动编码" className="input input--filter" value={filters.activityCode} onChange={(e) => setFilters((f) => ({ ...f, activityCode: e.target.value }))} placeholder="请输入活动编码" />
               </div>
-            </div>
+          </>}
+        />
+      </div>
+
+      <ActivityListTable
+        activities={pageRows}
+        now={now}
+        onToast={onToast}
+        onRowClick={onView}
+        animated={enableRowAnim}
+        extraColumns={['优惠形式', '支付规则']}
+        empty={(
+          <div className="table-empty-state">
+            <p className="table-empty-state__title">暂无活动</p>
+            <p className="table-empty-state__desc">调整筛选条件，或新建一个储值支付优惠活动</p>
+            <button type="button" className="btn btn--primary btn--icon" onClick={onCreate}><IconPlus />新建活动</button>
           </div>
         )}
-      </div>
-
-      <div className="table-wrap table-wrap--list">
-        <table className="table table--list table--activity">
-          <thead>
-            <tr>
-              <th>活动名称</th>
-              <th>优惠形式</th>
-              <th>参与商品数</th>
-              <th>参与门店</th>
-              <th>活动时间</th>
-              <th>支付规则</th>
-              <th>投放渠道</th>
-              <th>状态</th>
-              <th className="table-col--optional">创建者</th>
-              <th className="table-col--meta">创建时间</th>
-              <th className="table-col--meta">更新时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody className={enableRowAnim ? 'table--animate-in' : undefined}>
-            {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={12}>
-                  <div className="table-empty-state">
-                    <p className="table-empty-state__title">暂无活动</p>
-                    <p className="table-empty-state__desc">调整筛选条件，或新建一个储值支付优惠活动</p>
-                    <button type="button" className="btn btn--primary btn--icon" onClick={onCreate}><IconPlus />新建活动</button>
-                  </div>
-                </td>
-              </tr>
-            ) : pageRows.map((a, index) => {
-              const remaining = getActivityRemainingLabel(a)
-              const pauseInfo = getPauseInfo(a, now)
-              return (
-                <tr key={a.id} className={`table-row--clickable table-row--status-${a.status}`} style={enableRowAnim ? { animationDelay: `${Math.min(index, 12) * 30}ms` } : undefined} onClick={() => onView(a.id)}>
-                  <td>
-                    <div className="activity-name-cell">
-                      <div className="activity-name-cell__top">
-                        <span className="activity-name-cell__name">{a.name || '未命名活动'}</span>
-                      </div>
-                      <div className="activity-name-cell__rule">{formatRuleSummary(a)}</div>
-                      <button type="button" className="activity-name-cell__id" title="点击复制活动 ID" onClick={(e) => copyActivityId(a.id, e)}>{a.id}</button>
-                    </div>
-                  </td>
-                  <td>
-                    <span className={`rule-tag rule-tag--member-${a.priceMethod}`}>{STORED_VALUE_PAY_METHOD_LABELS[a.priceMethod]}</span>
-                  </td>
-                  <td onClick={stopRowClick}>
-                    <SnapshotLink label={`${getProductCount(a)}`} onClick={() => setSnapshotTarget({ activity: a, type: 'products' })} />
-                    <div className="text-secondary" style={{ fontSize: 12 }}>{getProductSummary(a)}</div>
-                  </td>
-                  <td onClick={stopRowClick}><SnapshotLink label={getStoreSummary(a)} onClick={() => setSnapshotTarget({ activity: a, type: 'stores' })} /></td>
-                  <td className="table-time">
-                    <div><span className="table-time__label">起</span>{a.startTime}</div>
-                    <div><span className="table-time__label">止</span>{a.endTime}</div>
-                    {remaining && <span className="time-remaining">{remaining}</span>}
-                  </td>
-                  <td>{getPayRuleLabel(a.payRule, true)}</td>
-                  <td onClick={stopRowClick}><ChannelChips channels={a.channels} /></td>
-                  <td>
-                    <div className="status-cell">
-                      <span className={`status-badge status-badge--dot status-badge--${a.status}`}>{STATUS_LABELS[a.status]}</span>
-                      {pauseInfo && (
-                        <span className={`pause-timer pause-timer--${pauseInfo.level}`} title={pauseInfo.label}>{pauseInfo.label}</span>
-                      )}
-                      {isEndedWhilePaused(a) && <span className="status-cell__hint">暂停中到期结束</span>}
-                    </div>
-                  </td>
-                  <td className="table-col--optional"><CreatorCell activity={a} /></td>
-                  <td className="table-col--meta table-time"><TimestampCell value={a.createdAt} /></td>
-                  <td className="table-col--meta table-time"><TimestampCell value={a.updatedAt ?? a.createdAt} /></td>
-                  <td className="table-actions" onClick={stopRowClick}>
-                    <button type="button" className="table-actions__view" onClick={() => onView(a.id)}><IconView />查看</button>
-                    <RowActionMenu open={openMenuId === a.id} onToggle={() => setOpenMenuId((id) => (id === a.id ? null : a.id))} onClose={() => setOpenMenuId(null)}>
-                      <button type="button" onClick={() => { setLogTarget(a); setOpenMenuId(null) }}>
-                        操作日志（{a.operationLogs?.length ?? 0}）
-                      </button>
-                      {['not_started', 'in_progress', 'paused', 'ended', 'voided'].includes(a.status) && (
-                        <button type="button" onClick={() => { onViewParticipation(a.id); setOpenMenuId(null) }}>参与记录</button>
-                      )}
-                      {canEdit(a.status) && <button type="button" onClick={() => { onEdit(a.id); setOpenMenuId(null) }}>编辑</button>}
-                      <button type="button" onClick={() => { onCopy(a.id); setOpenMenuId(null) }}>复制</button>
-                      {canPublish(a.status) && <button type="button" onClick={() => { onPublish(a.id); setOpenMenuId(null) }}>发布</button>}
-                      {canPause(a.status) && (
-                        <button type="button" onClick={() => { requestPause(a); setOpenMenuId(null) }}>暂停活动</button>
-                      )}
-                      {canResume(a.status) && (
-                        <button type="button" onClick={() => { requestResume(a); setOpenMenuId(null) }}>恢复活动</button>
-                      )}
-                      {a.status === 'paused' && (
-                        <PauseDemoGroup onPick={(m) => { onDemoSetPausedMinutes(a.id, m); setOpenMenuId(null) }} />
-                      )}
-                      {canVoid(a.status) && <button type="button" className="is-danger" onClick={() => { setVoidTarget(a.id); setOpenMenuId(null) }}>作废</button>}
-                      {canDelete(a.status) && <button type="button" className="is-danger" onClick={() => { setDeleteTarget(a.id); setOpenMenuId(null) }}>删除</button>}
-                    </RowActionMenu>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+        renderFields={(a) => ({
+          summary: formatRuleSummary(a),
+          products: (
+            <>
+              <SnapshotLink label={`${getProductCount(a)}`} onClick={() => setSnapshotTarget({ activity: a, type: 'products' })} />
+              <div className="text-secondary" style={{ fontSize: 12 }}>{getProductSummary(a)}</div>
+            </>
+          ),
+          stores: <SnapshotLink label={getStoreSummary(a)} onClick={() => setSnapshotTarget({ activity: a, type: 'stores' })} />,
+          audience: getParticipantUserLabel(a),
+          extra: {
+            '优惠形式': <span className={`rule-tag rule-tag--member-${a.priceMethod}`}>{STORED_VALUE_PAY_METHOD_LABELS[a.priceMethod]}</span>,
+            '支付规则': getPayRuleLabel(a.payRule, true),
+          },
+          actions: (
+            <>
+              <button type="button" className="table-actions__view" onClick={() => onView(a.id)}><IconView />查看</button>
+              <RowActionMenu open={openMenuId === a.id} onToggle={() => setOpenMenuId((id) => (id === a.id ? null : a.id))} onClose={() => setOpenMenuId(null)}>
+                <button type="button" onClick={() => { setLogTarget(a); setOpenMenuId(null) }}>
+                  操作日志（{a.operationLogs?.length ?? 0}）
+                </button>
+                {['not_started', 'in_progress', 'paused', 'ended', 'voided'].includes(a.status) && (
+                  <button type="button" onClick={() => { onViewParticipation(a.id); setOpenMenuId(null) }}>参与记录</button>
+                )}
+                {canEdit(a.status) && <button type="button" onClick={() => { onEdit(a.id); setOpenMenuId(null) }}>编辑</button>}
+                <button type="button" onClick={() => { onCopy(a.id); setOpenMenuId(null) }}>复制</button>
+                {canPublish(a.status) && <button type="button" onClick={() => { onPublish(a.id); setOpenMenuId(null) }}>发布</button>}
+                {canPause(a.status) && (
+                  <button type="button" onClick={() => { requestPause(a); setOpenMenuId(null) }}>暂停活动</button>
+                )}
+                {canResume(a.status) && (
+                  <button type="button" onClick={() => { requestResume(a); setOpenMenuId(null) }}>恢复活动</button>
+                )}
+                {a.status === 'paused' && (
+                  <PauseDemoGroup onPick={(m) => { onDemoSetPausedMinutes(a.id, m); setOpenMenuId(null) }} />
+                )}
+                {canVoid(a.status) && <button type="button" className="is-danger" onClick={() => { setVoidTarget(a.id); setOpenMenuId(null) }}>作废</button>}
+                {canDelete(a.status) && <button type="button" className="is-danger" onClick={() => { setDeleteTarget(a.id); setOpenMenuId(null) }}>删除</button>}
+              </RowActionMenu>
+            </>
+          ),
+        })}
+      />
 
       <div className="pagination pagination--full">
         <span>共 {filtered.length} 条{filtered.length > 0 && `，当前第 ${rangeStart}–${rangeEnd} 条`}</span>
@@ -415,13 +318,6 @@ export function StoredValuePayActivityList({
           </div>
         )}
       </div>
-
-      {settingsOpen && (
-        <StoredValuePayGeneralSettingsModal
-          onClose={() => setSettingsOpen(false)}
-          onSaved={() => onToast?.('储值支付通用设置已保存')}
-        />
-      )}
 
       {pauseTarget && (
         <PauseConfirmModal
@@ -478,20 +374,6 @@ export function StoredValuePayActivityList({
   )
 }
 
-function SnapshotLink({ label, onClick }: { label: string; onClick: () => void }) {
-  return <button type="button" className="snapshot-link cell-ellipsis" title={`点击查看快照：${label}`} onClick={onClick}>{label}</button>
-}
-
-function CreatorCell({ activity }: { activity: StoredValuePayActivityForm }) {
-  const { maskedPhone, org } = formatCreatorDisplay(activity)
-  return <div className="creator-cell" title={`${maskedPhone} · ${org}`}><div className="creator-cell__phone">{maskedPhone}</div><div className="creator-cell__org">{org}</div></div>
-}
-
-function TimestampCell({ value }: { value: string }) {
-  const [date, time] = value.split(' ')
-  return <div className="timestamp-cell" title={value}><div>{date}</div>{time && <div className="timestamp-cell__time">{time}</div>}</div>
-}
-
 function PageHelpButton({ open, onToggle, onClose }: { open: boolean; onToggle: () => void; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -509,19 +391,6 @@ function PageHelpButton({ open, onToggle, onClose }: { open: boolean; onToggle: 
           <p className="page-help__text">引导顾客使用储值余额支付并享受专享价，支持折扣、立减、一口价；活动级配置支付参与规则。</p>
         </div>
       )}
-    </div>
-  )
-}
-
-function ChannelChips({ channels }: { channels: string[] }) {
-  if (channels.length === 0) return <span className="text-secondary">-</span>
-  return (
-    <div className="channel-chips">
-      {channels.map((id) => {
-        const ch = CHANNEL_MAP[id]
-        if (!ch) return null
-        return <span key={id} className={`channel-chip channel-chip--${id}`}>{ch.icon}</span>
-      })}
     </div>
   )
 }
@@ -546,26 +415,8 @@ function StatusMoreMenu({ open, active, activeLabel, activeCount, onToggle, onCl
   )
 }
 
-function RowActionMenu({ open, onToggle, onClose, children }: { open: boolean; onToggle: () => void; onClose: () => void; children: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const handleClick = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose() }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [open, onClose])
-  return (
-    <div className="row-action-menu" ref={ref}>
-      <button type="button" className="row-action-menu__trigger" onClick={onToggle}>更多<IconChevron /></button>
-      {open && <div className="row-action-menu__dropdown" role="menu">{children}</div>}
-    </div>
-  )
-}
-
 function IconChevron() { return <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><path d="M3 4.5l3 3 3-3" /></svg> }
 function IconPlus() { return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><path d="M8 3v10M3 8h10" /></svg> }
-function IconFilter() { return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden><path d="M2 4h12M4 8h8M6 12h4" /></svg> }
-function IconReset() { return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden><path d="M3 8a5 5 0 019-2M13 8a5 5 0 01-9 2" /><path d="M12 3v3h-3M4 13v-3h3" /></svg> }
 function IconView() { return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden><circle cx="8" cy="8" r="2.5" /><path d="M2 8s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4z" /></svg> }
 function IconHelp() { return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden><circle cx="8" cy="8" r="6" /><path d="M6.2 6a2 2 0 013.5 1.5c0 1.5-2 1.5-2 3M8 12h.01" /></svg> }
 function IconSettings() { return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden><circle cx="8" cy="8" r="2.2" /><path d="M6.7 2.3l.5-1h1.6l.5 1 1 .4 1.1-.3 1.1 1.1-.3 1.1.4 1 .9.5v1.6l-.9.5-.4 1 .3 1.1-1.1 1.1-1.1-.3-1 .4-.5 1H7.2l-.5-1-1-.4-1.1.3-1.1-1.1.3-1.1-.4-1-.9-.5V6.1l.9-.5.4-1-.3-1.1 1.1-1.1 1.1.3 1-.4z" /></svg> }

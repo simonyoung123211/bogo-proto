@@ -2,8 +2,10 @@ import type {
   ActivityOperationLog,
   ActivityStatus,
   DeliveryFeeActivityForm,
+  DeliveryFeeCityRuleGroup,
   DeliveryFeeDiscountMethod,
   DeliveryFeeListFilters,
+  DeliveryFeeOfferRule,
   DeliveryFeeThresholdType,
   DeliveryFeeTier,
 } from '../types'
@@ -12,12 +14,15 @@ import {
   DELIVERY_FEE_EXPRESS_TYPE_ID,
   DELIVERY_FEE_TAKEAWAY_TYPE_IDS,
   DISCOUNT_METHOD_LABELS,
+  MAX_CITY_GROUPS,
+  MAX_TIERS,
   THRESHOLD_TYPE_LABELS,
   createDefaultTiers,
   createEmptyDeliveryFeeActivity,
 } from '../mockDeliveryFeeData'
-import { PARTICIPANT_USER_OPTIONS, getCreatorProfile, stores } from '../mockData'
+import { MEMBER_LEVELS, PARTICIPANT_USER_OPTIONS, getCreatorProfile, stores } from '../mockData'
 import { createOperationLog, formatActivityDateTime, maskPhone } from './activity'
+import { matchesActivityProductFilters, resolveActivityProducts } from './activityProductSearch'
 
 export function getThresholdTypeLabel(type: DeliveryFeeThresholdType): string {
   return THRESHOLD_TYPE_LABELS[type]
@@ -39,17 +44,55 @@ export function formatTierLine(
 }
 
 export function formatRuleSummary(activity: DeliveryFeeActivityForm): string {
+  if (activity.ruleMode === 'by_city') {
+    if (activity.offerMode === 'by_member_level') return '指定城市与会员等级配置冲突'
+    return `指定城市 · ${activity.cityRuleGroups.length} 组 · ${getActivityCityIds(activity).length} 个城市`
+  }
+  if (activity.offerMode === 'by_member_level') {
+    const count = getMemberLevelOffers(activity).length
+    return count ? `按会员等级配置 · ${count} 个等级` : '按会员等级配置 · 尚未选择等级'
+  }
   const thrLabel = getThresholdTypeLabel(activity.thresholdType)
   const tierText = activity.tiers.map((t) => formatTierLine(t, activity.thresholdType)).join('；')
-  if (activity.ruleMode === 'national') {
-    return `全国·${thrLabel}：${tierText}`
+  return `全国·${thrLabel}：${tierText}`
+}
+
+export function getMemberLevelOffers(activity: DeliveryFeeActivityForm) {
+  return MEMBER_LEVELS.flatMap((level) => {
+    const rule = activity.memberLevelRules[level.id]
+    return rule ? [{ ...level, rule }] : []
+  })
+}
+
+export function hasAmountThreshold(activity: DeliveryFeeActivityForm): boolean {
+  if (activity.ruleMode === 'by_city') {
+    return activity.cityRuleGroups.some((group) => group.thresholdType === 'amount')
   }
-  const cityCount = activity.cityIds.length
-  return `指定城市·${thrLabel}：${cityCount} 个城市；${tierText || '未配阶梯'}；未命中不减免`
+  return activity.offerMode === 'by_member_level'
+    ? getMemberLevelOffers(activity).some(({ rule }) => rule.thresholdType === 'amount')
+    : activity.thresholdType === 'amount'
 }
 
 export function getCityNames(cityIds: string[]): string {
   return cityIds.map((id) => CITY_NAME_MAP[id] ?? id).join('、')
+}
+
+export function getCityRuleGroupLabel(group: DeliveryFeeCityRuleGroup, index: number): string {
+  return group.name.trim() || `城市组 ${index + 1}`
+}
+
+function getActivityCityIds(activity: DeliveryFeeActivityForm): string[] {
+  return [...new Set(activity.cityRuleGroups.flatMap((group) => group.cityIds))]
+}
+
+export function createDeliveryFeeCityRuleGroup(rule: DeliveryFeeOfferRule): DeliveryFeeCityRuleGroup {
+  return {
+    id: `city-group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: '',
+    cityIds: [],
+    thresholdType: rule.thresholdType,
+    tiers: rule.tiers.map((tier) => ({ ...tier })),
+  }
 }
 
 export function computePublishStatus(activity: DeliveryFeeActivityForm): ActivityStatus {
@@ -92,57 +135,59 @@ export function appendActivityLog(
   }
 }
 
-/** 兼容旧版多规则组 / 默认兜底 / nationalTiers 字段 */
+/** 旧单组活动沿用原城市名单和优惠，历史多组记录保留各组规则 */
 export function migrateDeliveryFeeActivity(raw: Record<string, unknown>): DeliveryFeeActivityForm {
   const base = createEmptyDeliveryFeeActivity()
   const merged = { ...base, ...raw } as DeliveryFeeActivityForm & {
+    cityIds?: string[]
     nationalTiers?: DeliveryFeeTier[]
     defaultTiers?: DeliveryFeeTier[]
     defaultRuleEnabled?: boolean
-    cityRuleGroups?: { id: string; name: string; cityIds: string[]; tiers: DeliveryFeeTier[] }[]
   }
 
   if (!merged.thresholdType) merged.thresholdType = 'amount'
+  if (merged.offerMode !== 'by_member_level') merged.offerMode = 'unified'
+  const memberLevelRules: DeliveryFeeActivityForm['memberLevelRules'] = {}
+  for (const { id } of MEMBER_LEVELS) {
+    const rule = merged.memberLevelRules?.[id]
+    if (rule && Object.hasOwn(THRESHOLD_TYPE_LABELS, rule.thresholdType) && Array.isArray(rule.tiers)) {
+      memberLevelRules[id] = rule
+    }
+  }
+  merged.memberLevelRules = memberLevelRules
   if (typeof merged.includeToppings !== 'boolean') merged.includeToppings = false
   if (typeof merged.includePackagingFee !== 'boolean') merged.includePackagingFee = false
   if (typeof merged.includePreparationSurcharge !== 'boolean') merged.includePreparationSurcharge = false
 
-  const legacyGroups = Array.isArray(merged.cityRuleGroups) ? merged.cityRuleGroups : []
-  const hasLegacyGroups = legacyGroups.length > 0
-  const hasLegacyNational = Array.isArray(merged.nationalTiers) && merged.nationalTiers.length > 0
-
-  if (!Array.isArray(merged.tiers) || merged.tiers.length === 0) {
-    if (merged.ruleMode === 'by_city' && hasLegacyGroups) {
-      merged.tiers = legacyGroups[0]?.tiers?.length ? legacyGroups[0].tiers : createDefaultTiers()
-    } else if (hasLegacyNational) {
-      merged.tiers = merged.nationalTiers!
-    } else {
-      merged.tiers = createDefaultTiers()
-    }
+  if (!Array.isArray(raw.tiers) || raw.tiers.length === 0) {
+    merged.tiers = merged.nationalTiers?.length ? merged.nationalTiers : createDefaultTiers()
   }
 
-  if (!Array.isArray(merged.cityIds) || merged.cityIds.length === 0) {
-    if (hasLegacyGroups) {
-      const seen = new Set<string>()
-      const ids: string[] = []
-      for (const g of legacyGroups) {
-        for (const id of g.cityIds ?? []) {
-          if (!seen.has(id)) {
-            seen.add(id)
-            ids.push(id)
-          }
-        }
-      }
-      merged.cityIds = ids
-    } else {
-      merged.cityIds = []
-    }
+  const legacyCityIds = Array.isArray(merged.cityIds) ? merged.cityIds : []
+  if (Array.isArray(raw.cityRuleGroups)) {
+    merged.cityRuleGroups = merged.cityRuleGroups.filter(Boolean).map((group, index) => ({
+      id: group.id || `city-group-${index + 1}`,
+      name: typeof group.name === 'string' ? group.name : '',
+      cityIds: Array.isArray(group.cityIds) ? [...new Set(group.cityIds)] : [],
+      thresholdType: Object.hasOwn(THRESHOLD_TYPE_LABELS, group.thresholdType) ? group.thresholdType : merged.thresholdType,
+      tiers: Array.isArray(group.tiers) ? group.tiers : [],
+    }))
+  } else if (legacyCityIds.length || merged.ruleMode === 'by_city') {
+    merged.cityRuleGroups = [{
+      id: 'city-group-1',
+      name: '',
+      cityIds: [...new Set(legacyCityIds)],
+      thresholdType: merged.thresholdType,
+      tiers: merged.tiers,
+    }]
+  } else {
+    merged.cityRuleGroups = []
   }
 
-  delete (merged as { nationalTiers?: unknown }).nationalTiers
-  delete (merged as { defaultTiers?: unknown }).defaultTiers
-  delete (merged as { defaultRuleEnabled?: unknown }).defaultRuleEnabled
-  delete (merged as { cityRuleGroups?: unknown }).cityRuleGroups
+  delete merged.cityIds
+  delete merged.nationalTiers
+  delete merged.defaultTiers
+  delete merged.defaultRuleEnabled
 
   return merged
 }
@@ -186,6 +231,9 @@ export function applyRuleModeChange(
     next.orderTypes = stripTakeawayTypes(activity.orderTypes)
     if (!next.orderTypes.includes(DELIVERY_FEE_EXPRESS_TYPE_ID)) {
       next.orderTypes = [...next.orderTypes, DELIVERY_FEE_EXPRESS_TYPE_ID]
+    }
+    if (next.cityRuleGroups.length === 0) {
+      next.cityRuleGroups = [createDeliveryFeeCityRuleGroup(activity)]
     }
   }
   return next
@@ -252,13 +300,9 @@ export function validateStep(activity: DeliveryFeeActivityForm, step: number): s
     if (activity.ruleMode === 'by_city') {
       if (!hasExpress(activity)) return '指定城市仅支持门店快递，请勾选门店快递'
       if (hasTakeaway(activity)) return '指定城市不可同时勾选外卖类业务'
-      if (activity.cityIds.length === 0) return '请选择适用城市'
-      const err = validateTiers(activity.tiers, '城市规则组', activity.thresholdType)
-      if (err) return err
-    } else {
-      const err = validateTiers(activity.tiers, '优惠阶梯', activity.thresholdType)
-      if (err) return err
     }
+    const offerError = validateOfferRules(activity)
+    if (offerError) return offerError
     if (activity.totalParticipationLimitType === 'limited' && activity.totalParticipationLimit < 1) {
       return '用户参与活动总次数须大于0'
     }
@@ -278,6 +322,52 @@ export function validateStep(activity: DeliveryFeeActivityForm, step: number): s
       return '请选择参与商品'
     }
     return null
+  }
+  return null
+}
+
+function validateOfferRules(activity: DeliveryFeeActivityForm): string | null {
+  if (activity.ruleMode === 'by_city') {
+    if (activity.offerMode === 'by_member_level') return '指定城市与按会员等级配置不可同时使用'
+    return validateCityRuleGroups(activity.cityRuleGroups)
+  }
+  if (activity.offerMode !== 'by_member_level') {
+    return validateTiers(activity.tiers, '优惠阶梯', activity.thresholdType)
+  }
+
+  const offers = getMemberLevelOffers(activity)
+  if (offers.length === 0) return '请至少选择一个会员等级'
+  for (const { label, rule } of offers) {
+    const error = validateMemberLevelRule(rule, `${label}优惠规则`)
+    if (error) return error
+  }
+  return null
+}
+
+function validateCityRuleGroups(groups: DeliveryFeeCityRuleGroup[]): string | null {
+  if (groups.length === 0) return '请至少添加一个城市组'
+  if (groups.length > MAX_CITY_GROUPS) return `城市组上限为 ${MAX_CITY_GROUPS} 组，请删除多余城市组`
+  const groupByCity = new Map<string, string>()
+  for (const [index, group] of groups.entries()) {
+    const label = getCityRuleGroupLabel(group, index)
+    if (group.cityIds.length === 0) return `请选择「${label}」的适用城市`
+    for (const cityId of group.cityIds) {
+      const previousGroup = groupByCity.get(cityId)
+      if (previousGroup) return `${getCityNames([cityId])}同时在「${previousGroup}」和「${label}」，请选择一个组`
+      groupByCity.set(cityId, label)
+    }
+    const error = validateTiers(group.tiers, `「${label}」`, group.thresholdType)
+    if (error) return error
+  }
+  return null
+}
+
+function validateMemberLevelRule(rule: DeliveryFeeOfferRule, label: string): string | null {
+  if (rule.tiers.length > MAX_TIERS) return `${label}最多配置 ${MAX_TIERS} 条阶梯`
+  const error = validateTiers(rule.tiers, label, rule.thresholdType)
+  if (error) return error
+  if (rule.thresholdType !== 'none' && rule.tiers.some((tier, index) => index > 0 && tier.threshold <= rule.tiers[index - 1].threshold)) {
+    return `${label}的阶梯门槛须逐档递增`
   }
   return null
 }
@@ -306,33 +396,25 @@ export function resolveStoreIds(activity: DeliveryFeeActivityForm): string[] {
   return activity.storeIds
 }
 
-/**
- * 快递命中方式上的地区是否冲突：
- * - 双方均为不限城市 → 冲突（业务重叠时）
- * - 一方不限城市 + 一方指定城市 → 冲突（不限城市覆盖全部城市）
- * - 双方均为指定收货城市 → 仅当适用城市有交集时冲突
- */
-function regionScopeConflicts(a: DeliveryFeeActivityForm, b: DeliveryFeeActivityForm): {
-  conflict: boolean
-  cityOverlap: string[]
-} {
-  if (a.ruleMode === 'national' && b.ruleMode === 'national') {
-    return { conflict: true, cityOverlap: [] }
-  }
-  if (a.ruleMode === 'national' || b.ruleMode === 'national') {
-    return { conflict: true, cityOverlap: [] }
-  }
-  const setB = new Set(b.cityIds)
-  const cityOverlap = a.cityIds.filter((id) => setB.has(id))
-  return { conflict: cityOverlap.length > 0, cityOverlap }
-}
-
 export interface DeliveryFeeConflict {
   activity: DeliveryFeeActivityForm
   storeCount: number
   orderTypeIds: string[]
   cityOverlap: string[]
   regionReason: 'both_national' | 'national_vs_city' | 'city_overlap'
+}
+
+function getRegionOverlap(a: DeliveryFeeActivityForm, b: DeliveryFeeActivityForm): Pick<DeliveryFeeConflict, 'cityOverlap' | 'regionReason'> | null {
+  if (a.ruleMode === 'national' && b.ruleMode === 'national') {
+    return { cityOverlap: [], regionReason: 'both_national' }
+  }
+  if (a.ruleMode === 'national' || b.ruleMode === 'national') {
+    const cityOverlap = getActivityCityIds(a.ruleMode === 'by_city' ? a : b)
+    return cityOverlap.length ? { cityOverlap, regionReason: 'national_vs_city' } : null
+  }
+  const citiesB = new Set(getActivityCityIds(b))
+  const cityOverlap = getActivityCityIds(a).filter((id) => citiesB.has(id))
+  return cityOverlap.length ? { cityOverlap, regionReason: 'city_overlap' } : null
 }
 
 /**
@@ -351,42 +433,45 @@ export function findDeliveryFeeConflicts(
     if (other.status === 'voided' || other.status === 'draft') continue
     if (!timeWindowsOverlap(target, other)) continue
 
-    const orderTypeIds = target.orderTypes.filter((id) => other.orderTypes.includes(id))
+    const onlyExpress = target.ruleMode === 'by_city' || other.ruleMode === 'by_city'
+    const orderTypeIds = target.orderTypes.filter((id) => other.orderTypes.includes(id) && (!onlyExpress || id === DELIVERY_FEE_EXPRESS_TYPE_ID))
     if (orderTypeIds.length === 0) continue
 
     const storeHits = resolveStoreIds(other).filter((id) => targetStores.has(id))
     if (storeHits.length === 0) continue
 
-    const region = regionScopeConflicts(target, other)
-    if (!region.conflict) continue
-
-    let regionReason: DeliveryFeeConflict['regionReason'] = 'city_overlap'
-    if (target.ruleMode === 'national' && other.ruleMode === 'national') regionReason = 'both_national'
-    else if (target.ruleMode === 'national' || other.ruleMode === 'national') regionReason = 'national_vs_city'
+    const region = getRegionOverlap(target, other)
+    if (!region) continue
 
     conflicts.push({
       activity: other,
       storeCount: storeHits.length,
       orderTypeIds,
-      cityOverlap: region.cityOverlap,
-      regionReason,
+      ...region,
     })
   }
   return conflicts
 }
 
-export function formatDeliveryFeeConflictMessage(conflicts: DeliveryFeeConflict[]): string {
+function describeCityScope(activity: DeliveryFeeActivityForm, cityId: string): string {
+  if (activity.ruleMode === 'national') return '全国'
+  const index = activity.cityRuleGroups.findIndex((group) => group.cityIds.includes(cityId))
+  return `「${getCityRuleGroupLabel(activity.cityRuleGroups[index], index)}」`
+}
+
+function formatDeliveryFeeConflictMessage(target: DeliveryFeeActivityForm, conflicts: DeliveryFeeConflict[]): string {
   const first = conflicts[0]
   const more = conflicts.length > 1 ? `（另有 ${conflicts.length - 1} 个活动同样冲突）` : ''
   const other = first.activity
-  const otherScope = other.ruleMode === 'by_city' ? '指定城市' : '全国'
-  const selfHint =
-    first.regionReason === 'both_national'
-      ? '双方收货城市均为全国'
-      : first.regionReason === 'national_vs_city'
-        ? '在门店快递上：全国与指定城市覆盖范围重叠'
-        : `门店快递适用城市重叠（${getCityNames(first.cityOverlap.slice(0, 5))}${first.cityOverlap.length > 5 ? '等' : ''}）`
-  return `与活动「${other.id} · ${other.name}」（收货城市·${otherScope}）冲突：活动时间、门店与参与业务重叠，且${selfHint}。外卖不受该冲突影响。不可同时生效${more}`
+  const conflictsWith = `与活动「${other.id} · ${other.name}」冲突，活动时间、门店及参与业务重叠。`
+  if (first.regionReason === 'both_national') {
+    return `${conflictsWith}双方均使用全国范围，不可同时生效${more}`
+  }
+  const cities = first.cityOverlap.slice(0, 5).map((id) => (
+    `${getCityNames([id])}（本活动 ${describeCityScope(target, id)} / 对方活动 ${describeCityScope(other, id)}）`
+  ))
+  const otherCities = first.cityOverlap.length > cities.length ? `等 ${first.cityOverlap.length} 个城市` : ''
+  return `${conflictsWith}门店快递收货城市重叠，涉及 ${cities.join('、')}${otherCities}。不可同时生效${more}`
 }
 
 /** 保存/发布前：逐步校验 + 活动间冲突（含快递命中方式） */
@@ -399,13 +484,14 @@ export function validateBeforeSave(
     if (err) return err
   }
   const conflicts = findDeliveryFeeConflicts(activity, all)
-  if (conflicts.length > 0) return formatDeliveryFeeConflictMessage(conflicts)
+  if (conflicts.length > 0) return formatDeliveryFeeConflictMessage(activity, conflicts)
   return null
 }
 
 export function matchesFilters(activity: DeliveryFeeActivityForm, filters: DeliveryFeeListFilters): boolean {
   if (filters.status !== 'all' && activity.status !== filters.status) return false
   if (filters.ruleMode !== 'all' && activity.ruleMode !== filters.ruleMode) return false
+  if (!matchesActivityProductFilters(resolveActivityProducts(activity), filters)) return false
   if (filters.keyword) {
     const kw = filters.keyword.trim().toLowerCase()
     if (!activity.name.toLowerCase().includes(kw) && !activity.id.toLowerCase().includes(kw)) {
@@ -468,6 +554,9 @@ export function getRuleModeLabel(mode: DeliveryFeeActivityForm['ruleMode']): str
 }
 
 export function getParticipantUserLabel(activity: DeliveryFeeActivityForm): string {
+  if (activity.offerMode === 'by_member_level') {
+    return getMemberLevelOffers(activity).map(({ label }) => label).join('、') || '尚未选择等级'
+  }
   return PARTICIPANT_USER_OPTIONS.find((o) => o.value === activity.participantUser)?.label ?? '-'
 }
 
@@ -483,16 +572,6 @@ export function getChannelSummary(activity: DeliveryFeeActivityForm): string {
     other: '其他',
   }
   return activity.channels.map((c) => map[c] || c).join('、') || '-'
-}
-
-export function getActivityRemainingLabel(activity: DeliveryFeeActivityForm): string | null {
-  if (activity.status !== 'in_progress') return null
-  const end = new Date(activity.endTime.replace(/-/g, '/'))
-  const diffMs = end.getTime() - Date.now()
-  if (diffMs < 0) return null
-  const days = Math.ceil(diffMs / 86_400_000)
-  if (days === 0) return '今日结束'
-  return `剩余 ${days} 天`
 }
 
 export function discountMethodLabel(m: DeliveryFeeDiscountMethod): string {

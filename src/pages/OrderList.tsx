@@ -81,7 +81,7 @@ export function OrderList({ activities, multiItemActivities, onView, onExport }:
   return (
     <div className="page-card">
       <div className="info-banner">
-        订单管理：查询门店订单，支持按门店、状态、时间筛选；通过「营销筛选」可定位参与买一送一、第N件优惠等营销活动的订单。
+        订单管理：查询门店订单，支持按门店、状态、时间筛选；通过「营销筛选」可定位参与买一送一、第2件半价等营销活动的订单。
       </div>
 
       <div className="order-filter-tabs">
@@ -160,7 +160,7 @@ export function OrderList({ activities, multiItemActivities, onView, onExport }:
               >
                 <option value="all">全部</option>
                 <option value="bogo">买一送一</option>
-                <option value="multi_item">第N件优惠</option>
+                <option value="multi_item">第2件半价</option>
               </select>
             </div>
             <div className="filter-item">
@@ -275,7 +275,7 @@ export function OrderList({ activities, multiItemActivities, onView, onExport }:
                   <td>
                     <div className="gift-tag-group">
                       {o.hasBogo && <span className="order-tag order-tag--bogo">买一送一</span>}
-                      {o.hasMultiItem && <span className="order-tag order-tag--multi-item">第N件优惠</span>}
+                      {o.hasMultiItem && <span className="order-tag order-tag--multi-item">第2件半价</span>}
                       {!o.hasBogo && !o.hasMultiItem && '-'}
                     </div>
                   </td>

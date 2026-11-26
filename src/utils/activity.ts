@@ -1,7 +1,8 @@
+import { matchesActivityProductFilters, resolveActivityProducts } from './activityProductSearch'
 import type { ActivityForm, ActivityOperationLog, ActivityStatus, CouponGiftConfig, GiftGroup, ListFilters } from '../types'
 import { PARTICIPANT_USER_OPTIONS, createEmptyActivity, createEmptyCouponGift, createEmptyGiftGroup, DEFAULT_PHYSICAL_GIFT_DISPLAY_TITLE, DEFAULT_STORAGE_COUPON_DISPLAY_TITLE, getCreatorProfile, products, stores } from '../mockData'
 
-export function getParticipantUserLabel(activity: ActivityForm): string {
+export function getParticipantUserLabel(activity: Pick<ActivityForm, 'participantUser'>): string {
   return PARTICIPANT_USER_OPTIONS.find((o) => o.value === activity.participantUser)?.label ?? '-'
 }
 
@@ -55,24 +56,6 @@ export function getChannelSummary(activity: ActivityForm): string {
 
 export function getActivityProducts(activity: ActivityForm) {
   return products.filter((p) => activity.productIds.includes(p.id))
-}
-
-function getActivityProductCandidates(activity: ActivityForm) {
-  return activity.productScope === 'all' ? products : getActivityProducts(activity)
-}
-
-function matchesProductName(activity: ActivityForm, keyword: string): boolean {
-  const kw = keyword.trim().toLowerCase()
-  if (!kw) return true
-  return getActivityProductCandidates(activity).some((p) => p.name.toLowerCase().includes(kw))
-}
-
-function matchesProductId(activity: ActivityForm, keyword: string): boolean {
-  const kw = keyword.trim().toLowerCase()
-  if (!kw) return true
-  return getActivityProductCandidates(activity).some((p) =>
-    p.id.toLowerCase().includes(kw) || p.skuId.toLowerCase().includes(kw),
-  )
 }
 
 export function getActivityGiftProducts(activity: ActivityForm) {
@@ -287,8 +270,7 @@ export function matchesFilters(activity: ActivityForm, filters: ListFilters): bo
     const kw = filters.keyword.toLowerCase()
     if (!activity.name.toLowerCase().includes(kw) && !activity.id.toLowerCase().includes(kw)) return false
   }
-  if (filters.productName && !matchesProductName(activity, filters.productName)) return false
-  if (filters.productId && !matchesProductId(activity, filters.productId)) return false
+  if (!matchesActivityProductFilters(resolveActivityProducts(activity), filters)) return false
   if (filters.activityCode) {
     const code = filters.activityCode.toLowerCase()
     if (!activity.activityCode.toLowerCase().includes(code)) return false
@@ -321,21 +303,10 @@ export function maskPhone(phone: string): string {
   return `${digits.slice(0, 3)}****${digits.slice(-4)}`
 }
 
-export function formatCreatorDisplay(activity: ActivityForm): { maskedPhone: string; org: string } {
+export function formatCreatorDisplay(activity: Pick<ActivityForm, 'creatorPhone' | 'creatorOrg' | 'creator'>): { maskedPhone: string; org: string } {
   const phone = activity.creatorPhone || getCreatorProfile(activity.creator).phone
   const org = activity.creatorOrg || getCreatorProfile(activity.creator).org
   return { maskedPhone: maskPhone(phone), org }
-}
-
-/** 进行中活动的剩余天数文案，非进行中返回 null */
-export function getActivityRemainingLabel(activity: ActivityForm): string | null {
-  if (activity.status !== 'in_progress') return null
-  const end = new Date(activity.endTime.replace(/-/g, '/'))
-  const diffMs = end.getTime() - Date.now()
-  if (diffMs < 0) return null
-  const days = Math.ceil(diffMs / 86_400_000)
-  if (days === 0) return '今日结束'
-  return `剩余 ${days} 天`
 }
 
 export function countActivitiesByStatus(

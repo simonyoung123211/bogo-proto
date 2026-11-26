@@ -2,21 +2,30 @@ import { useState } from 'react'
 import { formatMemberPriceAdvancedPreview } from './MemberPriceAdvancedOptionsFields'
 import { formatMemberPriceBasicPreview } from './MemberPriceBasicInfoFields'
 import { formatMemberPriceLimitsSummary } from './MemberPriceRuleLimitFields'
-import { CHANNELS, ORDER_TYPES, products } from '../mockData'
-import { MEMBER_PRICE_METHOD_LABELS } from '../mockMemberPriceData'
+import { CHANNELS, products } from '../mockData'
+import { MEMBER_PRICE_ORDER_TYPES } from '../mockMemberPriceData'
+import { MEMBER_PRICE_METHOD_LABELS, createEmptyMemberPriceOfferGroup } from '../mockMemberPriceData'
 import type { MemberPriceActivityForm } from '../types'
 import {
-  formatPriceMethodValue,
-  formatRuleSummary,
+  formatConfiguredStrength,
+  formatMemberPricePaymentAmountLimit,
+  formatMemberPricePaymentLimit,
+  formatMemberPriceTargetIds,
+  formatUniformStrength,
   getActivityProducts,
-  isUniformPricing,
   getActivityStores,
   getChannelSummary,
   getMemberLevelsSummary,
+  getMemberPriceAudienceLabel,
+  getMemberPriceGroupsSummary,
+  getMemberPriceGroupLabel,
   getProductScopeLabel,
-  getProductSummary,
   getStoreScopeLabel,
   getStoreSummary,
+  groupToProductCore,
+  isUniformPricing,
+  needsMemberPriceTargets,
+  supportsMemberPriceMultiGroup,
 } from '../utils/memberPriceActivity'
 
 const PREVIEW_SECTIONS = [
@@ -42,20 +51,21 @@ export function MemberPriceActivityPreview({
   onEditSection,
 }: MemberPriceActivityPreviewProps) {
   const [activeAnchor, setActiveAnchor] = useState<string>(PREVIEW_SECTIONS[0].id)
-  const selectedProducts = getActivityProducts(activity)
+  const audienceType = activity.audienceType ?? 'specified_level'
+  const groups = activity.groups?.length
+    ? activity.groups
+    : [createEmptyMemberPriceOfferGroup({ targetIds: activity.memberLevels ?? [] })]
   const selectedStores = getActivityStores(activity)
   const summaryTags = [
-    MEMBER_PRICE_METHOD_LABELS[activity.priceMethod],
+    getMemberPriceAudienceLabel(audienceType),
+    supportsMemberPriceMultiGroup(audienceType) ? `${groups.length}个等级组` : MEMBER_PRICE_METHOD_LABELS[groups[0]?.priceMethod ?? activity.priceMethod],
     getMemberLevelsSummary(activity),
-    getProductSummary(activity),
     getStoreSummary(activity),
     getChannelSummary(activity),
   ]
   const basic = formatMemberPriceBasicPreview(activity)
   const adv = formatMemberPriceAdvancedPreview(activity)
   const limits = formatMemberPriceLimitsSummary(activity)
-  const valueMap = new Map(activity.productItems.map((i) => [i.productId, i.value]))
-
   const scrollToSection = (id: string) => {
     setActiveAnchor(id)
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -85,7 +95,7 @@ export function MemberPriceActivityPreview({
       <div className="preview-sections">
         <PreviewSection id="mp-preview-scope" title="适用范围" step={0} showEdit={showEditLinks} onEdit={onEditSection}>
           <PreviewItem label="参与渠道" value={activity.channels.map((c) => CHANNELS.find((x) => x.id === c)?.label).join('、') || '-'} />
-          <PreviewItem label="订单类型" value={activity.orderTypes.map((c) => ORDER_TYPES.find((x) => x.id === c)?.label).join('、') || '-'} />
+          <PreviewItem label="订单类型" value={activity.orderTypes.map((c) => MEMBER_PRICE_ORDER_TYPES.find((x) => x.id === c)?.label).join('、') || '-'} />
         </PreviewSection>
 
         <PreviewSection id="mp-preview-basic" title="基础信息" step={0} showEdit={showEditLinks} onEdit={onEditSection}>
@@ -99,8 +109,8 @@ export function MemberPriceActivityPreview({
         </PreviewSection>
 
         <PreviewSection id="mp-preview-rules" title="活动规则" step={0} showEdit={showEditLinks} onEdit={onEditSection}>
-          <PreviewItem label="会员等级" value={getMemberLevelsSummary(activity)} />
-          <PreviewItem label="会员价形式" value={formatRuleSummary(activity)} />
+          <PreviewItem label="优惠会员" value={getMemberPriceAudienceLabel(audienceType)} />
+          <PreviewItem label="商品与优惠" value={getMemberPriceGroupsSummary(activity)} />
           <PreviewItem label="加料费用" value={limits.toppings} />
           <PreviewItem label="套餐加价" value={limits.combo} />
           <PreviewItem label="做法加价" value={limits.preparation} />
@@ -126,54 +136,76 @@ export function MemberPriceActivityPreview({
         </PreviewSection>
 
         <PreviewSection id="mp-preview-products" title="参与商品及优惠" step={2} showEdit={showEditLinks} onEdit={onEditSection}>
-          <PreviewItem label="商品范围" value={getProductScopeLabel(activity)} />
-          <PreviewItem label="会员等级" value={getMemberLevelsSummary(activity)} />
-          <PreviewItem
-            label="优惠形式"
-            value={
-              isUniformPricing(activity)
-                ? `${MEMBER_PRICE_METHOD_LABELS[activity.priceMethod]}（参与商品统一${formatPriceMethodValue(activity.priceMethod, activity.allProductsValue)}）`
-                : MEMBER_PRICE_METHOD_LABELS[activity.priceMethod]
-            }
-          />
-          {activity.productScope === 'partial' && activity.productSelectionMode === 'exclude' && (
-            <PreviewItem
-              label="不参与商品"
-              value={
-                products
-                  .filter((p) => activity.productIds.includes(p.id))
-                  .map((p) => p.name)
-                  .join('、') || '-'
-              }
-            />
+          <PreviewItem label="优惠会员" value={getMemberPriceAudienceLabel(audienceType)} />
+          {audienceType === 'paid_member_card_user' && (
+            <PreviewItem label="说明" value="任意已购买付费会员的用户均可享受，无需指定卡模版" />
           )}
-          {activity.productScope === 'partial' && selectedProducts.length > 0 && (
-            <table className="table table--compact">
-              <thead>
-                <tr>
-                  <th>商品</th>
-                  <th>规格</th>
-                  <th>原价</th>
-                  <th>会员价</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selectedProducts.map((p) => (
-                  <tr key={p.id}>
-                    <td>{p.name}</td>
-                    <td>{p.spec}</td>
-                    <td>¥{p.price}</td>
-                    <td>
-                      {formatPriceMethodValue(
-                        activity.priceMethod,
-                        isUniformPricing(activity) ? activity.allProductsValue : valueMap.get(p.id) ?? 0,
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <PreviewItem label="支付限制" value={formatMemberPricePaymentLimit(activity)} />
+          {(activity.paymentLimitType ?? 'unlimited') === 'limited' && (
+            <PreviewItem label="支付金额限制" value={formatMemberPricePaymentAmountLimit(activity)} />
           )}
+          {groups.map((group, index) => {
+            const core = groupToProductCore(group)
+            const selectedProducts = getActivityProducts(core)
+            return (
+              <div key={group.id} className="mp-preview-group">
+                {supportsMemberPriceMultiGroup(audienceType) && (
+                  <div className="mp-preview-group__title">{getMemberPriceGroupLabel(audienceType, group, index)}</div>
+                )}
+                {needsMemberPriceTargets(audienceType) && (
+                  <PreviewItem
+                    label={audienceType === 'specified_physical_card' ? '实体卡' : '会员等级'}
+                    value={formatMemberPriceTargetIds(audienceType, group.targetIds)}
+                  />
+                )}
+                <PreviewItem label="商品范围" value={getProductScopeLabel(core)} />
+                <PreviewItem
+                  label="优惠形式"
+                  value={
+                    isUniformPricing(core)
+                      ? formatUniformStrength(core, activity.orderTypes)
+                      : MEMBER_PRICE_METHOD_LABELS[group.priceMethod]
+                  }
+                />
+                {group.productScope === 'partial' && group.productSelectionMode === 'exclude' && (
+                  <PreviewItem
+                    label="不参与商品"
+                    value={
+                      products
+                        .filter((p) => group.productIds.includes(p.id))
+                        .map((p) => p.name)
+                        .join('、') || '-'
+                    }
+                  />
+                )}
+                {group.productScope === 'partial' && selectedProducts.length > 0 && (
+                  <table className="table table--compact">
+                    <thead>
+                      <tr>
+                        <th>商品</th>
+                        <th>规格</th>
+                        <th>原价</th>
+                        <th>会员价</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedProducts.slice(0, 20).map((p) => (
+                        <tr key={p.id}>
+                          <td>{p.name}</td>
+                          <td>{p.spec}</td>
+                          <td>¥{p.price}</td>
+                          <td>{formatConfiguredStrength(core, activity.orderTypes, p.id)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+                {group.productScope === 'partial' && selectedProducts.length > 20 && (
+                  <p className="field-hint">仅预览前 20 个商品，共 {selectedProducts.length} 个</p>
+                )}
+              </div>
+            )
+          })}
         </PreviewSection>
       </div>
     </div>
@@ -200,7 +232,7 @@ function PreviewSection({
       <div className="preview-section__head">
         <h3 className="preview-section__title">{title}</h3>
         {showEdit && onEdit && (
-          <button type="button" className="link-btn" onClick={() => onEdit(step)}>编辑</button>
+          <button type="button" className="btn-link" aria-label={`编辑${title}`} onClick={() => onEdit(step)}>编辑</button>
         )}
       </div>
       <div className="preview-section__body">{children}</div>

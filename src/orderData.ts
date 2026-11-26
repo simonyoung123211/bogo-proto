@@ -205,7 +205,7 @@ const multiItemShowcaseOrder: Order = {
   discounts: [
     {
       kind: 'multi_item',
-      type: '第N件优惠',
+      type: '第2件半价',
       name: '第2件半价',
       activityId: 'MI20250628001',
       refId: 'MI20250628001',
@@ -412,7 +412,7 @@ function generateOrders(): Order[] {
           ? [
               {
                 kind: 'multi_item' as const,
-                type: '第N件优惠',
+                type: '第2件半价',
                 name: '第2件半价',
                 activityId: 'MI20250628001',
                 refId: 'MI20250628001',

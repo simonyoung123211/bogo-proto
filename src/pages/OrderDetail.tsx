@@ -41,7 +41,7 @@ export function OrderDetail({ orderId, backLabel = '← 返回订单列表', onB
               {ORDER_STATUS_LABELS[order.status]}
             </span>
             {order.hasBogo && <span className="order-tag order-tag--bogo">买一送一</span>}
-            {order.hasMultiItem && <span className="order-tag order-tag--multi-item">第N件优惠</span>}
+            {order.hasMultiItem && <span className="order-tag order-tag--multi-item">第2件半价</span>}
           </div>
           <div className="order-hero__meta">
             <span><i>取餐号</i>{order.pickupNo}</span>
