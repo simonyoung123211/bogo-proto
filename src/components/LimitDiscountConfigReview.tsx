@@ -2,7 +2,6 @@ import { useState, type ReactNode } from 'react'
 import { products } from '../mockData'
 import { PERIOD_OPTIONS, WEEKDAY_OPTIONS } from '../mockLimitDiscountData'
 import type { LimitDiscountActivityForm, LimitDiscountProductItem, Product } from '../types'
-import { resolveActivityProducts } from '../utils/activityProductSearch'
 import { discountAreaCoverage, resolveDiscountStoreScope } from '../utils/limitDiscountScope'
 import { matchesProductKeyword } from '../utils/productSearch'
 import { getResolvedStores } from '../utils/storeRegistry'
@@ -13,7 +12,7 @@ import {
   storeModeLabel, storeTagLabels,
 } from '../utils/limitDiscountActivity'
 import { LimitDiscountAreaPreview } from './LimitDiscountAreaPreview'
-import { LimitDiscountQuotaSummary, LimitDiscountQuotaTrial } from './LimitDiscountProductQuota'
+import { LimitDiscountQuotaSummary } from './LimitDiscountProductQuota'
 import { LimitDiscountStrengthSummary } from './LimitDiscountProductStrength'
 import { SelectedProductPager, SelectedProductSearchBar } from './SelectedProductTools'
 
@@ -42,10 +41,10 @@ export function limitDiscountUserLimits(activity: Activity) {
   ].filter(Boolean).join('、') || '不限'
 }
 
-export function LimitDiscountConfigReview({ activity, onEdit, showTrial = false }: {
+export function LimitDiscountConfigReview({ activity, onEdit, showAreaPreview = false }: {
   activity: Activity
   onEdit?: (step: number) => void
-  showTrial?: boolean
+  showAreaPreview?: boolean
 }) {
   const { eligibleStores, policyExcludedStores } = resolveDiscountStoreScope(activity)
   const { specified, coversWholeStores, selected, selectedAreaCount, coveredStoreCount } = discountAreaCoverage(activity, eligibleStores)
@@ -59,13 +58,6 @@ export function LimitDiscountConfigReview({ activity, onEdit, showTrial = false 
   ].filter(Boolean).join('、') || '未设置'
   const quotaCount = perProduct
     ? activity.productItems.filter((item) => hasDiscountProductQuota(item, activity.orderTypes)).length : 0
-  const sharedQuotaRows = showTrial && !perProduct && hasDiscountProductQuota(sharedItem, activity.orderTypes)
-    ? resolveActivityProducts({
-      productScope: activity.goodsScope === 'all' ? 'all' : 'partial',
-      productSelectionMode: 'exclude',
-      productIds: activity.productItems.map(({ productId }) => productId),
-    }).map((product) => ({ product, item: sharedItem }))
-    : []
   const priceAddons = [
     activity.toppingDiscount === 'yes' && '加料',
     activity.comboSurchargeDiscount === 'yes' && '套餐加价',
@@ -106,7 +98,7 @@ export function LimitDiscountConfigReview({ activity, onEdit, showTrial = false 
         {selected.length > 0 && (
           <ul className="ld-area-summary">{selected.map(({ store, areas }) => <li key={store.id}>{store.name} · {areas.map(({ name }) => name).join('、')}</li>)}</ul>
         )}
-        {showTrial && specified && <LimitDiscountAreaPreview activity={activity} />}
+        {showAreaPreview && specified && <LimitDiscountAreaPreview activity={activity} />}
       </Review>
       <Review title="商品与优惠" editLabel="修改商品与优惠" onEdit={onEdit && (() => onEdit(2))} rows={[
         ['参与商品', goodsScopeLabel(activity)],
@@ -115,8 +107,7 @@ export function LimitDiscountConfigReview({ activity, onEdit, showTrial = false 
           ? ['商品优惠限量', quotaCount ? `${quotaCount} / ${activity.productItems.length} 个规格已设限量` : '不限量']
           : ['默认商品优惠限量（每规格）', <LimitDiscountQuotaSummary item={sharedItem} scenes={activity.orderTypes} />],
       ]}>
-        <GoodsDetail activity={activity} showTrial={showTrial} />
-        {sharedQuotaRows.length > 0 && <LimitDiscountQuotaTrial activity={activity} rows={sharedQuotaRows} />}
+        <GoodsDetail activity={activity} />
       </Review>
       <Review title="高级选项与展示" rows={[
         ['共享互斥', activity.shareMutexRelation === 'share_all' ? '全部活动 / 券共享' : '全部活动 / 券互斥'],
@@ -209,7 +200,7 @@ function StoreDetail({ activity }: { activity: LimitDiscountActivityForm }) {
   )
 }
 
-function GoodsDetail({ activity, showTrial }: { activity: LimitDiscountActivityForm; showTrial?: boolean }) {
+function GoodsDetail({ activity }: { activity: LimitDiscountActivityForm }) {
   const [keyword, setKeyword] = useState('')
   if (activity.goodsScope === 'all') return null
   const rows = activity.productItems
@@ -221,8 +212,6 @@ function GoodsDetail({ activity, showTrial }: { activity: LimitDiscountActivityF
       || [product.spec, product.barcode, product.specCode, product.identifier].some((text) => text.toLowerCase().includes(kw)))
     : rows
   const isInclude = activity.goodsScope === 'include'
-  const quotaRows = isInclude && showTrial
-    ? rows.filter(({ item }) => hasDiscountProductQuota(item, activity.orderTypes)) : []
   const title = isInclude ? '参与商品明细' : '不参与商品明细'
   return (
     <DetailBlock title={`${title}（${rows.length}个）`} empty={rows.length === 0} emptyText="未选择商品">
@@ -259,7 +248,6 @@ function GoodsDetail({ activity, showTrial }: { activity: LimitDiscountActivityF
           </>
         )}
       />
-      {quotaRows.length > 0 && <LimitDiscountQuotaTrial activity={activity} rows={quotaRows} />}
     </DetailBlock>
   )
 }

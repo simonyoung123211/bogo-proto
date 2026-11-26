@@ -1,12 +1,10 @@
 import { useEffect, useId, useRef, useState, type Ref } from 'react'
 import { PERIOD_OPTIONS } from '../mockLimitDiscountData'
-import type { LimitDiscountActivityForm, LimitDiscountProductItem, LimitDiscountQuotaRule, ParticipationPeriod, Product } from '../types'
-import { previewPrice, sceneLabel } from '../utils/limitDiscountActivity'
+import type { LimitDiscountActivityForm, LimitDiscountQuotaRule, ParticipationPeriod } from '../types'
+import { sceneLabel } from '../utils/limitDiscountActivity'
 import {
   activeDiscountBusinessQuotas,
   commonDiscountQuota,
-  discountQuantityWithQuota,
-  discountQuotaBuckets,
   discountQuotaConfig,
   discountQuotaLabels,
   discountQuotaPoolNotices,
@@ -311,71 +309,6 @@ export function LimitDiscountProductQuotaDialog({ item, description, goodsScope,
         <div className="ld-quota-notices" role="status">{notices.map((notice) => <p key={notice}>{notice}</p>)}</div>
       )}
     </LimitDiscountRuleDialog>
-  )
-}
-
-type QuotaTrialRow = { item: LimitDiscountProductItem; product: Product }
-
-export function LimitDiscountQuotaTrial({ activity, rows }: { activity: LimitDiscountActivityForm; rows: QuotaTrialRow[] }) {
-  const [productId, setProductId] = useState('')
-  const row = rows.find(({ product }) => product.id === productId) ?? rows[0]
-  if (!row || !activity.orderTypes.length) return null
-
-  return (
-    <details className="ld-entry-preview">
-      <summary>试算优惠件数</summary>
-      <p className="field-hint">按填写的已用件数试算，假设订单满足其他优惠条件。</p>
-      <div className="ld-quota-trial">
-        <label>商品
-          <select className="input select" value={row.product.id} onChange={(event) => setProductId(event.target.value)}>
-            {rows.map(({ product }) => <option key={product.id} value={product.id}>{product.name} · {product.spec}</option>)}
-          </select>
-        </label>
-        <QuotaTrialFields key={row.product.id} activity={activity} row={row} />
-      </div>
-    </details>
-  )
-}
-
-function QuotaTrialFields({ activity, row }: { activity: LimitDiscountActivityForm; row: QuotaTrialRow }) {
-  const [scene, setScene] = useState(activity.orderTypes[0])
-  const [quantity, setQuantity] = useState(1)
-  const [usage, setUsage] = useState<Record<string, number>>({})
-  const buckets = discountQuotaBuckets(row.item, scene)
-  const valid = Number.isSafeInteger(quantity) && quantity > 0 && buckets.every(({ id }) =>
-    Number.isSafeInteger(usage[id] ?? 0) && (usage[id] ?? 0) >= 0)
-  const discounted = valid ? discountQuantityWithQuota(buckets, quantity, usage) : 0
-  const discountedPrice = previewPrice(row.product, activity, row.item, scene)
-
-  return (
-    <>
-      <label>订单业务
-        <select className="input select" value={scene} onChange={(event) => setScene(event.target.value)}>
-          {activity.orderTypes.map((id) => <option key={id} value={id}>{sceneLabel(id)}</option>)}
-        </select>
-      </label>
-      <label>购买件数
-        <input className="input" type="number" min={1} step={1} value={quantity || ''}
-          onChange={(event) => setQuantity(event.target.valueAsNumber || 0)} />
-      </label>
-      {buckets.map(({ id, label, limit }) => (
-        <label key={id}>{id.startsWith('common-') ? label : sceneLabel(scene) + label}已用（共 {limit} 件）
-          <input className="input" type="number" min={0} step={1} placeholder="0" value={usage[id] ?? ''}
-            onChange={(event) => {
-              const used = event.target.valueAsNumber || 0
-              setUsage((current) => ({ ...current, [id]: used }))
-            }} />
-        </label>
-      ))}
-      <p className="ld-quota-trial__result" aria-live="polite">
-        {valid ? (
-          <>
-            {discounted > 0 ? <strong>{discounted} 件享活动价 ¥{discountedPrice.toFixed(2)}</strong> : '可优惠件数已用完'}
-            {discounted < quantity && ` · ${quantity - discounted} 件按正常价 ¥${row.product.price.toFixed(2)}`}
-          </>
-        ) : '请填写有效购买件数和已用件数。'}
-      </p>
-    </>
   )
 }
 

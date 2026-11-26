@@ -3955,10 +3955,6 @@ button, input, select, textarea { font: inherit; }
 .ld-quota-adjustment__preview p { margin: 5px 0 0; color: var(--promo-label); font-size: 12px; }
 .ld-quota-adjustment__preview .ld-quota-adjustment__notice { color: #93500d; }
 .ld-quota-adjustment .ld-quota-notices { margin: 0; }
-.ld-quota-trial { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 14px; margin-top: 10px; }
-.ld-quota-trial label { display: grid; gap: 4px; font-size: 12px; }
-.ld-quota-trial input { width: 110px; }
-.ld-quota-trial__result { flex-basis: 100%; margin: 0; }
 @media (max-width: 960px) {
   .ld-goods-scope { grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); }
 }

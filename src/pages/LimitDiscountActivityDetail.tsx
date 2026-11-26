@@ -151,7 +151,7 @@ export function LimitDiscountActivityDetail({
                 </ul>
               </details>
             )}
-            <LimitDiscountConfigReview activity={activity} showTrial />
+            <LimitDiscountConfigReview activity={activity} showAreaPreview />
           </>
         )}
         {tab === 'stores' && <StoreCoverage activity={activity} scope={scope} coverage={coverage} />}

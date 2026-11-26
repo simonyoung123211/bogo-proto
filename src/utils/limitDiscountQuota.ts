@@ -109,22 +109,6 @@ export function discountQuotaPoolNotices(item: LimitDiscountQuotaConfig, scenes:
   })
 }
 
-export function discountQuotaBuckets(item: LimitDiscountQuotaConfig, scene: string) {
-  const business = item.quota?.byScene[scene] ?? unlimitedDiscountQuota
-  return [
-    ...ruleLimits(commonDiscountQuota(item)).map(({ period, label, limit }) => ({ id: `common-${period}`, label: `共用${label}`, limit })),
-    ...ruleLimits(business).map(({ period, label, limit }) => ({ id: `${scene}-${period}`, label, limit })),
-  ]
-}
-
-export function discountQuantityWithQuota(
-  buckets: ReturnType<typeof discountQuotaBuckets>,
-  quantity: number,
-  usage: Record<string, number>,
-) {
-  return Math.min(quantity, ...buckets.map(({ id, limit }) => Math.max(0, limit - (usage[id] ?? 0))))
-}
-
 export function discountQuotaRelaxationError(before: LimitDiscountQuotaConfig, after: LimitDiscountQuotaConfig, scenes: string[]) {
   const oldBusiness = before.quota?.byScene ?? {}
   const newBusiness = after.quota?.byScene ?? {}

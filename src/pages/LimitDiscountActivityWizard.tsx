@@ -199,7 +199,7 @@ export function LimitDiscountActivityWizard({
                     showConflictResult(message)
                   }} />}
                 <h2 className="ld-review-title">配置复核</h2>
-                <LimitDiscountConfigReview activity={activity} onEdit={goTo} showTrial />
+                <LimitDiscountConfigReview activity={activity} onEdit={goTo} showAreaPreview />
                 <div className="ld-submit-note">
                   <h3>保存后</h3>
                   <p>{published ? (canRelaxLimitDiscountQuota(published)
