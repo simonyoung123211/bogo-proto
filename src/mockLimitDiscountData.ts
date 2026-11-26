@@ -1,4 +1,4 @@
-import type { ActivityOperationLog, ActivityPerspective, LimitDiscountActivityForm, LimitDiscountTimeRange } from './types'
+import type { ActivityOperationLog, ActivityPerspective, LimitDiscountActivityForm, LimitDiscountProductItem, LimitDiscountTimeRange } from './types'
 import { getLegacyLimitDiscountPerspective } from './mockActivityPerspectives'
 import { getCreatorProfile } from './mockData'
 
@@ -176,6 +176,127 @@ function seed(
   return { ...base, creatorPerspectiveId: perspective.id, ...overrides, creatorOrg: profile.org, createdAt, updatedAt, operationLogs: logs }
 }
 
+const AFTERNOON_TEA_DEMO_ID = 'XSZK20261001001'
+const afternoonTeaDescription = '指定饮品限时折扣，示例覆盖整场、日、周、月及分业务限量。各规格独立计数。'
+const afternoonTeaQuotaItems: LimitDiscountProductItem[] = [
+  {
+    productId: 'p1', discountValue: 8.8, stock: null, sceneDiscountValues: {},
+    quota: { periodic: { period: 'daily', limit: 100 }, byScene: {} },
+  },
+  { productId: 'p2', discountValue: 7.5, stock: 200, sceneDiscountValues: {} },
+  {
+    productId: 'p3', discountValue: 8, stock: null, sceneDiscountValues: { delivery: 7.5 },
+    quota: { periodic: null, byScene: { delivery: { total: 300, periodic: { period: 'weekly', limit: 80 } } } },
+  },
+  {
+    productId: 'gen-001', discountValue: 8.8, stock: null, sceneDiscountValues: {},
+    quota: { periodic: { period: 'weekly', limit: 350 }, byScene: {} },
+  },
+  {
+    productId: 'gen-008', discountValue: 8.8, stock: null, sceneDiscountValues: {},
+    quota: { periodic: { period: 'monthly', limit: 1000 }, byScene: {} },
+  },
+  {
+    productId: 'gen-009', discountValue: 8.8, stock: 1000, sceneDiscountValues: {},
+    quota: {
+      periodic: { period: 'daily', limit: 100 },
+      byScene: {
+        dine_in: { total: 600, periodic: { period: 'daily', limit: 80 } },
+        pack: { total: null, periodic: { period: 'daily', limit: 60 } },
+      },
+    },
+  },
+  { productId: 'gen-007', discountValue: 8.8, stock: null, sceneDiscountValues: {} },
+]
+
+const quotaDemoStart = new Date()
+const quotaDemoEnd = new Date(quotaDemoStart)
+quotaDemoStart.setDate(quotaDemoStart.getDate() - 7)
+quotaDemoEnd.setDate(quotaDemoEnd.getDate() + 30)
+const quotaDemoWindow = {
+  startTime: formatDateTime(quotaDemoStart),
+  endTime: formatDateTime(quotaDemoEnd),
+  createdAt: formatDateTime(quotaDemoStart),
+}
+
+const specifiedQuotaDemo = seed({
+  ...quotaDemoWindow,
+  id: 'XSZK20261126010',
+  name: '指定商品限量调整示例',
+  status: 'in_progress',
+  goodsScope: 'include',
+  channels: ['wechat'],
+  orderTypes: ['dine_in', 'pack', 'delivery'],
+  storeMode: 'include',
+  storeIds: ['s6'],
+  productItems: structuredClone(afternoonTeaQuotaItems),
+})
+
+const sharedQuotaDemos: LimitDiscountActivityForm[] = [
+  seed({
+    ...quotaDemoWindow,
+    id: 'XSZK20261126011',
+    name: '全部商品限量调整示例',
+    status: 'in_progress',
+    goodsScope: 'all',
+    channels: ['pos'],
+    storeMode: 'include',
+    storeIds: ['s3'],
+    orderTypes: ['dine_in', 'pack'],
+    discountValue: 8.8,
+    activityStock: 500,
+    activityQuota: {
+      periodic: { period: 'daily', limit: 100 },
+      byScene: { dine_in: { total: 300, periodic: { period: 'daily', limit: 60 } } },
+    },
+  }),
+  seed({
+    ...quotaDemoWindow,
+    id: 'XSZK20261126012',
+    name: '排除商品限量调整示例',
+    status: 'in_progress',
+    goodsScope: 'exclude',
+    channels: ['douyin'],
+    storeMode: 'include',
+    storeIds: ['s4'],
+    orderTypes: ['delivery', 'delivery_pickup'],
+    discountValue: 8.8,
+    productItems: [{ productId: 'p2', discountValue: null, stock: null, sceneDiscountValues: {} }],
+    activityQuota: {
+      periodic: { period: 'monthly', limit: 600 },
+      byScene: {
+        delivery: { total: null, periodic: { period: 'weekly', limit: 120 } },
+        delivery_pickup: { total: 250, periodic: { period: 'monthly', limit: 100 } },
+      },
+    },
+  }),
+]
+
+export function addLimitDiscountQuotaDemos(activities: LimitDiscountActivityForm[]): LimitDiscountActivityForm[] {
+  const tea = activities.find(({ id }) => id === AFTERNOON_TEA_DEMO_ID)
+  const now = formatDateTime(new Date())
+  const teaRunning = tea?.status === 'in_progress' && tea.startTime <= now && tea.endTime > now
+  const oldTeaExample = teaRunning && tea.goodsScope === 'include'
+    && tea.updatedAt === '2026-10-01 10:00:00'
+    && tea.productItems.length === 3
+    && tea.productItems.every(({ productId, stock, quota, discountValue, sceneDiscountValues }, index) => {
+      const expected = afternoonTeaQuotaItems[index]
+      return productId === expected.productId && stock === expected.stock && !quota
+        && discountValue === expected.discountValue && JSON.stringify(sceneDiscountValues) === JSON.stringify(expected.sceneDiscountValues)
+    })
+  const hasQuotaExamples = teaRunning && tea.goodsScope === 'include' && afternoonTeaQuotaItems.every((sample) =>
+    tea.productItems.some((item) => item.productId === sample.productId && item.stock === sample.stock
+      && JSON.stringify(item.quota) === JSON.stringify(sample.quota)))
+  const seen = new Set(activities.map(({ id }) => id))
+  const demos = oldTeaExample || hasQuotaExamples ? sharedQuotaDemos : [specifiedQuotaDemo, ...sharedQuotaDemos]
+  return [
+    ...activities.map((activity) => oldTeaExample && activity === tea
+      ? { ...activity, productItems: structuredClone(afternoonTeaQuotaItems), description: afternoonTeaDescription }
+      : activity),
+    ...demos.filter(({ id }) => !seen.has(id)),
+  ]
+}
+
 export const initialLimitDiscountActivities: LimitDiscountActivityForm[] = [
   seed({
     id: 'XSZK20261111001',
@@ -190,7 +311,7 @@ export const initialLimitDiscountActivities: LimitDiscountActivityForm[] = [
     status: 'draft',
   }),
   seed({
-    id: 'XSZK20261001001',
+    id: AFTERNOON_TEA_DEMO_ID,
     name: '下午茶限时折扣',
     title: '限时优惠',
     goodsLabel: '限时优惠',
@@ -204,14 +325,10 @@ export const initialLimitDiscountActivities: LimitDiscountActivityForm[] = [
     valueMode: 'unified',
     discountValue: 8.8,
     sceneDiscountValues: {},
-    productItems: [
-      { productId: 'p1', discountValue: 8.8, stock: null, sceneDiscountValues: {} },
-      { productId: 'p2', discountValue: 7.5, stock: 200, sceneDiscountValues: {} },
-      { productId: 'p3', discountValue: 8, stock: null, sceneDiscountValues: { delivery: 7.5 } },
-    ],
+    productItems: structuredClone(afternoonTeaQuotaItems),
     status: 'in_progress',
     activityCode: 'XSZK-TEA',
-    description: '指定饮品限时折扣。多数商品统一折扣，个别商品按业务类型分开设置。活动库存留空表示不限量。',
+    description: afternoonTeaDescription,
   }),
   seed({
     id: 'XSZK20261012002',
@@ -246,4 +363,5 @@ export const initialLimitDiscountActivities: LimitDiscountActivityForm[] = [
     sceneDiscountValues: {},
     status: 'draft',
   }),
+  ...sharedQuotaDemos,
 ]

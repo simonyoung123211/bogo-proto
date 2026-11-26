@@ -7,7 +7,7 @@ import { STATUS_LABELS } from '../mockData'
 import type { LimitDiscountActivityForm } from '../types'
 import { maskPhone } from '../utils/activity'
 import { canPause, canResume, isExpired } from '../utils/activityPause'
-import { canEditLimitDiscount, channelSummary, discountAreaSceneSummary, discountStrengthSummary, isPublishedLimitDiscount } from '../utils/limitDiscountActivity'
+import { canEditLimitDiscount, canRelaxLimitDiscountQuota, channelSummary, discountAreaSceneSummary, discountStrengthSummary, isPublishedLimitDiscount } from '../utils/limitDiscountActivity'
 import { discountAreaCoverage, resolveDiscountStoreScope } from '../utils/limitDiscountScope'
 
 const TABS = [
@@ -39,6 +39,7 @@ export function LimitDiscountActivityDetail({
 }: Props) {
   const [tab, setTab] = useState<Tab>('overview')
   const [confirm, setConfirm] = useState<'pause' | 'resume' | 'void' | null>(null)
+  const [now, setNow] = useState(() => Date.now())
   const detailRef = useRef<HTMLDivElement>(null)
   const { status } = activity
   const published = isPublishedLimitDiscount(status)
@@ -46,11 +47,12 @@ export function LimitDiscountActivityDetail({
   const scope = resolveDiscountStoreScope(activity)
   const coverage = discountAreaCoverage(activity, scope.eligibleStores)
   const areaScenes = discountAreaSceneSummary(activity)
-  const now = Date.now()
   const expired = isExpired(activity, now)
 
   useEffect(() => {
     detailRef.current?.scrollIntoView({ block: 'start' })
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000)
+    return () => window.clearInterval(timer)
   }, [])
 
   function moveTab(event: React.KeyboardEvent, index: number) {
@@ -144,7 +146,8 @@ export function LimitDiscountActivityDetail({
                 <ul>
                   <li>可调整活动名称、标题、促销标签、周期、共享互斥、展示、活动说明及门店点位。结束时间只能延后。</li>
                   <li>已投放渠道只能新增。指定商品可以追加，已投放商品保留在活动中。</li>
-                  <li>开始时间、业务场景、时段、门槛、参与资格、限购及已投放商品的优惠和库存已锁定。</li>
+                  <li>开始时间、业务场景、时段、门槛、参与资格、限购及已投放商品的优惠力度已锁定。</li>
+                  <li>{canRelaxLimitDiscountQuota(activity, now) ? '活动进行中，可提高或取消已有的商品优惠限量。' : '已投放商品的优惠限量已锁定。'}</li>
                 </ul>
               </details>
             )}

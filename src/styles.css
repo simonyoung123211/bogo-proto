@@ -3934,6 +3934,27 @@ button, input, select, textarea { font: inherit; }
 .ld-quota-error, .ld-quota-save-error { color: var(--danger); font-size: 12px; }
 .ld-quota-error { margin: 4px 0 0; }
 .ld-quota-save-hint { color: var(--text-secondary); font-size: 12px; }
+.ld-quota-locked { display: grid; justify-items: start; gap: 4px; }
+.ld-quota-adjustment { display: grid; gap: 14px; }
+.ld-quota-adjustment__help { padding: 10px 12px; border: 1px solid var(--promo-line); border-radius: 6px; background: var(--promo-hover); }
+.ld-quota-adjustment__help p { margin: 0; color: var(--promo-label); font-size: 12px; line-height: 1.55; }
+.ld-quota-adjustment__help p:first-child { color: var(--text-primary); font-size: 13px; }
+.ld-quota-adjustment__help p + p { margin-top: 3px; }
+.ld-quota-adjustment__help .ld-quota-help { margin-top: 6px; }
+.ld-quota-adjustment__help .ld-quota-help summary { color: #007a50; }
+.ld-quota-adjustment__help .ld-quota-help dl { padding: 8px 0 0; border-top: 1px solid var(--promo-line); background: none; }
+.ld-quota-adjustment__help .ld-quota-help dd { color: var(--promo-label); }
+.ld-quota-adjustment__field { display: grid; gap: 5px; }
+.ld-quota-adjustment__field > label, .ld-quota-adjustment__modes legend { font-weight: 600; color: var(--text-primary); }
+.ld-quota-adjustment__amount .input { width: min(180px, 100%); }
+.ld-quota-adjustment__amount [aria-invalid="true"] { border-color: var(--danger); }
+.ld-quota-adjustment__modes { min-width: 0; margin: 0; padding: 0; border: 0; }
+.ld-quota-adjustment__modes .radio { display: inline-flex; margin: 4px 18px 0 0; }
+.ld-quota-adjustment__preview { padding: 10px 12px; border-radius: 6px; background: var(--promo-hover); }
+.ld-quota-adjustment__preview > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.ld-quota-adjustment__preview p { margin: 5px 0 0; color: var(--promo-label); font-size: 12px; }
+.ld-quota-adjustment__preview .ld-quota-adjustment__notice { color: #93500d; }
+.ld-quota-adjustment .ld-quota-notices { margin: 0; }
 .ld-quota-trial { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 14px; margin-top: 10px; }
 .ld-quota-trial label { display: grid; gap: 4px; font-size: 12px; }
 .ld-quota-trial input { width: 110px; }

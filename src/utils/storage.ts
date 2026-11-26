@@ -13,6 +13,7 @@ import type {
   EnterpriseDiscountActivityForm,
   BundlePriceActivityForm,
   LimitDiscountActivityForm,
+  LimitDiscountProductItem,
   StoredValuePayActivityForm,
   StoredValuePayGeneralSettings,
 } from '../types'
@@ -27,7 +28,7 @@ import {
 } from '../mockPaidMemberPriceData'
 import { initialEnterpriseDiscountActivities } from '../mockEnterpriseDiscountData'
 import { initialBundlePriceActivities } from '../mockBundlePriceData'
-import { initialLimitDiscountActivities } from '../mockLimitDiscountData'
+import { addLimitDiscountQuotaDemos, initialLimitDiscountActivities } from '../mockLimitDiscountData'
 import { initialStoredValuePayActivities } from '../mockStoredValuePayData'
 import { migrateActivity } from './activity'
 import { reopenStoresForDemo } from './storeRegistry'
@@ -39,6 +40,7 @@ import { migratePaidMemberPriceActivity } from './paidMemberPriceActivity'
 import { migrateEnterpriseDiscountActivity } from './enterpriseDiscountActivity'
 import { migrateBundlePriceActivity } from './bundlePriceActivity'
 import { migrateLimitDiscountActivity } from './limitDiscountActivity'
+import { normalizeDiscountQuota } from './limitDiscountQuota'
 import { migrateStoredValuePayActivity } from './storedValuePayActivity'
 
 const STORAGE_KEY = 'bogo-activities-v1'
@@ -52,6 +54,7 @@ const STORED_VALUE_PAY_STORAGE_KEY = 'stored-value-pay-activities-v1'
 const ENTERPRISE_DISCOUNT_STORAGE_KEY = 'enterprise-discount-activities-v1'
 const BUNDLE_PRICE_STORAGE_KEY = 'bundle-price-activities-v1'
 export const LIMIT_DISCOUNT_STORAGE_KEY = 'limit-discount-activities-v1'
+const LIMIT_DISCOUNT_QUOTA_DEMOS_KEY = 'limit-discount-quota-demos-v1'
 const GENERAL_SETTINGS_KEY = 'bogo-general-settings-v1'
 const MEMBER_PRICE_GENERAL_SETTINGS_KEY = 'member-price-general-settings-v1'
 const PAID_MEMBER_PRICE_GENERAL_SETTINGS_KEY = 'paid-member-price-general-settings-v1'
@@ -412,12 +415,32 @@ export function loadLimitDiscountActivities(): LimitDiscountActivityForm[] {
     const raw = localStorage.getItem(LIMIT_DISCOUNT_STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as Record<string, unknown>[]
-      return parsed.map((activity) => migrateLimitDiscountActivity(activity))
+      const normalized = parsed.map((activity) => {
+        const activityQuota = normalizeDiscountQuota(activity.activityQuota as LimitDiscountProductItem['quota'])
+        const items = activity.productItems as LimitDiscountProductItem[] | undefined
+        const productItems = items?.map((item) => ({ ...item, quota: normalizeDiscountQuota(item.quota) }))
+        if (JSON.stringify([activity.activityQuota, items]) === JSON.stringify([activityQuota, productItems])) return activity
+        return { ...activity, activityQuota, productItems }
+      })
+      const activities = normalized.map((activity) => migrateLimitDiscountActivity(activity))
+      const demosAdded = localStorage.getItem(LIMIT_DISCOUNT_QUOTA_DEMOS_KEY)
+      const withDemos = demosAdded || !activities.length ? activities : addLimitDiscountQuotaDemos(activities)
+      // 只补齐一次，后续编辑、作废和清理示例均以已保存的数据为准。
+      try {
+        if (normalized.some((activity, index) => activity !== parsed[index]) || withDemos.some((activity, index) => activity !== activities[index])) {
+          const upgraded = withDemos.map((activity, index) => activity === activities[index] ? normalized[index] : activity)
+          localStorage.setItem(LIMIT_DISCOUNT_STORAGE_KEY, JSON.stringify(upgraded))
+        }
+        if (!demosAdded) localStorage.setItem(LIMIT_DISCOUNT_QUOTA_DEMOS_KEY, '1')
+      } catch {
+        /* Keep the loaded activities even if the browser cannot persist the demo upgrade. */
+      }
+      return withDemos
     }
   } catch {
     /* ignore */
   }
-  return [...initialLimitDiscountActivities]
+  return addLimitDiscountQuotaDemos(initialLimitDiscountActivities)
 }
 
 export function saveLimitDiscountActivities(activities: LimitDiscountActivityForm[]): void {

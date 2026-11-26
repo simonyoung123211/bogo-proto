@@ -20,7 +20,7 @@ import { getLegacyLimitDiscountPerspective } from '../mockActivityPerspectives'
 import { createOperationLog, formatActivityDateTime, maskPhone } from './activity'
 import { matchesActivityProductFilters, resolveActivityProducts } from './activityProductSearch'
 import { discountAreaCoverage, hasSpecifiedDiscountAreas, isDiscountAreaScene, resolveDiscountStoreScope } from './limitDiscountScope'
-import { discountProductQuotaErrors } from './limitDiscountQuota'
+import { normalizeDiscountQuota, discountProductQuotaErrors, discountQuotaRelaxationError } from './limitDiscountQuota'
 
 const CHANNEL_IDS = new Set<string>(LIMIT_DISCOUNT_CHANNELS.map((item) => item.id))
 const SCENE_IDS = new Set<string>(LIMIT_DISCOUNT_SCENES.map((item) => item.id))
@@ -33,6 +33,10 @@ export function canEditLimitDiscount(status: ActivityStatus) {
   return status === 'draft' || status === 'pending' || isPublishedLimitDiscount(status)
 }
 
+export function canRelaxLimitDiscountQuota(activity: LimitDiscountActivityForm, now?: number) {
+  return activity.status === 'in_progress' && computePublishStatus(activity, now) === 'in_progress'
+}
+
 const PUBLISHED_LOCKED_FIELDS = [
   'startTime', 'orderTypes', 'timeSlotType', 'timeSlots', 'holidayInactive', 'inactiveRanges',
   'thresholdType', 'thresholdAmount', 'thresholdGoodsScope', 'thresholdProductIds', 'thresholdIncludeTopping',
@@ -40,7 +44,7 @@ const PUBLISHED_LOCKED_FIELDS = [
   'totalTimesType', 'totalTimes', 'frequencyType', 'frequencyPeriod', 'frequencyTimes',
   'limitTotalPieces', 'totalPieces', 'limitPeriodPieces', 'periodPiecesPeriod', 'periodPieces',
   'limitOrderPieces', 'orderPieces', 'hitRule', 'activityCode', 'participantUser', 'memberTagIds', 'searchKeyword',
-  'discountMethod', 'goodsScope', 'valueMode', 'discountValue', 'sceneDiscountValues', 'activityStock', 'activityQuota',
+  'discountMethod', 'goodsScope', 'valueMode', 'discountValue', 'sceneDiscountValues',
 ] as const satisfies readonly (keyof LimitDiscountActivityForm)[]
 
 export function publishedLimitDiscountEditError(saved: LimitDiscountActivityForm, next: LimitDiscountActivityForm) {
@@ -50,9 +54,22 @@ export function publishedLimitDiscountEditError(saved: LimitDiscountActivityForm
   if (PUBLISHED_LOCKED_FIELDS.some((key) => JSON.stringify(saved[key]) !== JSON.stringify(next[key]))) {
     return '活动已发布，请保留锁定的配置后再保存'
   }
+  const canRelaxQuota = canRelaxLimitDiscountQuota(saved)
+  if (saved.activityStock !== next.activityStock || JSON.stringify(saved.activityQuota) !== JSON.stringify(next.activityQuota)) {
+    if (!canRelaxQuota || saved.goodsScope === 'include') return '已发布活动的共用限量已锁定'
+    const error = discountQuotaRelaxationError(sharedDiscountItem(saved), sharedDiscountItem(next), saved.orderTypes)
+    if (error) return error
+  }
   const nextItems = new Map(next.productItems.map((item) => [item.productId, item]))
-  if (saved.productItems.some((item) => JSON.stringify(item) !== JSON.stringify(nextItems.get(item.productId)))) {
-    return '请保留已投放商品及其优惠和限量'
+  for (const item of saved.productItems) {
+    const updated = nextItems.get(item.productId)
+    if (JSON.stringify(item) === JSON.stringify(updated)) continue
+    if (!updated || !canRelaxQuota || saved.goodsScope !== 'include') return '请保留已投放商品及其优惠和限量'
+    const { stock, quota, ...before } = item
+    const { stock: nextStock, quota: nextQuota, ...after } = updated
+    if (JSON.stringify(before) !== JSON.stringify(after)) return '请保留已投放商品及其优惠力度'
+    const error = discountQuotaRelaxationError({ stock, quota }, { stock: nextStock, quota: nextQuota }, saved.orderTypes)
+    if (error) return `${products.find(({ id }) => id === item.productId)?.name ?? '商品'} · ${error}`
   }
   if (saved.goodsScope !== 'include' && next.productItems.length !== saved.productItems.length) {
     return '已发布活动的商品范围方式和排除名单已锁定'
@@ -325,8 +342,7 @@ export function previewPrice(product: Product, activity: LimitDiscountActivityFo
   return value
 }
 
-export function computePublishStatus(activity: LimitDiscountActivityForm): ActivityStatus {
-  const now = Date.now()
+export function computePublishStatus(activity: LimitDiscountActivityForm, now: number = Date.now()): ActivityStatus {
   const start = new Date(activity.startTime.replace(/-/g, '/')).getTime()
   const end = new Date(activity.endTime.replace(/-/g, '/')).getTime()
   if (now < start) return 'not_started'
@@ -362,8 +378,8 @@ export function cloneActivity(activity: LimitDiscountActivityForm, perspective: 
     creatorPerspectiveId: perspective.id,
     createdAt: now,
     updatedAt: now,
-    productItems: structuredClone(activity.productItems),
-    activityQuota: structuredClone(activity.activityQuota),
+    productItems: structuredClone(activity.productItems).map((item) => ({ ...item, quota: normalizeDiscountQuota(item.quota) })),
+    activityQuota: normalizeDiscountQuota(activity.activityQuota),
     timeSlots: activity.timeSlots.map((slot) => ({ ...slot, id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 5)}` })),
     inactiveRanges: activity.inactiveRanges.map((slot) => ({ ...slot, id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 5)}` })),
     operationLogs: [createOperationLog('复制活动', operator, `从「${activity.name}」复制创建`)],
@@ -569,7 +585,9 @@ export function migrateLimitDiscountActivity(raw: Record<string, unknown>): Limi
     inactiveRanges: legacy.inactiveRanges ?? [],
     valueMode: 'unified',
     sceneDiscountValues: legacy.areaMode ? legacy.sceneDiscountValues ?? {} : migrateSharedScenes(legacy),
-    productItems: legacy.areaMode ? legacy.productItems ?? [] : (legacy.productItems ?? []).map((raw) => migrateProductItem(raw, legacy.valueMode)),
+    productItems: (legacy.areaMode ? legacy.productItems ?? [] : (legacy.productItems ?? []).map((raw) => migrateProductItem(raw, legacy.valueMode)))
+      .map((item) => ({ ...item, quota: normalizeDiscountQuota(item.quota) })),
+    activityQuota: normalizeDiscountQuota(legacy.activityQuota),
     storeIds: legacy.storeIds ?? [],
     storeTagIds: legacy.storeTagIds ?? [],
     thresholdProductIds: legacy.thresholdProductIds ?? [],

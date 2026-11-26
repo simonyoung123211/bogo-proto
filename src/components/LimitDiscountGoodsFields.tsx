@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
 import { products } from '../mockData'
 import type { LimitDiscountActivityForm, LimitDiscountMethod, LimitDiscountProductItem, LimitDiscountQuotaRule, Product } from '../types'
-import { applyDiscountMethod, isProductDiscountSet, pruneSameAsDefault, sceneOverrides, setSceneOverride, sharedDiscountItem, syncProductItems, writeSharedDiscount } from '../utils/limitDiscountActivity'
+import { applyDiscountMethod, canRelaxLimitDiscountQuota, isProductDiscountSet, pruneSameAsDefault, sceneOverrides, setSceneOverride, sharedDiscountItem, syncProductItems, writeSharedDiscount } from '../utils/limitDiscountActivity'
+import { resolveActivityProducts } from '../utils/activityProductSearch'
 import { LimitDiscountProductQuotaDialog, LimitDiscountQuotaEditor, LimitDiscountQuotaSummary } from './LimitDiscountProductQuota'
+import { LimitDiscountQuotaAdjustment } from './LimitDiscountQuotaAdjustment'
 import { LimitDiscountStrengthControls, LimitDiscountStrengthDialog, type LimitDiscountStrengthChange } from './LimitDiscountProductStrength'
 import { ProductPicker } from './ProductPicker'
 import { SelectedProductPager } from './SelectedProductTools'
@@ -35,6 +37,7 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
   const [page, setPage] = useState(1)
   const [checked, setChecked] = useState<string[]>([])
   const [quotaTarget, setQuotaTarget] = useState<(RuleTarget & { initialCommon?: LimitDiscountQuotaRule }) | null>(null)
+  const [adjustmentTarget, setAdjustmentTarget] = useState<{ productId?: string } | null>(null)
   const [previousDefaultQuota, setPreviousDefaultQuota] = useState<LimitDiscountQuotaRule>()
   const [strengthTarget, setStrengthTarget] = useState<RuleTarget | null>(null)
   const [inlineRule, setInlineRule] = useState<InlineRule | null>(null)
@@ -46,15 +49,19 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
   const defaultQuotaHint = activity.goodsScope === 'exclude'
     ? productCount > 0 ? `排除 ${productCount} 个规格后，余下参与规格分别计数。` : '适用于排除名单外的参与规格，各规格分别计数。'
     : '适用于全部参与规格，各规格分别计数。'
-  const fixedIds = published?.productItems.map((item) => item.productId)
-  const itemLocked = (id: string) => Boolean(readOnly || fixedIds?.includes(id))
+  const publishedItems = new Map(published?.productItems.map((item) => [item.productId, item]))
+  const fixedIds = published ? [...publishedItems.keys()] : undefined
+  const itemLocked = (id: string) => Boolean(readOnly || publishedItems.has(id))
   const sharedLocked = readOnly || Boolean(published)
+  const canAdjustQuota = !readOnly && published != null && canRelaxLimitDiscountQuota(published)
   const canPick = !readOnly && (!published || perProduct)
   const pickerLabel = published ? '追加商品' : perProduct ? '选择商品' : '选择排除商品'
   const strengthIds = strengthTarget?.ids
   const quotaIds = quotaTarget?.ids
   const strengthItem = targetItem(strengthIds)
   const quotaItem = targetItem(quotaIds)
+  const adjustmentItem = adjustmentTarget && targetItem(adjustmentTarget.productId == null ? undefined : [adjustmentTarget.productId])
+  const savedAdjustmentItem = adjustmentTarget && savedQuotaItem(adjustmentTarget.productId)
 
   const rows = useMemo(() => {
     const kw = keyword.trim().toLowerCase()
@@ -109,6 +116,10 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
     if (ids.length === 1) return activity.productItems.find(({ productId }) => productId === ids[0])
   }
 
+  function savedQuotaItem(productId?: string) {
+    return productId != null ? publishedItems.get(productId) : published && sharedDiscountItem(published)
+  }
+
   function updateProducts(ids: string[], update: (item: LimitDiscountProductItem) => LimitDiscountProductItem) {
     if (readOnly) return
     const selectedIds = new Set(ids)
@@ -154,7 +165,20 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
   }
 
   function renderQuota(item: LimitDiscountQuotaConfig, locked: boolean, productId?: string) {
-    if (locked) return <LimitDiscountQuotaSummary item={item} scenes={scenes} />
+    if (locked) {
+      const original = savedQuotaItem(productId)
+      return (
+        <div className="ld-quota-locked">
+          <LimitDiscountQuotaSummary item={item} scenes={scenes} />
+          {canAdjustQuota && original && hasDiscountProductQuota(original, scenes) && (
+            <button type="button" className="link-btn ld-inline-rule__business" aria-haspopup="dialog"
+              onClick={() => { setInlineRule(null); setAdjustmentTarget({ productId }) }}>
+              调整限量
+            </button>
+          )}
+        </div>
+      )
+    }
     const ids = productId == null ? undefined : [productId]
     return <LimitDiscountQuotaEditor item={item} scenes={scenes}
       editorPreset={productId == null ? previousDefaultQuota : undefined}
@@ -179,7 +203,11 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
             </label>
           ))}
         </div>
-        {published && <p className="field-hint">已投放商品的优惠和限量已锁定。指定商品仍可追加。</p>}
+        {published && (
+          <p className="field-hint">{canAdjustQuota
+            ? '进行中可提高或取消已有的商品限量。已投放商品的优惠力度已锁定，指定商品仍可追加。'
+            : '已投放商品的优惠和限量已锁定。指定商品仍可追加。'}</p>
+        )}
       </FormRow>
       <FormRow label="优惠方式" required>
         <div className="radio-group">
@@ -431,6 +459,30 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
             setQuotaTarget(null)
           }}
           onClose={() => setQuotaTarget(null)}
+        />
+      )}
+      {canAdjustQuota && adjustmentTarget && adjustmentItem && savedAdjustmentItem && (
+        <LimitDiscountQuotaAdjustment
+          item={adjustmentItem}
+          saved={savedAdjustmentItem}
+          description={adjustmentTarget.productId == null
+            ? `${activity.goodsScope === 'exclude' ? '排除名单外的参与规格' : '全部参与规格'} · 当前影响 ${resolveActivityProducts({
+                productScope: activity.goodsScope === 'all' ? 'all' : 'partial',
+                productSelectionMode: 'exclude',
+                productIds: activity.productItems.map(({ productId }) => productId),
+              }).length} 个规格`
+            : `${productDescription(adjustmentItem) ?? '所选规格'} · 影响 1 个规格`}
+          scenes={scenes}
+          onApply={(config) => {
+            if (adjustmentTarget.productId == null) {
+              onChange({ ...activity, activityStock: config.stock, activityQuota: config.quota })
+            } else {
+              onChange({ ...activity, productItems: activity.productItems.map((item) =>
+                item.productId === adjustmentTarget.productId ? { ...item, ...config } : item) })
+            }
+            setAdjustmentTarget(null)
+          }}
+          onClose={() => setAdjustmentTarget(null)}
         />
       )}
     </>

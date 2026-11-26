@@ -7,6 +7,7 @@ import {
   commonDiscountQuota,
   discountQuantityWithQuota,
   discountQuotaBuckets,
+  discountQuotaConfig,
   discountQuotaLabels,
   discountQuotaPoolNotices,
   discountQuotaRuleErrors,
@@ -45,10 +46,6 @@ const quotaGuideByScope = {
 
 function quotaRule({ totalLimited, total, periodic }: QuotaRuleDraft): LimitDiscountQuotaRule {
   return { total: totalLimited ? total : null, periodic }
-}
-
-function quotaConfig({ total, periodic }: LimitDiscountQuotaRule, byScene: Record<string, LimitDiscountQuotaRule> = {}): LimitDiscountQuotaConfig {
-  return { stock: total, quota: periodic || Object.keys(byScene).length ? { periodic, byScene } : undefined }
 }
 
 export function LimitDiscountQuotaSummary({ item, scenes, expandBusiness = false }: {
@@ -125,7 +122,7 @@ function CommonQuotaInlineFields({ item, scenes, initial, field, onCancel, onApp
   const totalValue = totalInput.trim()
   const total = totalValue ? (/^\d+$/.test(totalValue) ? Number(totalValue) : Number.NaN) : null
   const common = { total, periodic }
-  const config = quotaConfig(common, item.quota?.byScene)
+  const config = discountQuotaConfig(common, item.quota?.byScene)
   const commonErrors = discountQuotaRuleErrors(common)
   const commonInvalid = Boolean(commonErrors.total || commonErrors.periodic)
   const businessErrors = commonInvalid ? [] : activeDiscountBusinessQuotas(item, scenes).flatMap(({ scene, rule }) => {
@@ -216,7 +213,7 @@ export function LimitDiscountProductQuotaDialog({ item, description, goodsScope,
     return rule.total != null || rule.periodic ? [[scene, rule]] : []
   }))
   const inactive = businessOnly ? Object.fromEntries(Object.entries(item?.quota?.byScene ?? {}).filter(([scene]) => !scenes.includes(scene))) : {}
-  const config = quotaConfig(commonRule, { ...inactive, ...active })
+  const config = discountQuotaConfig(commonRule, { ...inactive, ...active })
   const error = [{ label: commonQuotaLabel, errors: commonErrors }, ...businessRows].map(({ label, errors: { total, periodic } }) => {
     const message = total ?? periodic
     return message && `${label} · ${message}`

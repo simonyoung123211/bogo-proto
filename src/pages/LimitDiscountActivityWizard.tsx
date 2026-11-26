@@ -11,7 +11,7 @@ import type { LimitDiscountActivityForm } from '../types'
 import { resolveActivityProducts } from '../utils/activityProductSearch'
 import { findDiscountConflicts } from '../utils/limitDiscountConflicts'
 import {
-  channelSummary, collectStepErrors, discountStrengthSummary, isPublishedLimitDiscount,
+  canRelaxLimitDiscountQuota, channelSummary, collectStepErrors, discountStrengthSummary, isPublishedLimitDiscount,
   previewPrice, previewSceneHint, publishedLimitDiscountEditError,
 } from '../utils/limitDiscountActivity'
 
@@ -202,7 +202,9 @@ export function LimitDiscountActivityWizard({
                 <LimitDiscountConfigReview activity={activity} onEdit={goTo} showTrial />
                 <div className="ld-submit-note">
                   <h3>保存后</h3>
-                  <p>{published ? '按新配置生效，活动状态保持原样。已投放商品的优惠和库存保持锁定。'
+                  <p>{published ? (canRelaxLimitDiscountQuota(published)
+                    ? '保存后，限量调整适用于后续订单。周期新上限从本期持续生效。'
+                    : '按新配置生效，活动状态保持原样。已投放商品的优惠和限量保持锁定。')
                     : '保存后进入待发布。发布后按配置的活动时间开始。'}</p>
                 </div>
               </div>
