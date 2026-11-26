@@ -8,12 +8,13 @@ import { matchesProductKeyword } from '../utils/productSearch'
 import { getResolvedStores } from '../utils/storeRegistry'
 import { hasDiscountProductQuota } from '../utils/limitDiscountQuota'
 import {
-  channelSummary, discountAreaSceneSummary, discountStrengthSummary, discountValueLabel, formatDiscountValue, goodsScopeLabel,
-  memberTagLabels, participantLabel, sceneLabel, sceneOverrides, sceneSummary, sharedDiscountItem,
+  channelSummary, discountAreaSceneSummary, discountStrengthSummary, goodsScopeLabel,
+  memberTagLabels, participantLabel, sceneSummary, sharedDiscountItem,
   storeModeLabel, storeTagLabels,
 } from '../utils/limitDiscountActivity'
 import { LimitDiscountAreaPreview } from './LimitDiscountAreaPreview'
 import { LimitDiscountQuotaSummary, LimitDiscountQuotaTrial } from './LimitDiscountProductQuota'
+import { LimitDiscountStrengthSummary } from './LimitDiscountProductStrength'
 import { SelectedProductPager, SelectedProductSearchBar } from './SelectedProductTools'
 
 type Activity = LimitDiscountActivityForm
@@ -52,7 +53,6 @@ export function LimitDiscountConfigReview({ activity, onEdit, showTrial = false 
     ? storeTagLabels(activity.storeTagIds) : ''
   const perProduct = activity.goodsScope === 'include'
   const sharedItem = sharedDiscountItem(activity)
-  const overrides = perProduct ? [] : sceneOverrides(activity, sharedItem)
   const exclusions = [
     activity.holidayInactive && '法定节假日',
     ...activity.inactiveRanges.filter(({ start, end }) => start && end).map(({ start, end }) => `${start}–${end}`),
@@ -110,10 +110,9 @@ export function LimitDiscountConfigReview({ activity, onEdit, showTrial = false 
       </Review>
       <Review title="商品与优惠" editLabel="修改商品与优惠" onEdit={onEdit && (() => onEdit(2))} rows={[
         ['参与商品', goodsScopeLabel(activity)],
-        ['优惠力度', discountStrengthSummary(activity)],
-        ...(overrides.length ? [['分业务优惠', overrides.map(({ sceneId, value }) => `${sceneLabel(sceneId)} ${formatDiscountValue(activity.discountMethod, value)}`).join('、')]] as [string, string][] : []),
+        ['优惠力度', perProduct ? discountStrengthSummary(activity) : <LimitDiscountStrengthSummary activity={activity} item={sharedItem} />],
         perProduct
-          ? ['商品优惠限量', quotaCount ? `已设置 ${quotaCount} 个商品` : '不限量']
+          ? ['商品优惠限量', quotaCount ? `${quotaCount} / ${activity.productItems.length} 个规格已设限量` : '不限量']
           : ['默认商品优惠限量（每规格）', <LimitDiscountQuotaSummary item={sharedItem} scenes={activity.orderTypes} />],
       ]}>
         <GoodsDetail activity={activity} showTrial={showTrial} />
@@ -224,8 +223,6 @@ function GoodsDetail({ activity, showTrial }: { activity: LimitDiscountActivityF
   const isInclude = activity.goodsScope === 'include'
   const quotaRows = isInclude && showTrial
     ? rows.filter(({ item }) => hasDiscountProductQuota(item, activity.orderTypes)) : []
-  const method = activity.discountMethod
-  const valueLabel = discountValueLabel(method)
   const title = isInclude ? '参与商品明细' : '不参与商品明细'
   return (
     <DetailBlock title={`${title}（${rows.length}个）`} empty={rows.length === 0} emptyText="未选择商品">
@@ -248,36 +245,19 @@ function GoodsDetail({ activity, showTrial }: { activity: LimitDiscountActivityF
           <th>规格</th>
           <th>商品条码</th>
           <th>销售价</th>
-          {isInclude && <th>默认{valueLabel}</th>}
-          {isInclude && <th>业务单独设置</th>}
-          {isInclude && <th>商品优惠限量（件）</th>}
+          {isInclude && <th className="ld-strength-cell">优惠力度</th>}
+          {isInclude && <th className="ld-quota-cell">商品优惠限量</th>}
         </>}
-        renderRow={({ item, product }) => {
-          const overrides = sceneOverrides(activity, item)
-          return (
-            <>
-              <td>{product.name}</td>
-              <td>{product.spec}</td>
-              <td>{product.barcode}</td>
-              <td>¥{product.price}</td>
-              {isInclude && <td>{formatDiscountValue(method, item.discountValue)}</td>}
-              {isInclude && (
-                <td>
-                  {overrides.length === 0 ? <span className="field-hint">无，全部按默认</span> : (
-                    <div className="ld-review-overrides">
-                      {overrides.map(({ sceneId, value }) => (
-                        <span key={sceneId} className="ld-override-tag">
-                          {sceneLabel(sceneId)}<strong>{formatDiscountValue(method, value)}</strong>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </td>
-              )}
-              {isInclude && <td><LimitDiscountQuotaSummary item={item} scenes={activity.orderTypes} /></td>}
-            </>
-          )
-        }}
+        renderRow={({ item, product }) => (
+          <>
+            <td>{product.name}</td>
+            <td>{product.spec}</td>
+            <td>{product.barcode}</td>
+            <td>¥{product.price}</td>
+            {isInclude && <td><LimitDiscountStrengthSummary activity={activity} item={item} /></td>}
+            {isInclude && <td><LimitDiscountQuotaSummary item={item} scenes={activity.orderTypes} /></td>}
+          </>
+        )}
       />
       {quotaRows.length > 0 && <LimitDiscountQuotaTrial activity={activity} rows={quotaRows} />}
     </DetailBlock>

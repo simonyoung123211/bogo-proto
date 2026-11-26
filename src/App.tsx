@@ -125,6 +125,7 @@ import {
   canEditLimitDiscount,
   cloneActivity as cloneLimitDiscountActivity,
   collectDiscountQuotaErrors,
+  collectDiscountStrengthErrors,
   collectStepErrors as discountStepErrors,
   computePublishStatus as computeLimitDiscountPublishStatus,
   publishedLimitDiscountEditError,
@@ -1540,9 +1541,9 @@ function App() {
       showToast('活动已发生变化，请返回后重新打开')
       return
     }
-    const quotaError = collectDiscountQuotaErrors(limitDiscountDraft)[0]
-    if (quotaError) {
-      showToast(`无法保存草稿：${quotaError}`)
+    const configError = collectDiscountStrengthErrors(limitDiscountDraft, true)[0] ?? collectDiscountQuotaErrors(limitDiscountDraft)[0]
+    if (configError) {
+      showToast(`无法保存草稿：${configError}`)
       return
     }
     const draft = retainEligibleAreaIds(limitDiscountDraft)

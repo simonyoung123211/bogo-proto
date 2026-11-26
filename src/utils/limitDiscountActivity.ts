@@ -246,8 +246,8 @@ export function participantLabel(activity: LimitDiscountActivityForm): string {
   return LIMIT_DISCOUNT_PARTICIPANTS.find((item) => item.value === activity.participantUser)?.label ?? '-'
 }
 
-export function isProductDiscountSet(_activity: LimitDiscountActivityForm, item: LimitDiscountProductItem): boolean {
-  return item.discountValue != null
+export function isProductDiscountSet(activity: Pick<LimitDiscountActivityForm, 'discountMethod'>, item: LimitDiscountProductItem): boolean {
+  return validateDiscountNumber(activity.discountMethod, item.discountValue, '') === null
 }
 
 function sceneProductCount(activity: LimitDiscountActivityForm): number {
@@ -319,7 +319,7 @@ export function previewPrice(product: Product, activity: LimitDiscountActivityFo
   const value = activity.goodsScope === 'include'
     ? (item ? itemSceneValue(item, sceneId) : null)
     : itemSceneValue(sharedDiscountItem(activity), sceneId)
-  if (value == null) return product.price
+  if (value == null || validateDiscountNumber(activity.discountMethod, value, '力度')) return product.price
   if (activity.discountMethod === 'discount') return Math.round(product.price * value * 10) / 100
   if (activity.discountMethod === 'reduce') return Math.max(0, Math.round((product.price - value) * 100) / 100)
   return value
@@ -375,8 +375,9 @@ function positiveInt(value: number): boolean {
   return Number.isInteger(value) && value >= 1
 }
 
-function validateDiscountNumber(method: LimitDiscountMethod, value: number | null, label: string): string | null {
-  if (value == null || Number.isNaN(value)) return `请填写${label}`
+export function validateDiscountNumber(method: LimitDiscountMethod, value: number | null, label: string): string | null {
+  if (value == null) return `请填写${label}`
+  if (!Number.isFinite(value)) return `${label}须为有效数字`
   if (method === 'discount') {
     if (value < 0.1 || value > 9.9) return `${label}须在 0.1 到 9.9 之间`
     return null
@@ -388,6 +389,27 @@ function validateDiscountNumber(method: LimitDiscountMethod, value: number | nul
 export function validateStep(activity: LimitDiscountActivityForm, step: number): string | null {
   const errors = collectStepErrors(activity, step)
   return errors[0] ?? null
+}
+
+export function collectDiscountStrengthErrors(activity: LimitDiscountActivityForm, allowUnset = false): string[] {
+  const { discountMethod, goodsScope, productItems } = activity
+  const valueLabel = discountValueLabel(discountMethod)
+  const rows = goodsScope === 'include'
+    ? productItems.map((item) => ({ item, label: `${products.find((product) => product.id === item.productId)?.name ?? '商品'}的` }))
+    : [{ item: sharedDiscountItem(activity), label: goodsScope === 'exclude' ? '余下商品' : '' }]
+
+  return rows.flatMap(({ item, label }) => {
+    const errors: string[] = []
+    if (!allowUnset || item.discountValue != null) {
+      const error = validateDiscountNumber(discountMethod, item.discountValue, `${label}默认${valueLabel}`)
+      if (error) errors.push(error)
+    }
+    for (const { sceneId, value } of sceneOverrides(activity, item)) {
+      const error = validateDiscountNumber(discountMethod, value, `${label}在${sceneLabel(sceneId)}的${valueLabel}`)
+      if (error) errors.push(error)
+    }
+    return errors
+  })
 }
 
 export function collectDiscountQuotaErrors(activity: LimitDiscountActivityForm, saved = activity) {
@@ -458,37 +480,10 @@ export function collectStepErrors(activity: LimitDiscountActivityForm, step: num
     }
   }
   if (step === 2) {
-    const valueLabel = discountValueLabel(activity.discountMethod)
-    const pushShared = (prefix: string) => {
-      const item = sharedDiscountItem(activity)
-      const err = validateDiscountNumber(activity.discountMethod, activity.discountValue, `${prefix}默认${valueLabel}`)
-      if (err) errors.push(err)
-      sceneOverrides(activity, item).forEach(({ sceneId, value }) => {
-        const sceneErr = validateDiscountNumber(
-          activity.discountMethod,
-          value,
-          `${prefix}在${sceneLabel(sceneId)}的${valueLabel}`,
-        )
-        if (sceneErr) errors.push(sceneErr)
-      })
-    }
-    if (activity.goodsScope === 'all') {
-      pushShared('')
-    } else if (activity.productItems.length === 0) {
+    if (activity.goodsScope !== 'all' && activity.productItems.length === 0) {
       errors.push('请选择商品')
-    } else if (activity.goodsScope === 'exclude') {
-      pushShared('余下商品')
     } else {
-      activity.productItems.forEach((item) => {
-        const product = products.find((p) => p.id === item.productId)
-        const name = product?.name ?? '商品'
-        const err = validateDiscountNumber(activity.discountMethod, item.discountValue, `${name}的默认${valueLabel}`)
-        if (err) errors.push(err)
-        sceneOverrides(activity, item).forEach(({ sceneId, value }) => {
-          const sceneErr = validateDiscountNumber(activity.discountMethod, value, `${name}在${sceneLabel(sceneId)}的${valueLabel}`)
-          if (sceneErr) errors.push(sceneErr)
-        })
-      })
+      errors.push(...collectDiscountStrengthErrors(activity))
     }
     errors.push(...collectDiscountQuotaErrors(activity, saved))
   }

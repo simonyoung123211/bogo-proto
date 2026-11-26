@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
 import { products } from '../mockData'
-import type { LimitDiscountActivityForm, LimitDiscountMethod, LimitDiscountProductItem } from '../types'
-import { applyDiscountMethod, discountUnit, discountValueLabel, isProductDiscountSet, isSameAsDefault, pruneSameAsDefault, sceneLabel, sceneOverrides, setSceneOverride, sharedDiscountItem, syncProductItems, writeSharedDiscount } from '../utils/limitDiscountActivity'
-import { LimitDiscountProductQuotaDialog, LimitDiscountQuotaSummary } from './LimitDiscountProductQuota'
+import type { LimitDiscountActivityForm, LimitDiscountMethod, LimitDiscountProductItem, LimitDiscountQuotaRule, Product } from '../types'
+import { applyDiscountMethod, isProductDiscountSet, pruneSameAsDefault, sceneOverrides, setSceneOverride, sharedDiscountItem, syncProductItems, writeSharedDiscount } from '../utils/limitDiscountActivity'
+import { LimitDiscountProductQuotaDialog, LimitDiscountQuotaEditor, LimitDiscountQuotaSummary } from './LimitDiscountProductQuota'
+import { LimitDiscountStrengthControls, LimitDiscountStrengthDialog, type LimitDiscountStrengthChange } from './LimitDiscountProductStrength'
 import { ProductPicker } from './ProductPicker'
+import { SelectedProductPager } from './SelectedProductTools'
 import { matchesProductKeyword } from '../utils/productSearch'
-import { hasDiscountProductQuota, type LimitDiscountQuotaConfig } from '../utils/limitDiscountQuota'
+import { commonDiscountQuota, hasDiscountProductQuota, type LimitDiscountQuotaConfig } from '../utils/limitDiscountQuota'
 
 interface LimitDiscountGoodsFieldsProps {
   activity: LimitDiscountActivityForm
@@ -14,33 +16,45 @@ interface LimitDiscountGoodsFieldsProps {
   onChange: (activity: LimitDiscountActivityForm) => void
 }
 
+const GOODS_SCOPES = [
+  { value: 'all', label: '全部商品', hint: '为全部参与规格统一设置' },
+  { value: 'include', label: '指定商品', hint: '为所选规格单独或批量设置' },
+  { value: 'exclude', label: '指定商品不参与', hint: '为排除名单外的规格统一设置' },
+] as const
+
+type QuotaFilter = 'all' | 'limited' | 'unlimited'
+type RuleTarget = { ids?: string[]; businessOnly?: boolean }
+type InlineRule = { kind: 'strength' | 'quota'; productId?: string }
+const PAGE_SIZE = 20
+
 export function LimitDiscountGoodsFields({ activity, readOnly, published, onChange }: LimitDiscountGoodsFieldsProps) {
   const [picking, setPicking] = useState(false)
   const [keyword, setKeyword] = useState('')
+  const [quotaFilter, setQuotaFilter] = useState<QuotaFilter>('all')
+  const [onlyUnsetStrength, setOnlyUnsetStrength] = useState(false)
+  const [page, setPage] = useState(1)
   const [checked, setChecked] = useState<string[]>([])
-  const [batchValue, setBatchValue] = useState('')
-  const [quotaIds, setQuotaIds] = useState<string[]>([])
-  const [editingDefaultQuota, setEditingDefaultQuota] = useState(false)
-  const [previousDefaultQuota, setPreviousDefaultQuota] = useState<LimitDiscountQuotaConfig>()
-  const [batchScenes, setBatchScenes] = useState(false)
-  const [editingProductId, setEditingProductId] = useState<string | null>(null)
-  const [editingShared, setEditingShared] = useState(false)
-  const valueLabel = discountValueLabel(activity.discountMethod)
-  const unit = discountUnit(activity.discountMethod)
+  const [quotaTarget, setQuotaTarget] = useState<(RuleTarget & { initialCommon?: LimitDiscountQuotaRule }) | null>(null)
+  const [previousDefaultQuota, setPreviousDefaultQuota] = useState<LimitDiscountQuotaRule>()
+  const [strengthTarget, setStrengthTarget] = useState<RuleTarget | null>(null)
+  const [inlineRule, setInlineRule] = useState<InlineRule | null>(null)
+  const { discountMethod } = activity
   const perProduct = activity.goodsScope === 'include'
+  const productCount = activity.productItems.length
   const scenes = activity.orderTypes
   const sharedItem = sharedDiscountItem(activity)
-  const hasDefaultQuota = hasDiscountProductQuota(sharedItem, scenes)
-  const choosingDefaultQuota = hasDefaultQuota || editingDefaultQuota
   const defaultQuotaHint = activity.goodsScope === 'exclude'
-    ? '限量应用于排除名单之外的参与商品，各规格分别计数。'
-    : '全部参与商品使用同一限量设置，各规格分别计数。'
+    ? productCount > 0 ? `排除 ${productCount} 个规格后，余下参与规格分别计数。` : '适用于排除名单外的参与规格，各规格分别计数。'
+    : '适用于全部参与规格，各规格分别计数。'
   const fixedIds = published?.productItems.map((item) => item.productId)
   const itemLocked = (id: string) => Boolean(readOnly || fixedIds?.includes(id))
   const sharedLocked = readOnly || Boolean(published)
   const canPick = !readOnly && (!published || perProduct)
-  const quotaItem = quotaIds.length === 1 ? activity.productItems.find(({ productId }) => productId === quotaIds[0]) : undefined
-  const quotaProduct = quotaItem && products.find(({ id }) => id === quotaItem.productId)
+  const pickerLabel = published ? '追加商品' : perProduct ? '选择商品' : '选择排除商品'
+  const strengthIds = strengthTarget?.ids
+  const quotaIds = quotaTarget?.ids
+  const strengthItem = targetItem(strengthIds)
+  const quotaItem = targetItem(quotaIds)
 
   const rows = useMemo(() => {
     const kw = keyword.trim().toLowerCase()
@@ -50,33 +64,123 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
         matchesProductKeyword(row.product, kw)
         || row.product.identifier.toLowerCase().includes(kw)
         || row.product.barcode.toLowerCase().includes(kw)
-      ))
-  }, [activity.productItems, keyword])
+        || row.product.specCode.toLowerCase().includes(kw)
+      ) && (!perProduct || (
+        (!onlyUnsetStrength || !isProductDiscountSet({ discountMethod }, row.item))
+        && (quotaFilter === 'all' || hasDiscountProductQuota(row.item, scenes) === (quotaFilter === 'limited'))
+      )))
+  }, [activity.productItems, discountMethod, keyword, onlyUnsetStrength, perProduct, quotaFilter, scenes])
 
   const setCount = activity.productItems.filter((item) => isProductDiscountSet(activity, item)).length
+  const unsetStrengthCount = productCount - setCount
+  const quotaCount = perProduct ? activity.productItems.filter((item) => hasDiscountProductQuota(item, scenes)).length : 0
+  const batchQuotaCount = activity.productItems.filter((item) => quotaIds?.includes(item.productId) && hasDiscountProductQuota(item, scenes)).length
+  const filtered = Boolean(keyword.trim() || perProduct && (quotaFilter !== 'all' || onlyUnsetStrength))
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const pageRows = rows.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+  const selectableIds = rows.map(({ item }) => item.productId).filter((id) => !itemLocked(id))
+  const pageSelectableIds = pageRows.map(({ item }) => item.productId).filter((id) => !itemLocked(id))
+  const checkedIds = new Set(checked)
+  const pageCheckedCount = pageSelectableIds.filter((id) => checkedIds.has(id)).length
+  const allPageChecked = pageSelectableIds.length > 0 && pageCheckedCount === pageSelectableIds.length
+  const matchedCheckedCount = selectableIds.filter((id) => checkedIds.has(id)).length
+  const otherPageCount = matchedCheckedCount - pageCheckedCount
+  const outsideFilterCount = checked.length - matchedCheckedCount
+  const hasSelection = checked.length > 0
+  const canSelectAllMatches = matchedCheckedCount < selectableIds.length
 
-  const updateItem = (productId: string, patch: Partial<LimitDiscountProductItem>) => {
-    onChange({
-      ...activity,
-      productItems: activity.productItems.map((item) => item.productId === productId ? { ...item, ...patch } : item),
-    })
+  function clearFilters() {
+    setKeyword('')
+    setQuotaFilter('all')
+    setOnlyUnsetStrength(false)
+    setPage(1)
+    setInlineRule(null)
   }
 
-  const applyBatchDefault = () => {
-    const value = batchValue.trim() === '' ? null : Number(batchValue)
-    if (value == null || Number.isNaN(value)) return
-    const ids = new Set(checked)
+  function changeScope(goodsScope: LimitDiscountActivityForm['goodsScope']) {
+    clearFilters()
+    setChecked([])
+    onChange({ ...activity, goodsScope })
+  }
+
+  function targetItem(ids?: string[]) {
+    if (!ids) return sharedItem
+    if (ids.length === 1) return activity.productItems.find(({ productId }) => productId === ids[0])
+  }
+
+  function updateProducts(ids: string[], update: (item: LimitDiscountProductItem) => LimitDiscountProductItem) {
+    if (readOnly) return
+    const selectedIds = new Set(ids)
     onChange({
       ...activity,
-      productItems: activity.productItems.map((item) => (
-        ids.has(item.productId) ? pruneSameAsDefault({ ...item, discountValue: value }) : item
-      )),
+      productItems: activity.productItems.map((item) => selectedIds.has(item.productId) && !itemLocked(item.productId)
+        ? update(item) : item),
     })
-    setBatchValue('')
+    if (ids.length > 1) setChecked([])
+  }
+
+  function saveStrength(change: LimitDiscountStrengthChange, ids?: string[]) {
+    if (ids) {
+      updateProducts(ids, (item) => applyStrengthChange(item, change))
+    } else if (!sharedLocked) {
+      onChange(writeSharedDiscount(activity, applyStrengthChange(sharedItem, change)))
+    }
+    setInlineRule(null)
+  }
+
+  function saveQuota(config: LimitDiscountQuotaConfig, ids?: string[]) {
+    if (ids) {
+      updateProducts(ids, (item) => ({ ...item, ...structuredClone(config) }))
+    } else if (!sharedLocked) {
+      const before = commonDiscountQuota(sharedItem)
+      const after = commonDiscountQuota(config)
+      if ((before.total != null || before.periodic) && after.total == null && !after.periodic) setPreviousDefaultQuota(before)
+      onChange({ ...activity, activityStock: config.stock, activityQuota: config.quota })
+    }
+    setInlineRule(null)
+  }
+
+  function renderStrength(item: LimitDiscountProductItem, locked: boolean, productId?: string) {
+    const ids = productId == null ? undefined : [productId]
+    return <LimitDiscountStrengthControls activity={activity} item={item} readOnly={locked}
+      editing={inlineRule?.kind === 'strength' && inlineRule.productId === productId}
+      onEdit={() => setInlineRule({ kind: 'strength', productId })} onCancel={() => setInlineRule(null)}
+      onApply={(value) => saveStrength({ defaultValue: value, business: {} }, ids)}
+      onOpenBusiness={() => {
+        setInlineRule(null)
+        setStrengthTarget({ ids, businessOnly: true })
+      }} />
+  }
+
+  function renderQuota(item: LimitDiscountQuotaConfig, locked: boolean, productId?: string) {
+    if (locked) return <LimitDiscountQuotaSummary item={item} scenes={scenes} />
+    const ids = productId == null ? undefined : [productId]
+    return <LimitDiscountQuotaEditor item={item} scenes={scenes}
+      editorPreset={productId == null ? previousDefaultQuota : undefined}
+      editing={inlineRule?.kind === 'quota' && inlineRule.productId === productId}
+      onEdit={() => setInlineRule({ kind: 'quota', productId })} onCancel={() => setInlineRule(null)}
+      onApply={(config) => saveQuota(config, ids)}
+      onOpenBusiness={(initialCommon) => {
+        if (!initialCommon) setInlineRule(null)
+        setQuotaTarget({ ids, businessOnly: true, initialCommon })
+      }} />
   }
 
   return (
     <>
+      <FormRow label="参与商品" required>
+        <div className="ld-goods-scope" role="radiogroup" aria-label="参与商品范围">
+          {GOODS_SCOPES.map(({ value, label, hint }) => (
+            <label className="ld-goods-scope__option" key={value}>
+              <input type="radio" name="ld-goods-scope" aria-label={label} disabled={sharedLocked}
+                checked={activity.goodsScope === value} onChange={() => changeScope(value)} />
+              <span><strong>{label}</strong><small>{hint}</small></span>
+            </label>
+          ))}
+        </div>
+        {published && <p className="field-hint">已投放商品的优惠和限量已锁定。指定商品仍可追加。</p>}
+      </FormRow>
       <FormRow label="优惠方式" required>
         <div className="radio-group">
           {([
@@ -85,173 +189,151 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
             ['special_price', '指定价格'],
           ] as const).map(([value, label]) => (
             <label key={value} className="radio">
-              <input type="radio" disabled={sharedLocked} checked={activity.discountMethod === value} onChange={() => onChange(applyDiscountMethod(activity, value as LimitDiscountMethod))} />
+              <input type="radio" disabled={sharedLocked} checked={activity.discountMethod === value} onChange={() => {
+                setInlineRule(null)
+                onChange(applyDiscountMethod(activity, value as LimitDiscountMethod))
+              }} />
               {label}
             </label>
           ))}
         </div>
       </FormRow>
-      <FormRow label="优惠力度" required>
-        <p className="field-hint">
-          {perProduct
-            ? '每个商品填一个默认力度，所有业务都按它执行。个别业务需要不同力度时，点「分业务设置」单独填写，没填的业务仍按默认力度。'
-            : activity.goodsScope === 'exclude'
-              ? '余下商品共用一个默认力度，所有业务都按它执行。个别业务需要不同力度时，点「分业务设置」单独填写，没填的业务仍按默认力度。'
-              : '全部商品共用一个默认力度，所有业务都按它执行。个别业务需要不同力度时，点「分业务设置」单独填写，没填的业务仍按默认力度。'}
-        </p>
-        {published && <p className="field-hint">活动已发布，已投放商品的优惠和限量已锁定。指定商品仍可追加。</p>}
-        {scenes.length === 0 && (
-          <p className="field-hint">分业务设置前，请先在基础信息里选择参与业务/场景。</p>
-        )}
-      </FormRow>
-      <FormRow label="参与商品" required>
-        <div className="radio-group">
-          {([
-            ['all', '全部商品'],
-            ['include', '指定商品'],
-            ['exclude', '指定商品不参与'],
-          ] as const).map(([value, label]) => (
-            <label key={value} className="radio">
-              <input type="radio" disabled={sharedLocked} checked={activity.goodsScope === value} onChange={() => { setKeyword(''); setChecked([]); onChange({ ...activity, goodsScope: value }) }} />
-              {label}
-            </label>
-          ))}
-        </div>
-      </FormRow>
-
-      {activity.goodsScope !== 'include' && (
+      {!perProduct && (
         <>
-          <FormRow label={activity.goodsScope === 'exclude' ? `余下商品${valueLabel}` : valueLabel} required>
-            <div className="ld-item-mode">
-              <div className="ld-item-mode__main">
-                <input
-                  className="input"
-                  style={{ width: 88 }}
-                  type="number"
-                  min={activity.discountMethod === 'discount' ? 0.1 : 0.01}
-                  max={activity.discountMethod === 'discount' ? 9.9 : undefined}
-                  step={activity.discountMethod === 'discount' ? 0.1 : 0.01}
-                  disabled={sharedLocked}
-                  aria-label={`默认${valueLabel}`}
-                  value={activity.discountValue ?? ''}
-                  onChange={(e) => onChange(writeSharedDiscount(activity, { discountValue: e.target.value === '' ? null : Number(e.target.value) }))}
-                />
-                <span className="field-hint">{unit}</span>
-                {(!sharedLocked || sceneOverrides(activity, sharedItem).length > 0) && (
-                  <button
-                    type="button"
-                    className="link-btn"
-                    disabled={scenes.length === 0}
-                    title={scenes.length === 0 ? '请先在基础信息里选择参与业务/场景' : undefined}
-                    onClick={() => setEditingShared(true)}
-                  >
-                    {sharedLocked ? '查看分业务' : '分业务设置'}
-                  </button>
-                )}
-              </div>
-              {sceneOverrides(activity, sharedItem).length > 0 && (
-                <OverrideTags activity={activity} item={sharedItem} unit={unit} onOpen={() => setEditingShared(true)} />
-              )}
+          <FormRow label="优惠力度" required>
+            <div className="ld-rule-scope">
+              <p className="ld-rule-scope__hint">{activity.goodsScope === 'exclude' ? '适用于排除名单外的参与规格。' : '适用于全部参与规格。'}</p>
+              {renderStrength(sharedItem, sharedLocked)}
             </div>
           </FormRow>
-          <FormRow label="商品优惠限量（件）">
-            <div className="radio-group" role="radiogroup" aria-label="默认商品优惠限量">
-              <label className="radio">
-                <input type="radio" name="limit-discount-default-quota" disabled={sharedLocked} checked={!choosingDefaultQuota}
-                  onChange={() => {
-                    setPreviousDefaultQuota({ stock: sharedItem.stock, quota: sharedItem.quota })
-                    onChange({ ...activity, activityStock: null, activityQuota: undefined })
-                  }} />
-                不限量
-              </label>
-              <label className="radio">
-                <input type="radio" name="limit-discount-default-quota" disabled={sharedLocked} checked={choosingDefaultQuota}
-                  onChange={() => setEditingDefaultQuota(true)} />
-                限制优惠件数
-              </label>
+          <FormRow label="商品优惠限量">
+            <div className="ld-rule-scope">
+              <p className="ld-rule-scope__hint">{defaultQuotaHint}</p>
+              {renderQuota(sharedItem, sharedLocked)}
             </div>
-            {hasDefaultQuota && (
-              <>
-                <div className="ld-item-mode__main ld-default-quota-summary">
-                  <LimitDiscountQuotaSummary item={sharedItem} scenes={scenes} compact />
-                  <button type="button" className="link-btn" aria-haspopup="dialog" onClick={() => setEditingDefaultQuota(true)}>
-                    {sharedLocked ? '查看限量' : '修改限量'}
-                  </button>
-                </div>
-                <p className="field-hint">{defaultQuotaHint}</p>
-              </>
-            )}
           </FormRow>
         </>
       )}
 
       {activity.goodsScope !== 'all' && (
         <>
-          <div className="section-toolbar">
-            {canPick && <button type="button" className="btn btn--primary" onClick={() => setPicking(true)}>{published ? '追加商品' : '选择商品'}</button>}
-            <span className="field-hint">{activity.goodsScope === 'exclude' ? '不参与商品如下：' : `已设置 ${setCount}/${activity.productItems.length} 个商品的优惠`}</span>
+          <div className="ld-goods-list__head">
+            <div>
+              <h4>{perProduct ? '参与商品清单' : '排除商品清单'}</h4>
+              <span>{productCount} 个规格{perProduct && ` · ${setCount} 个已设优惠 · ${quotaCount} 个已设限量`}</span>
+            </div>
+            {canPick && <button type="button" className="btn btn--primary" onClick={() => setPicking(true)}>{pickerLabel}</button>}
           </div>
-          {perProduct && checked.length > 0 && !readOnly && (
-            <div className="section-toolbar ld-batch-bar">
-              <span>已选 {checked.length} 项</span>
-              <input
-                className="input"
-                style={{ width: 88 }}
-                type="number"
-                min={activity.discountMethod === 'discount' ? 0.1 : 0.01}
-                max={activity.discountMethod === 'discount' ? 9.9 : undefined}
-                step={activity.discountMethod === 'discount' ? 0.1 : 0.01}
-                placeholder="默认力度"
-                aria-label="批量默认力度"
-                value={batchValue}
-                onChange={(e) => setBatchValue(e.target.value)}
-              />
-              <span className="field-hint">{unit}</span>
-              <button type="button" className="btn btn--default btn--sm" onClick={applyBatchDefault}>设置默认力度</button>
-              <button
-                type="button"
-                className="link-btn"
-                disabled={scenes.length === 0}
-                title={scenes.length === 0 ? '请先在基础信息里选择参与业务/场景' : '为已选商品单独设置个别业务的力度'}
-                onClick={() => setBatchScenes(true)}
-              >
-                分业务设置
-              </button>
-              <span className="ld-batch-bar__split" />
-              <button type="button" className="btn btn--default btn--sm" onClick={() => setQuotaIds(checked)}>批量设置优惠限量</button>
-              <button type="button" className="link-btn" onClick={() => setChecked([])}>取消选择</button>
+          {productCount > 0 && (
+            <div className="ld-goods-tools">
+              <input className="input input--filter" type="search" aria-label="搜索清单商品" placeholder="搜索名称、ID、编码、标识或条码"
+                value={keyword} onChange={(event) => {
+                  setKeyword(event.currentTarget.value)
+                  setPage(1)
+                  setInlineRule(null)
+                }} />
+              {perProduct && (
+                <>
+                  <select className="input select" aria-label="筛选限量状态" value={quotaFilter} onChange={(event) => {
+                    setQuotaFilter(event.currentTarget.value as QuotaFilter)
+                    setPage(1)
+                    setInlineRule(null)
+                  }}>
+                    <option value="all">全部限量状态</option>
+                    <option value="limited">已设限量</option>
+                    <option value="unlimited">不限量</option>
+                  </select>
+                  <label className="checkbox" title="显示默认优惠力度未填写或待修正的规格">
+                    <input type="checkbox" aria-label="仅看未设置优惠力度" checked={onlyUnsetStrength}
+                      onChange={(event) => {
+                        setOnlyUnsetStrength(event.currentTarget.checked)
+                        setPage(1)
+                        setInlineRule(null)
+                      }} />
+                    <span>仅看未设置优惠力度（{unsetStrengthCount}）</span>
+                  </label>
+                </>
+              )}
             </div>
           )}
-          <div className="list-toolbar" style={{ marginBottom: 8 }}>
-            <input className="input input--filter" placeholder="搜索商品名称、ID、编码、标识或条码" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
-          </div>
-          <div className="table-wrap">
+          {perProduct && !readOnly && (selectableIds.length > 0 || hasSelection) && (
+            <div className={`ld-goods-selection${hasSelection ? ' ld-goods-selection--active' : ''}`}>
+              <div className="ld-goods-selection__scope">
+                <div className="ld-goods-selection__status" role="status">
+                  {hasSelection ? (
+                    <>
+                      <strong>已选 {checked.length} 个规格</strong>
+                      {otherPageCount > 0 && <span className="ld-goods-selection__detail">含其他页 {otherPageCount} 个</span>}
+                      {outsideFilterCount > 0 && (
+                        <span className="ld-goods-selection__detail ld-goods-selection__detail--warning">
+                          筛选外的 {outsideFilterCount} 个已选规格也会应用批量设置
+                        </span>
+                      )}
+                    </>
+                  ) : '勾选规格后可批量设置'}
+                </div>
+                {hasSelection && (
+                  <div className="ld-goods-selection__controls">
+                    {canSelectAllMatches && (
+                      <button type="button" className="link-btn" onClick={() => setChecked((ids) => [...new Set([...ids, ...selectableIds])])}>
+                        {filtered ? `全选筛选结果（${selectableIds.length}）` : `全选 ${selectableIds.length} 个规格`}
+                      </button>
+                    )}
+                    <button type="button" className="link-btn ld-goods-selection__clear" onClick={() => setChecked([])}>清空选择</button>
+                  </div>
+                )}
+              </div>
+              <div className="ld-goods-selection__actions">
+                <button type="button" className="btn btn--default btn--sm" aria-haspopup="dialog" disabled={!hasSelection}
+                  onClick={() => setStrengthTarget({ ids: checked })}>
+                  批量设置优惠力度
+                </button>
+                <button type="button" className="btn btn--default btn--sm" aria-haspopup="dialog" disabled={!hasSelection}
+                  onClick={() => setQuotaTarget({ ids: checked })}>
+                  批量设置优惠限量
+                </button>
+              </div>
+            </div>
+          )}
+          <div className="table-wrap ld-goods-table">
             <table className="table">
               <thead>
                 <tr>
-                  {perProduct && !readOnly && <th style={{ width: 36 }} />}
+                  {perProduct && !readOnly && (
+                    <th style={{ width: 36 }}>
+                      <input type="checkbox" aria-label="全选当前页可编辑规格" disabled={pageSelectableIds.length === 0}
+                        checked={allPageChecked}
+                        ref={(input) => { if (input) input.indeterminate = pageCheckedCount > 0 && !allPageChecked }}
+                        onChange={(event) => {
+                          const select = event.currentTarget.checked
+                          setChecked((ids) => select
+                            ? [...new Set([...ids, ...pageSelectableIds])]
+                            : ids.filter((id) => !pageSelectableIds.includes(id)))
+                        }} />
+                    </th>
+                  )}
                   <th>商品名称</th>
                   <th>规格</th>
-                  <th>商品标识</th>
-                  <th>商品条码</th>
-                  <th>商品规格码</th>
+                  <th>商品信息</th>
                   <th>销售价</th>
-                  {perProduct && <th>{valueLabel}</th>}
-                  {perProduct && <th>商品优惠限量（件）</th>}
+                  {perProduct && <th className="ld-strength-cell">优惠力度</th>}
+                  {perProduct && <th className="ld-quota-cell">商品优惠限量</th>}
                   {!readOnly && <th>操作</th>}
                 </tr>
               </thead>
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={perProduct ? 10 : 7}>
+                    <td colSpan={perProduct ? (readOnly ? 6 : 8) : (readOnly ? 4 : 5)}>
                       <div className="table-empty-state">
-                        <p className="table-empty-state__title">{keyword ? '未找到匹配商品' : '还没有选择商品'}</p>
-                        {!keyword && canPick && <button type="button" className="link-btn" onClick={() => setPicking(true)}>立即选择商品</button>}
+                        <p className="table-empty-state__title">{onlyUnsetStrength && productCount > 0 && unsetStrengthCount === 0 ? '优惠力度已全部设置'
+                          : filtered ? '未找到匹配商品' : perProduct ? '尚未选择参与商品' : '尚未添加排除商品'}</p>
+                        {filtered && <button type="button" className="link-btn" onClick={clearFilters}>清除筛选</button>}
+                        {!filtered && canPick && <button type="button" className="link-btn" onClick={() => setPicking(true)}>{perProduct ? '立即选择商品' : '添加排除商品'}</button>}
                       </div>
                     </td>
                   </tr>
-                ) : rows.map(({ item, product }) => product && (
+                ) : pageRows.map(({ item, product }) => product && (
                   <tr key={item.productId}>
                     {perProduct && !readOnly && (
                       <td>
@@ -259,64 +341,37 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
                           onChange={() => setChecked((ids) => ids.includes(item.productId) ? ids.filter((id) => id !== item.productId) : [...ids, item.productId])} />
                       </td>
                     )}
-                    <td>{product.name}</td>
-                    <td>{product.spec}</td>
-                    <td>{product.identifier}</td>
-                    <td>{product.barcode}</td>
-                    <td>{product.specCode}</td>
+                    <td>
+                      <div>{product.name}</div>
+                      <div className="text-secondary mono ld-goods-table__id">SPU_ID：{product.id}</div>
+                    </td>
+                    <td>
+                      <div>{!product.spec || product.spec === '--' ? '—' : product.spec}</div>
+                      <div className="text-secondary mono ld-goods-table__id">SKU_ID：{product.skuId}</div>
+                    </td>
+                    <td><ProductInformation product={product} /></td>
                     <td>¥{product.price}</td>
                     {perProduct && (
-                      <td className="ld-item-discount">
-                        <div className="ld-item-mode">
-                          <div className="ld-item-mode__main">
-                            <input
-                              className="input"
-                              style={{ width: 88 }}
-                              type="number"
-                              aria-label={`${product.name}默认${valueLabel}`}
-                              disabled={itemLocked(item.productId)}
-                              value={item.discountValue ?? ''}
-                              onChange={(e) => updateItem(item.productId, { discountValue: e.target.value === '' ? null : Number(e.target.value) })}
-                            />
-                            <span className="field-hint">{unit}</span>
-                            {(!itemLocked(item.productId) || sceneOverrides(activity, item).length > 0) && (
-                              <button
-                                type="button"
-                                className="link-btn"
-                                disabled={scenes.length === 0}
-                                title={scenes.length === 0 ? '请先在基础信息里选择参与业务/场景' : undefined}
-                                onClick={() => setEditingProductId(item.productId)}
-                              >
-                                {itemLocked(item.productId) ? '查看分业务' : '分业务设置'}
-                              </button>
-                            )}
-                          </div>
-                          {sceneOverrides(activity, item).length > 0 && (
-                            <OverrideTags activity={activity} item={item} unit={unit} onOpen={() => setEditingProductId(item.productId)} />
-                          )}
-                          {activity.discountMethod === 'special_price' && overPrice(activity, item, product.price) && (
-                            <div className="field-hint">有力度高于门店售价，按门店售价生效</div>
-                          )}
-                        </div>
+                      <td className="ld-strength-cell">
+                        {renderStrength(item, itemLocked(item.productId), item.productId)}
+                        {discountMethod === 'special_price' && overPrice(activity, item, product.price) && (
+                          <p className="field-hint">有力度高于门店售价，按门店售价生效</p>
+                        )}
                       </td>
                     )}
                     {perProduct && (
                       <td className="ld-quota-cell">
-                        <LimitDiscountQuotaSummary item={item} scenes={scenes} compact />
-                        <button type="button" className="link-btn"
-                          aria-label={`${product.name}${itemLocked(item.productId) ? '查看限量' : '设置限量'}`}
-                          aria-haspopup="dialog" onClick={() => setQuotaIds([item.productId])}>
-                          {itemLocked(item.productId) ? '查看限量' : '设置限量'}
-                        </button>
+                        {renderQuota(item, itemLocked(item.productId), item.productId)}
                       </td>
                     )}
                     {!readOnly && (
-                      <td>
+                      <td className="ld-goods-table__action">
                         {itemLocked(item.productId) ? '已锁定' : (
                           <button type="button" className="link-btn" onClick={() => {
+                            if (inlineRule?.productId === item.productId) setInlineRule(null)
                             setChecked((ids) => ids.filter((id) => id !== item.productId))
                             onChange(syncProductItems(activity, activity.productItems.filter((row) => row.productId !== item.productId).map((row) => row.productId)))
-                          }}>取消参与</button>
+                          }}>{perProduct ? '取消参与' : '移出名单'}</button>
                         )}
                       </td>
                     )}
@@ -325,378 +380,98 @@ export function LimitDiscountGoodsFields({ activity, readOnly, published, onChan
               </tbody>
             </table>
           </div>
+          {productCount > 0 && (
+            <SelectedProductPager total={rows.length} pageSize={PAGE_SIZE} currentPage={currentPage} totalPages={totalPages}
+              onChange={(value) => { setInlineRule(null); setPage(value) }} filtering={filtered} />
+          )}
         </>
       )}
-      <p className="field-hint">特价最高按门店售价执行。</p>
+      {activity.discountMethod === 'special_price' && <p className="field-hint">特价最高按门店售价执行。</p>}
       {picking && (
         <ProductPicker
-          title={published ? '追加商品' : '选择商品'}
+          title={pickerLabel}
           hiddenProductIds={fixedIds}
           selectedIds={activity.productItems.map((item) => item.productId).filter((id) => !fixedIds?.includes(id))}
-          onChange={(ids) => { setKeyword(''); setChecked([]); onChange(syncProductItems(activity, [...(fixedIds ?? []), ...ids])) }}
+          onChange={(ids) => {
+            clearFilters()
+            setChecked([])
+            onChange(syncProductItems(activity, [...(fixedIds ?? []), ...ids]))
+          }}
           onClose={() => setPicking(false)}
         />
       )}
-      {editingProductId && (
-        <SceneDiscountDialog
+      {strengthTarget && (
+        <LimitDiscountStrengthDialog
           activity={activity}
-          productId={editingProductId}
-          readOnly={itemLocked(editingProductId)}
-          onChange={updateItem}
-          onActivity={onChange}
-          onClose={() => setEditingProductId(null)}
+          item={strengthItem}
+          description={strengthIds ? productDescription(strengthItem) : activity.goodsScope === 'exclude' ? '排除名单外的参与规格' : '全部参与规格'}
+          productCount={strengthIds?.length}
+          businessOnly={strengthTarget.businessOnly}
+          readOnly={strengthIds ? Boolean(readOnly || strengthItem && itemLocked(strengthItem.productId)) : sharedLocked}
+          onConfirm={(change) => {
+            saveStrength(change, strengthIds)
+            setStrengthTarget(null)
+          }}
+          onClose={() => setStrengthTarget(null)}
         />
       )}
-      {editingShared && (
-        <SceneDiscountDialog
-          activity={activity}
-          shared
-          readOnly={sharedLocked}
-          onChange={updateItem}
-          onActivity={onChange}
-          onClose={() => setEditingShared(false)}
-        />
-      )}
-      {batchScenes && (
-        <BatchSceneDialog
-          activity={activity}
-          productIds={checked}
-          onApply={(next) => { onChange(next); setBatchScenes(false) }}
-          onClose={() => setBatchScenes(false)}
-        />
-      )}
-      {perProduct && quotaIds.length > 0 && (
+      {quotaTarget && (
         <LimitDiscountProductQuotaDialog
           item={quotaItem}
-          goodsScope="include"
-          description={quotaProduct && `${quotaProduct.name} · ${quotaProduct.spec}`}
-          scenes={scenes}
-          productCount={quotaIds.length}
-          readOnly={Boolean(readOnly || quotaItem && itemLocked(quotaItem.productId))}
-          onConfirm={(config) => {
-            const ids = new Set(quotaIds)
-            onChange({
-              ...activity,
-              productItems: activity.productItems.map((item) => ids.has(item.productId) && !itemLocked(item.productId)
-                ? { ...item, ...structuredClone(config) } : item),
-            })
-            if (quotaIds.length > 1) setChecked([])
-            setQuotaIds([])
-          }}
-          onClose={() => setQuotaIds([])}
-        />
-      )}
-      {!perProduct && editingDefaultQuota && (
-        <LimitDiscountProductQuotaDialog
-          item={hasDefaultQuota ? sharedItem : previousDefaultQuota ?? sharedItem}
           goodsScope={activity.goodsScope}
-          description={defaultQuotaHint}
+          description={quotaIds ? productDescription(quotaItem) : defaultQuotaHint}
           scenes={scenes}
-          readOnly={sharedLocked}
-          requireLimit
-          onConfirm={({ stock, quota }) => {
-            onChange({ ...activity, activityStock: stock, activityQuota: quota })
-            setEditingDefaultQuota(false)
+          productCount={quotaIds?.length}
+          configuredCount={batchQuotaCount}
+          businessOnly={quotaTarget.businessOnly}
+          initialCommon={quotaTarget.initialCommon}
+          readOnly={quotaIds ? Boolean(readOnly || quotaItem && itemLocked(quotaItem.productId)) : sharedLocked}
+          onConfirm={(config) => {
+            saveQuota(config, quotaIds)
+            setQuotaTarget(null)
           }}
-          onClose={() => setEditingDefaultQuota(false)}
+          onClose={() => setQuotaTarget(null)}
         />
       )}
     </>
   )
 }
 
-const OVERRIDE_TAG_LIMIT = 2
+function productDescription(item?: LimitDiscountProductItem) {
+  const product = item && products.find(({ id }) => id === item.productId)
+  if (product) return product.spec === '--' ? product.name : `${product.name} · ${product.spec}`
+}
 
-function OverrideTags({ activity, item, unit, onOpen }: {
-  activity: LimitDiscountActivityForm
-  item: LimitDiscountProductItem
-  unit: string
-  onOpen: () => void
-}) {
-  const overrides = sceneOverrides(activity, item)
-  const shown = overrides.slice(0, OVERRIDE_TAG_LIMIT)
-  const rest = overrides.length - shown.length
-  const fullText = overrides.map(({ sceneId, value }) => `${sceneLabel(sceneId)} ${trimAmount(value)}${unit}`).join('；')
+function ProductInformation({ product }: { product: Product }) {
+  const fields = [
+    { label: '商品标识', value: product.identifier },
+    { label: '商品条码', value: product.barcode },
+    { label: '规格码', value: product.specCode },
+  ]
+
+  if (fields.every(({ value }) => !value || value === '--')) return <span className="text-secondary">—</span>
+
   return (
-    <button type="button" className="ld-override-tags" title={`单独设置：${fullText}`} onClick={onOpen}>
-      {shown.map(({ sceneId, value }) => (
-        <span key={sceneId} className="ld-override-tag">
-          {sceneLabel(sceneId)}<strong>{trimAmount(value)}</strong>{unit}
-        </span>
+    <dl className="ld-goods-table__info">
+      {fields.map(({ label, value }) => (
+        <div key={label}>
+          <dt>{label}</dt>
+          <dd className="mono">{!value || value === '--' ? '—' : value}</dd>
+        </div>
       ))}
-      {rest > 0 && <span className="ld-override-tag ld-override-tag--more">+{rest}</span>}
-    </button>
+    </dl>
   )
+}
+
+function applyStrengthChange(item: LimitDiscountProductItem, { defaultValue, business }: LimitDiscountStrengthChange) {
+  let next = { ...item, discountValue: defaultValue === undefined ? item.discountValue : defaultValue }
+  for (const [scene, value] of Object.entries(business)) next = setSceneOverride(next, scene, value)
+  return pruneSameAsDefault(next)
 }
 
 function overPrice(activity: LimitDiscountActivityForm, item: LimitDiscountProductItem, salePrice: number): boolean {
   if (item.discountValue != null && item.discountValue > salePrice) return true
   return sceneOverrides(activity, item).some(({ value }) => value > salePrice)
-}
-
-function trimAmount(value: number): string {
-  return (Math.round(value * 100) / 100).toString()
-}
-
-function SceneDiscountDialog({
-  activity,
-  productId,
-  shared,
-  readOnly,
-  onChange,
-  onActivity,
-  onClose,
-}: {
-  activity: LimitDiscountActivityForm
-  productId?: string
-  shared?: boolean
-  readOnly?: boolean
-  onChange: (productId: string, patch: Partial<LimitDiscountProductItem>) => void
-  onActivity: (activity: LimitDiscountActivityForm) => void
-  onClose: () => void
-}) {
-  const item = shared ? sharedDiscountItem(activity) : activity.productItems.find((row) => row.productId === productId)
-  const product = shared ? undefined : products.find((row) => row.id === productId)
-  if (!item || (!shared && !product)) return null
-  const unit = discountUnit(activity.discountMethod)
-  const valueLabel = discountValueLabel(activity.discountMethod)
-  const inputRange = {
-    min: activity.discountMethod === 'discount' ? 0.1 : 0.01,
-    max: activity.discountMethod === 'discount' ? 9.9 : undefined,
-    step: activity.discountMethod === 'discount' ? 0.1 : 0.01,
-  }
-  const defaultText = item.discountValue == null ? '未填写' : `${trimAmount(item.discountValue)} ${unit}`
-  const overrideCount = sceneOverrides(activity, item).length
-  const patchItem = (patch: Partial<LimitDiscountProductItem>, prune = false) => {
-    if (shared) {
-      onActivity(writeSharedDiscount(activity, patch, prune))
-      return
-    }
-    if (prune) {
-      const next = pruneSameAsDefault({ ...item, ...patch })
-      onChange(item.productId, { discountValue: next.discountValue, sceneDiscountValues: next.sceneDiscountValues })
-      return
-    }
-    onChange(item.productId, patch)
-  }
-  const setOverride = (sceneId: string, value: number | null) => {
-    patchItem({ sceneDiscountValues: setSceneOverride(item, sceneId, value).sceneDiscountValues })
-  }
-  const close = () => {
-    if (!readOnly) patchItem({}, true)
-    onClose()
-  }
-
-  return (
-    <div className="modal-overlay" onClick={close}>
-      <div className="modal modal--scene" role="dialog" aria-modal="true" aria-labelledby="ld-scene-title" onClick={(e) => e.stopPropagation()}>
-        <div className="modal__header">
-          <div>
-            <h3 id="ld-scene-title">{shared ? (activity.goodsScope === 'exclude' ? '余下商品 · 分业务设置' : '全部商品 · 分业务设置') : `${product?.name} · 分业务设置`}</h3>
-            {product && <p className="modal__subtitle">销售价 ¥{product.price}</p>}
-          </div>
-          <button type="button" className="modal__close" aria-label="关闭" onClick={close}>×</button>
-        </div>
-        <div className="modal__body modal__body--scroll">
-          <div className="ld-scene-default">
-            <span className="ld-scene-default__label">默认{valueLabel}</span>
-            <input
-              className="input"
-              style={{ width: 88 }}
-              type="number"
-              {...inputRange}
-              disabled={readOnly}
-              value={item.discountValue ?? ''}
-              onChange={(e) => patchItem({ discountValue: e.target.value === '' ? null : Number(e.target.value) })}
-            />
-            <span className="field-hint">{unit}</span>
-            <span className="field-hint">未单独设置的业务按默认力度执行</span>
-          </div>
-          {activity.orderTypes.length === 0 ? (
-            <p className="field-hint">请先在基础信息里选择参与业务/场景。</p>
-          ) : (
-            <>
-              <div className="ld-scene-grid__head">
-                <span>需要不同力度的业务填写即可，已单独设置 {overrideCount}/{activity.orderTypes.length} 个</span>
-                {!readOnly && overrideCount > 0 && (
-                  <button type="button" className="link-btn" onClick={() => patchItem({ sceneDiscountValues: {} })}>全部恢复默认</button>
-                )}
-              </div>
-              <div className="ld-scene-grid">
-                {activity.orderTypes.map((sceneId) => {
-                  const override = item.sceneDiscountValues[sceneId]
-                  const isSet = override != null && !Number.isNaN(override)
-                  const isSame = isSameAsDefault(item, sceneId)
-                  return (
-                    <div key={sceneId} className={`ld-scene-grid__item ${isSame ? 'is-same' : isSet ? 'is-set' : ''}`}>
-                      <label className="ld-scene-grid__name" htmlFor={`ld-scene-${sceneId}`}>{sceneLabel(sceneId)}</label>
-                      <input
-                        id={`ld-scene-${sceneId}`}
-                        className="input"
-                        style={{ width: 120 }}
-                        type="number"
-                        {...inputRange}
-                        disabled={readOnly}
-                        placeholder={`默认 ${defaultText}`}
-                        value={isSet ? override : ''}
-                        onChange={(e) => setOverride(sceneId, e.target.value === '' ? null : Number(e.target.value))}
-                      />
-                      {isSet && <span className="field-hint">{unit}</span>}
-                      {isSet && !isSame && !readOnly && (
-                        <button type="button" className="link-btn" onClick={() => setOverride(sceneId, null)}>恢复默认</button>
-                      )}
-                      {activity.discountMethod === 'special_price' && isSet && product && override > product.price && (
-                        <span className="field-hint">按门店售价</span>
-                      )}
-                      {isSame && !readOnly && (
-                        <span className="ld-scene-grid__warn">与默认相同，无需单独设置</span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </>
-          )}
-        </div>
-        <div className="modal__footer">
-          <button type="button" className="btn btn--primary" onClick={close}>{readOnly ? '知道了' : '完成'}</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function BatchSceneDialog({
-  activity,
-  productIds,
-  onApply,
-  onClose,
-}: {
-  activity: LimitDiscountActivityForm
-  productIds: string[]
-  onApply: (activity: LimitDiscountActivityForm) => void
-  onClose: () => void
-}) {
-  const [defaultValue, setDefaultValue] = useState('')
-  const [sceneValues, setSceneValues] = useState<Record<string, string>>({})
-  const [cleared, setCleared] = useState<Record<string, boolean>>({})
-  const unit = discountUnit(activity.discountMethod)
-  const valueLabel = discountValueLabel(activity.discountMethod)
-  const inputRange = {
-    min: activity.discountMethod === 'discount' ? 0.1 : 0.01,
-    max: activity.discountMethod === 'discount' ? 9.9 : undefined,
-    step: activity.discountMethod === 'discount' ? 0.1 : 0.01,
-  }
-  const defaultNumber = defaultValue.trim() === '' ? null : Number(defaultValue)
-  const apply = () => {
-    const ids = new Set(productIds)
-    onApply({
-      ...activity,
-      productItems: activity.productItems.map((item) => {
-        if (!ids.has(item.productId)) return item
-        let next = item
-        if (defaultNumber != null && !Number.isNaN(defaultNumber)) next = { ...next, discountValue: defaultNumber }
-        activity.orderTypes.forEach((sceneId) => {
-          if (cleared[sceneId]) next = setSceneOverride(next, sceneId, null)
-          else if (sceneValues[sceneId]?.trim()) {
-            const value = Number(sceneValues[sceneId])
-            if (!Number.isNaN(value)) next = setSceneOverride(next, sceneId, value)
-          }
-        })
-        return pruneSameAsDefault(next)
-      }),
-    })
-  }
-  const clearAll = () => {
-    setSceneValues({})
-    setCleared(Object.fromEntries(activity.orderTypes.map((sceneId) => [sceneId, true])))
-  }
-  const filledCount = activity.orderTypes.filter((sceneId) => sceneValues[sceneId]?.trim() || cleared[sceneId]).length
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal modal--scene" role="dialog" aria-modal="true" aria-labelledby="ld-batch-scene-title" onClick={(e) => e.stopPropagation()}>
-        <div className="modal__header">
-          <div>
-            <h3 id="ld-batch-scene-title">已选 {productIds.length} 个商品 · 分业务设置</h3>
-            <p className="modal__subtitle">只填写要改的项，留空的保持各商品原样。与该商品默认力度相同的，按默认处理。</p>
-          </div>
-          <button type="button" className="modal__close" aria-label="关闭" onClick={onClose}>×</button>
-        </div>
-        <div className="modal__body modal__body--scroll">
-          <div className="ld-scene-default">
-            <span className="ld-scene-default__label">默认{valueLabel}</span>
-            <input
-              className="input"
-              style={{ width: 88 }}
-              type="number"
-              {...inputRange}
-              placeholder="不修改"
-              value={defaultValue}
-              onChange={(e) => setDefaultValue(e.target.value)}
-            />
-            <span className="field-hint">{unit}</span>
-            <span className="field-hint">填写后覆盖已选商品的默认力度</span>
-          </div>
-          {activity.orderTypes.length === 0 ? (
-            <p className="field-hint">请先在基础信息里选择参与业务/场景。</p>
-          ) : (
-            <>
-              <div className="ld-scene-grid__head">
-                <span>需要不同力度的业务填写即可，本次将调整 {filledCount}/{activity.orderTypes.length} 个</span>
-                <button type="button" className="link-btn" onClick={clearAll}>全部恢复默认</button>
-              </div>
-              <div className="ld-scene-grid">
-                {activity.orderTypes.map((sceneId) => {
-                  const raw = sceneValues[sceneId] ?? ''
-                  const value = raw.trim() === '' ? null : Number(raw)
-                  const isSame = value != null && defaultNumber != null && value === defaultNumber
-                  const isCleared = Boolean(cleared[sceneId]) && raw.trim() === ''
-                  return (
-                    <div key={sceneId} className={`ld-scene-grid__item ${isSame ? 'is-same' : value != null ? 'is-set' : ''}`}>
-                      <label className="ld-scene-grid__name" htmlFor={`ld-batch-scene-${sceneId}`}>{sceneLabel(sceneId)}</label>
-                      <input
-                        id={`ld-batch-scene-${sceneId}`}
-                        className="input"
-                        style={{ width: 120 }}
-                        type="number"
-                        {...inputRange}
-                        placeholder={isCleared ? '恢复默认' : '不修改'}
-                        value={raw}
-                        onChange={(e) => {
-                          setSceneValues((prev) => ({ ...prev, [sceneId]: e.target.value }))
-                          setCleared((prev) => ({ ...prev, [sceneId]: false }))
-                        }}
-                      />
-                      {value != null && !isSame && <span className="field-hint">{unit}</span>}
-                      {!isCleared && (
-                        <button
-                          type="button"
-                          className="link-btn"
-                          onClick={() => {
-                            setSceneValues((prev) => ({ ...prev, [sceneId]: '' }))
-                            setCleared((prev) => ({ ...prev, [sceneId]: true }))
-                          }}
-                        >
-                          恢复默认
-                        </button>
-                      )}
-                      {isSame && <span className="ld-scene-grid__warn">与默认相同，无需单独设置</span>}
-                      {isCleared && <span className="field-hint">已选商品的该业务将按默认力度</span>}
-                    </div>
-                  )
-                })}
-              </div>
-            </>
-          )}
-        </div>
-        <div className="modal__footer">
-          <button type="button" className="btn btn--default" onClick={onClose}>取消</button>
-          <button type="button" className="btn btn--primary" onClick={apply}>完成</button>
-        </div>
-      </div>
-    </div>
-  )
 }
 
 function FormRow({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {

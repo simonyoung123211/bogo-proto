@@ -36,8 +36,13 @@ function ruleLimits(rule: LimitDiscountQuotaRule) {
   return limits
 }
 
+export function discountQuotaLabels(rule: LimitDiscountQuotaRule) {
+  return ruleLimits(rule).map(({ period, label, limit }) =>
+    `${period === 'activity' ? '整场' : label} ${limit.toLocaleString('zh-CN')} 件`)
+}
+
 export function formatDiscountQuota(rule: LimitDiscountQuotaRule) {
-  return ruleLimits(rule).map(({ period, label, limit }) => `${period === 'activity' ? '整场' : label} ${limit} 件`).join(' · ') || '不限量'
+  return discountQuotaLabels(rule).join(' · ') || '不限量'
 }
 
 function containsQuotaPeriod(outer: QuotaPeriod, inner: QuotaPeriod) {
